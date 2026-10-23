@@ -1,0 +1,22 @@
+open $SB/ws/cavityRx
+wait 5
+dump $OUT/overview.txt
+click nav:boundaries
+wait-until page Boundary
+wait 5
+dump $OUT/bc.txt
+screenshot $OUT/bc.png
+click bc-patch#0
+wait 5
+dump $OUT/insp0.txt
+screenshot $OUT/insp0.png
+click bc-patch#1
+wait 5
+dump $OUT/insp1.txt
+screenshot $OUT/insp1.png
+click pi-role#1
+wait 5
+screenshot $OUT/insp1_inlet.png
+key S ctrl
+wait 10
+shell cp -a . $OUT/afterInlet

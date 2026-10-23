@@ -1,0 +1,12 @@
+# 1.10 killed app, phase 1: start a long 2-rank run; the harness kill -9s the app while it runs
+open $SB/ws/cavity
+shell sed -i 's/^endTime .*/endTime         50;/; s/^writeInterval .*/writeInterval   2000;/' system/controlDict
+wait 10
+click nav:run
+wait-until page Run
+click np-in
+enter 2
+wait 5
+click run-go
+wait-until job running timeout 30
+wait-until job finished timeout 600

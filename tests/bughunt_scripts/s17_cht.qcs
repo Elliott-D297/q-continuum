@@ -1,0 +1,20 @@
+open $SB/ws/multiRegionHeater
+click nav:mesh
+wait-until page Mesh
+click mesh-gen
+wait-until job finished timeout 200
+wait 20
+shell cp -a . $OUT/meshed
+click nav:boundaries
+wait-until page Boundary
+wait 10
+dump $OUT/bc_default.txt
+screenshot $OUT/bc_default.png
+click region:heater
+wait 10
+dump $OUT/bc_heater.txt
+screenshot $OUT/bc_heater.png
+click bc-patch#0
+wait 10
+dump $OUT/insp_heater0.txt
+screenshot $OUT/insp_heater0.png

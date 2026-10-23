@@ -1,0 +1,11 @@
+# J8: return next day -> find yesterday's case, see what changed and how it ended. Target: one screen.
+measure
+budget p95 16.7 max 100
+assert page Cases
+screenshot $OUT/j8_cases.png
+click text:cavity
+wait-until page Overview
+click nav:history
+wait-until page History
+screenshot $OUT/j8_history.png
+dump $OUT/j8_history.txt

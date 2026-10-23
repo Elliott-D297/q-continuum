@@ -1,0 +1,29 @@
+# "Environment ready" opens the Environment panel (what is installed, what each part is for), not Settings; Settings is a
+# button there. Both sidebar styles: LCARS (the default) and classic.
+open $SB/ws/cavity
+measure
+click env-status
+wait-until modal environment timeout 5
+assert page Overview
+assert text OpenFOAM
+assert text Parallel runs
+assert text This machine
+assert text Coupled runs
+screenshot $OUT/env_lcars.png
+click env-term
+wait 3
+assert file $OUT/terminal.txt
+click env-settings
+wait-until page Settings timeout 5
+assert modal none
+theme 1
+wait 5
+click nav:overview
+wait-until page Overview
+click env-status
+wait-until modal environment timeout 5
+screenshot $OUT/env_classic.png
+key ESCAPE
+wait 3
+assert modal none
+assert page Overview

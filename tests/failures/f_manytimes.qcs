@@ -1,0 +1,18 @@
+# 1.10 a case with 10 000 time directories (a long transient written every step): opening it, the Overview, the Run
+# page and the Files tree stay within the frame budget, and the counts are right.
+shell cd cavity && seq -f %g 0.0001 0.0001 1 | while read d; do mkdir $d && ln 0/U $d/U; done
+open $SB/ws/cavity
+budget p95 16.7 max 100
+wait 20
+assert text 10000 time directories
+click nav:run
+wait-until page Run
+wait 20
+click nav:files
+wait-until page Files
+wait 20
+click nav:history
+wait-until not text Reading the history timeout 10
+wait 20
+click nav:overview
+wait 20

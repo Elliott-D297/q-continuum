@@ -1,0 +1,135 @@
+/*---------------------------------------------------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     | Version:  2606                                  |
+|   \\  /    A nd           | Website:  www.openfoam.com                      |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+Build  : 481094fd-20260618 OPENFOAM=2606 version=v2606
+Arch   : "LSB;label=32;scalar=64"
+Exec   : icoFoam
+Date   : Oct 20 2026
+Time   : 08:25:13
+Host   : qc-host
+PID    : 1045020
+I/O    : uncollated
+Case   : /home/user/OpenFOAM/run/case
+nProcs : 1
+trapFpe: Floating point exception trapping enabled (FOAM_SIGFPE).
+memory pool : not available
+fileModificationChecking : Monitoring run-time modified files using timeStampMaster (fileModificationSkew 5, maxFileModificationPolls 20)
+
+--> FOAM Warning : allowSystemOperations : Allowing user-supplied system call operations.
+                   This can be a security risk if running untrusted cases
+                   through e.g. 'coded' on-the-fly-compilation functionality.
+
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+Create time
+
+Create mesh for time = 0
+
+
+PISO: Operating solver in PISO mode
+
+Reading transportProperties
+
+Reading field p
+
+
+
+--> FOAM FATAL IO ERROR: (openfoam-2606)
+Unknown patchField type zeroGradeint for patch type wall
+
+Valid patchField types :
+
+79
+(
+acousticWaveTransmissive
+advective
+calculated
+codedFixedValue
+codedMixed
+cyclic
+cyclicACMI
+cyclicAMI
+cyclicSlip
+directionMixed
+electrostaticDeposition
+empty
+exprFixedValue
+exprMixed
+extrapolatedCalculated
+fan
+fanPressure
+fixedFluxExtrapolatedPressure
+fixedFluxPressure
+fixedGradient
+fixedInternalValue
+fixedJump
+fixedJumpAMI
+fixedMean
+fixedMeanOutletInlet
+fixedPressureCompressibleDensity
+fixedProfile
+fixedValue
+freestream
+freestreamPressure
+inletOutlet
+inletOutletTotalTemperature
+interfaceCompression
+mapped
+mappedField
+mappedFixedInternalValue
+mappedFixedPushedInternalValue
+mappedMixed
+mappedMixedField
+mixed
+nonuniformTransformCyclic
+outletInlet
+outletMappedUniformInlet
+partialSlip
+phaseHydrostaticPressure
+plenumPressure
+prghPermeableAlphaTotalPressure
+prghPressure
+prghTotalHydrostaticPressure
+prghTotalPressure
+processor
+processorCyclic
+rotatingTotalPressure
+scaledFixedValue
+sliced
+slip
+symmetry
+symmetryPlane
+syringePressure
+timeVaryingMappedFixedValue
+totalPressure
+totalTemperature
+turbulentDigitalFilterInlet
+turbulentInlet
+turbulentIntensityKineticEnergyInlet
+uniformDensityHydrostaticPressure
+uniformFixedGradient
+uniformFixedValue
+uniformInletOutlet
+uniformJump
+uniformJumpAMI
+uniformMixed
+uniformTotalPressure
+variableHeightFlowRate
+waveSurfacePressure
+waveTransmissive
+wedge
+zeroGradient
+zeroValue
+)
+
+
+file: 0/p/boundaryField/movingWall at line 25.
+
+    From static Foam::tmp<Foam::fvPatchField<Type> > Foam::fvPatchField<Type>::New(const Foam::fvPatch&, const Foam::DimensionedField<Type, Foam::volMesh>&, const Foam::dictionary&) [with Type = double]
+    in file /home/user/OpenFOAM/OpenFOAM-v2606/src/finiteVolume/lnInclude/fvPatchFieldNew.txx at line 124.
+
+FOAM exiting
+

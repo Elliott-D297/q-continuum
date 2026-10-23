@@ -1,0 +1,22 @@
+# J7: a run diverges -> understand why -> fix -> rerun. Target: the app explains in physical terms and points to file:line.
+open $SB/ws/cavity
+click nav:run
+wait-until page Run
+click dict:system/controlDict:deltaT
+enter 0.5
+click dict:system/controlDict:endTime
+enter 50
+click np-in
+enter 1
+measure
+budget p95 16.7 max 100
+click run-go
+# the pre-run check sees Co = 1 m/s x 0.5 s / 0.005 m = 100 in the unsaved time step and asks first (H-13); run anyway
+wait-until modal precheck timeout 10
+assert text Co ≈ 100
+click m-pc-go
+wait-until job running timeout 10
+wait-until job idle timeout 120
+wait 30
+screenshot $OUT/j7_after.png
+dump $OUT/j7_text.txt

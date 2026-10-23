@@ -1,0 +1,15 @@
+==99== Memcheck, a memory error detector
+==99== Command: /x/build-vg/q-continuum --hidden
+==99== Parent PID: 1
+==99== 
+==99== Invalid read of size 4
+==99==    at 0x1: memcpy (vg_replace_strmem.c:1000)
+==99==    by 0x2: ui_clip_push (ui.c:617)
+==99==    by 0x3: main (app.c:1231)
+==99== 
+==99== 40 bytes in 1 blocks are definitely lost in loss record 1 of 1
+==99==    at 0x4: malloc (vg_replace_malloc.c:381)
+==99==    by 0x5: rlLoadTexture (rlgl.h:3200)
+==99==    by 0x6: main (app.c:1231)
+==99== 
+==99== ERROR SUMMARY: 2 errors from 2 contexts (suppressed: 0 from 0)

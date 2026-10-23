@@ -1,0 +1,34 @@
+# J5: stop a running case cleanly with fields written, change deltaT, restart from latestTime.
+# Target: no lost time steps, no terminal.
+open $SB/ws/cavity
+click nav:run
+wait-until page Run
+click dict:system/controlDict:endTime
+enter 20
+click dict:system/controlDict:writeInterval
+enter 400
+click np-in
+enter 1
+click run-go
+wait-until job running timeout 10
+wait-until log log.icoFoam Time = 2.5 timeout 60
+measure
+budget p95 16.7 max 100
+click run-pause
+wait-until job idle timeout 30
+screenshot $OUT/j5_paused.png
+assert text Paused
+click dict:system/controlDict:deltaT
+enter 0.0025
+click run-resume
+wait-until job running timeout 10
+screenshot $OUT/j5_resumed.png
+# B-01: the restored stopAt must survive the deltaT edit, so the resumed run reaches the end time
+wait-until job idle timeout 120
+wait 10
+assert job finished
+assert log log.icoFoam continuing from t =
+assert log log.icoFoam End
+assert log system/controlDict stopAt          endTime;
+assert log system/controlDict deltaT          0.0025;
+assert text Finished

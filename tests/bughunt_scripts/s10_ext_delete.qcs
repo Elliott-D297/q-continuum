@@ -1,0 +1,28 @@
+open $SB/ws/cavity
+click nav:run
+wait-until page Run
+wait 5
+click dict:system/controlDict:deltaT
+enter 0.002
+wait 5
+shell mv system/controlDict $OUT/cd.bak
+wait 150
+dump $OUT/a.txt
+screenshot $OUT/a.png
+key S ctrl
+wait 20
+dump $OUT/b.txt
+shell ls system > $OUT/ls1.txt
+shell cp $OUT/cd.bak system/controlDict
+wait 150
+shell printf 'FoamFile { version 2.0; format ascii; class dictionary; object controlDict; }\napplication icoFoam;\nendTime 0.5;\ndeltaT 0.005;\nwriteInterval 20;\n{{{ broken\n' > system/controlDict
+wait 150
+dump $OUT/c.txt
+screenshot $OUT/c.png
+click dict:system/controlDict:endTime
+enter 0.3
+wait 5
+key S ctrl
+wait 20
+dump $OUT/d.txt
+shell cp system/controlDict $OUT/cd_after.txt

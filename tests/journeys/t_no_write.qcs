@@ -1,0 +1,22 @@
+# B-04: an Allrun that fails in reconstructPar because the end time comes before the first write. The app must show the
+# failing log and say why, with the numbers and where to change them.
+open $SB/ws/multiRegionHeater
+click nav:run
+wait-until page Run
+click dict:system/controlDict:endTime
+enter 0.02
+click run-go
+# Run asks first now: nothing would be written (H-08); go on, to see how the failure is explained
+wait-until modal precheck timeout 10
+assert text Nothing would be written
+click m-pc-go
+wait-until job running timeout 10
+wait-until job idle timeout 300
+wait 20
+assert job failed
+wait-until text No results were written timeout 10
+screenshot $OUT/no_write.png
+assert text The error is in log.reconstructPar
+assert text write is at t = 0.001 + 10 = 10.001
+click err-open
+wait-until page Files

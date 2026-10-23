@@ -1,0 +1,11 @@
+# 1.10 killed app, phase 2: the relaunched app finds the orphaned ranks, shows the run as running, and Stop ends them
+open $SB/ws/cavity
+click nav:run
+wait-until page Run
+wait-until job running timeout 15
+assert text Stop run
+screenshot $OUT/adopted.png
+click run-stop
+wait-until not job running timeout 60
+wait 20
+dump $OUT/after-stop.txt

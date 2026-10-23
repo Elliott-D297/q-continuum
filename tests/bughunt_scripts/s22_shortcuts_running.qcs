@@ -1,0 +1,35 @@
+open $SB/ws/cavity
+click nav:run
+wait-until page Run
+click dict:system/controlDict:endTime
+enter 10
+key S ctrl
+wait 5
+key R ctrl
+key R ctrl
+wait-until job running timeout 20
+wait 5
+key R ctrl
+wait 5
+key M ctrl
+wait 10
+dump $OUT/a.txt
+click top-clean
+wait 10
+dump $OUT/b.txt
+key ESCAPE
+wait 5
+key K ctrl
+wait 5
+type deltaT = 0.001
+key ENTER
+wait 5
+key S ctrl
+wait 10
+dump $OUT/c.txt
+shell cp system/controlDict $OUT/cd.txt
+action run.stop
+wait-until not job running timeout 20
+wait 10
+dump $OUT/d.txt
+shell ls > $OUT/ls.txt

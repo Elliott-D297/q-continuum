@@ -1,0 +1,29 @@
+open $SB/ws/cavVar
+shell printf '%s\n' '#!/bin/bash' 'exec > log.icoFoam 2>&1' 'echo "Starting time loop"' 'co=0.5' 'for i in $(seq 1 80); do' '  echo; echo "Time = $(echo "$i*0.005" | bc -l)"; echo' '  echo "Courant Number mean: 0.1 max: $co"' '  echo "smoothSolver:  Solving for Ux, Initial residual = 0.001, Final residual = 1e-08, No Iterations 4"' '  echo "ExecutionTime = 0.$i s  ClockTime = 0 s"' '  co=$(echo "$co*1.15" | bc -l); sleep 0.05' 'done' 'sleep 300' > Allrun
+shell chmod +x Allrun
+key F5
+wait 30
+click nav:run
+wait-until page Run
+wait 20
+dump $OUT/run0.txt
+click run-mode#1
+wait 5
+click run-go
+wait 20
+dump $OUT/m.txt
+click m-pc-go
+wait-until job running timeout 30
+wait-until text Red alert timeout 30
+wait 5
+dump $OUT/alert.txt
+screenshot $OUT/alert.png
+click ra-halve
+wait 10
+dump $OUT/halved.txt
+shell cp system/controlDict $OUT/cd.txt
+click ra-halve
+wait 10
+shell cp system/controlDict $OUT/cd2.txt
+action run.stop
+wait-until job stopped timeout 15

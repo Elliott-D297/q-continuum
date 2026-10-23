@@ -1,0 +1,25 @@
+# 1.10 a case in a folder with a space (OpenFOAM can't run there): the Overview says so, Run refuses before writing
+# anything, and Copy to workspace gives a runnable copy.
+shell mkdir -p "my case" && cp -a cavity "my case/"
+open $SB/ws/my case/cavity
+wait 10
+assert text OpenFOAM can't run in this folder
+click nav:run
+wait-until page Run
+click run-go
+wait 20
+assert not job running
+assert toast which OpenFOAM refuses
+assert not file log.blockMesh
+click nav:overview
+wait-until page Overview
+click text:Copy to workspace
+wait 20
+assert file $SB/ws/cavity-copy/system/controlDict
+assert not text OpenFOAM can't run in this folder
+click nav:run
+wait-until page Run
+click run-go
+wait-until job running timeout 20
+wait-until not job running timeout 120
+assert job finished

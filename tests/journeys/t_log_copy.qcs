@@ -1,0 +1,26 @@
+# Log text can be copied: Copy log puts the whole log on the clipboard; dragging over lines selects them and Copy lines
+# (or Ctrl+C) copies just those; Esc clears the selection.
+open $SB/ws/cavity
+click nav:run
+wait-until page Run
+click run-go
+wait-until job running timeout 30
+wait-until not job running timeout 120
+wait 10
+measure
+click log-copy
+wait 3
+assert toast Copied
+assert clipboard Time = 0.5
+assert clipboard End
+# select a few lines by dragging, then Ctrl+C
+drag text:End 0 -40
+wait 5
+assert text Copy lines
+key C ctrl
+wait 3
+assert toast Copied
+assert clipboard ClockTime
+key ESCAPE
+wait 5
+assert text Copy log

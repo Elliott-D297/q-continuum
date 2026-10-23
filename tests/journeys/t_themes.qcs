@@ -1,0 +1,89 @@
+# The screen and game themes (user request 2026-10-20): each chosen from Settings > Themes, each with its own
+# names for the features (the pre-run check, the command bar), its Run-page instrument, and the classic layout working.
+budget p95 25 max 150
+open $SB/ws/cavity
+click nav:run
+wait-until page Run
+click run-go
+wait-until job running timeout 20
+wait-until job finished timeout 120
+click nav:settings
+wait-until page Settings
+click theme#6
+wait 10
+click nav:run
+wait 10
+assert text Refinement check
+assert text % complete
+screenshot $OUT/severance.png
+click nav:settings
+click theme#7
+wait 10
+click nav:run
+wait 10
+assert text System diagnostic
+assert text Interface 2037 ready for inquiry
+screenshot $OUT/alien.png
+click nav:settings
+click theme#8
+wait 10
+click nav:run
+wait 10
+assert text V.A.T.S. scan
+assert widget pip-tab#1
+click pip-tab#1
+wait-until page Files timeout 5
+screenshot $OUT/pipboy.png
+click nav:settings
+click theme#9
+wait 10
+click nav:run
+wait 10
+assert text MAGI deliberation
+assert text sync ratio
+click nav:settings
+click theme#10
+wait 10
+click nav:run
+wait 10
+assert text Test protocol review
+assert text Test chamber
+click nav:settings
+click theme#11
+wait 10
+click nav:run
+wait 10
+assert text Inspect the path ahead
+assert text bonfires lit
+click nav:settings
+click theme#12
+wait 10
+click nav:run
+wait 10
+assert text Production check
+assert text simulated s per wall-clock hour
+click nav:settings
+click theme#13
+wait 10
+click nav:run
+wait 10
+assert text ScanDisk
+assert text Copying
+key K ctrl
+wait-until modal palette timeout 5
+key ESCAPE
+wait 3
+click nav:settings
+click theme#14
+wait 10
+click nav:run
+wait 10
+assert text Pre-flight check
+assert text Distance to destination
+screenshot $OUT/starcitizen.png
+click nav:settings
+click theme#0
+wait 10
+click nav:run
+wait 10
+assert text Sensor sweep

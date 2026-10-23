@@ -1,0 +1,19 @@
+open $SB/ws/cavityRx
+click nav:mesh
+wait-until page Mesh
+click mesh-gen
+wait-until job finished timeout 60
+wait 10
+click nav:boundaries
+wait-until page Boundary
+wait 10
+dump $OUT/bc.txt
+screenshot $OUT/bc.png
+click nav:run
+wait-until page Run
+wait 30
+dump $OUT/run.txt
+click run-go
+wait 20
+dump $OUT/run_after_go.txt
+screenshot $OUT/run_after_go.png

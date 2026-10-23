@@ -1,0 +1,9 @@
+steps 0
+time 0
+deltaT 0
+ended 0
+fatal 1
+converged 0
+courant n=0
+interfaceCourant n=0
+fatalMsg Wrong number of domain divisions in geomDecomp: Number of domains    : 3 Wanted decomposition : (2 2 1)

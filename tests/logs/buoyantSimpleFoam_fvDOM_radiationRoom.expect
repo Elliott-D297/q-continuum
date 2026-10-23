@@ -1,0 +1,16 @@
+steps 5
+time 5
+deltaT 0
+ended 0
+fatal 0
+converged 0
+courant n=0
+interfaceCourant n=0
+series "Ux" n=5 first=1 last=0.1453
+series "Uy" n=5 first=1 last=0.1001
+series "Uz" n=5 first=1 last=0.08462
+series "h" n=5 first=1 last=0.1228
+series "I (rays)" n=1 first=1 last=1
+series "p_rgh" n=5 first=0.9458 last=0.6089
+series "epsilon" n=5 first=0.03548 last=0.01584
+series "k" n=5 first=1 last=0.03058

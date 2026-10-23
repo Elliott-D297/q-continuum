@@ -1,0 +1,27 @@
+# Bug hunt H-08: a run that would fail or leave nothing asks first, even before meshing (a user case with no Allrun):
+# a patch without a condition, then a write interval after the end time.
+open $SB/ws/brMissing
+click nav:run
+wait-until page Run
+wait 10
+assert text 0/p has no condition for fixedWalls
+click run-go
+wait-until modal precheck timeout 10
+assert text 0/p has no condition for fixedWalls
+screenshot $OUT/ask_missing.png
+assert job idle
+key ESCAPE
+wait 3
+click sweep-fix#0
+wait 5
+key S ctrl
+wait 5
+click dict:system/controlDict:endTime
+enter 0.05
+wait 5
+key S ctrl
+wait 40
+click run-go
+wait-until modal precheck timeout 10
+assert text Nothing would be written
+assert job idle

@@ -1,0 +1,19 @@
+# cppcheck suppressions for tests/static_analysis.sh, each with its reason.
+#
+# Unchecked malloc/calloc on an out-of-memory path. Under WSL2 Linux overcommits: malloc does not return NULL, the
+# OOM killer ends the process instead, so a NULL check here can never run. Allocation results that are kept
+# (realloc of a live buffer) are checked: see page_run.c "collected:".
+nullPointerOutOfMemory
+nullPointerArithmeticOutOfMemory
+# Arrays filled up to n and read by ui_dropdown only up to the same n (page_movie fl, page_run labels/opts).
+uninitvar:src/page_movie.c
+uninitvar:src/page_run.c
+# run_start_queued saves A's run state in an anonymous struct; cppcheck mis-sizes its stepOn[16] (both are 16 bools).
+bufferAccessOutOfBounds:src/page_run.c
+# QC_VERSION comes from CMake (-DQC_VERSION=...).
+unknownMacro:src/page_settings.c
+# Headers of the vendored raylib are not ours.
+*:deps/*
+# memset(V.hidden, 0, sizeof V.hidden) in page_meshview.c: cppcheck runs without raylib's headers, so it cannot size
+# the Model array before it in the struct and misplaces the field; hidden[] and the sizeof are both MS_MAX_PATCHES.
+bufferAccessOutOfBounds:src/page_meshview.c

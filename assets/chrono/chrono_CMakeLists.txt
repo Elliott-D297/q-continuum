@@ -1,0 +1,10 @@
+# CMakeLists.txt -- a Chrono project written by Q-Continuum. Chrono_DIR: the folder holding ChronoConfig.cmake.
+cmake_minimum_required(VERSION 3.18)
+project(chronoProject LANGUAGES CXX)
+set(CMAKE_CXX_STANDARD 17)
+if(NOT CMAKE_BUILD_TYPE)
+  set(CMAKE_BUILD_TYPE Release)
+endif()
+find_package(Chrono REQUIRED CONFIG)
+add_executable(@DRIVER@ src/@DRIVER@.cpp)
+target_link_libraries(@DRIVER@ PRIVATE ${CHRONO_TARGETS})

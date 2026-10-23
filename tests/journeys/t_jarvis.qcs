@@ -1,0 +1,40 @@
+# The JARVIS theme (Stark's heads-up display): picked in Settings > Appearance, its feature names (the command palette is
+# JARVIS, review is "Awaiting your approval"), its sounds named in Settings, and the Environment panel in it, which lists
+# every program (SPARTA with the optional packages its build lacks). Then back to LCARS.
+open $SB/ws/cavity
+# the GPU query (nvidia-smi, once a session, ~100 ms) is not what this measures: open the panel once first
+click env-status
+wait-until modal environment timeout 5
+key ESCAPE
+wait 3
+measure
+click nav:settings
+wait-until page Settings timeout 5
+wait 5
+click label:JARVIS
+wait 5
+assert text Awaiting your approval
+assert text Soft holographic ticks
+screenshot $OUT/jarvis_settings.png
+click nav:overview
+wait-until page Overview
+click env-status
+wait-until modal environment timeout 5
+assert text SPARTA
+assert text Rarefied gas
+assert text Chrono
+assert text JARVIS sounds
+screenshot $OUT/jarvis_env.png
+# spa_mpi -h is read in the background (a second: MPI starts); the panel fills it in when it arrives
+wait-until text without the optional packages timeout 15
+key ESCAPE
+wait 3
+key K ctrl
+wait-until modal palette timeout 5
+assert text JARVIS
+key ESCAPE
+wait 3
+theme 0
+wait 5
+assert modal none
+budget p95 16.7 max 100

@@ -1,0 +1,64 @@
+# 3.7 CAPTAIN'S LOG: every run is recorded in <case>/.qcontinuum/log (what ran, how it ended, the numbers, the setup
+# change since the run before), browsable on History, exported as Markdown. Real icoFoam runs.
+open $SB/ws/cavity
+click nav:history
+wait-until page History
+click h-tabs#1
+wait 5
+assert text No runs recorded yet
+# run 1, as shipped
+click nav:run
+wait-until page Run
+click run-go
+wait-until job running timeout 20
+wait-until job finished timeout 120
+# run 2 with a smaller time step: the record shows the change
+click dict:system/controlDict:deltaT
+enter 0.0025
+wait 5
+key S ctrl
+wait 5
+click run-go
+wait-until modal any timeout 10
+click m-rr-over
+wait-until job running timeout 20
+wait-until job finished timeout 120
+click nav:history
+wait-until page History
+wait-until text Run 2 timeout 15
+assert text finished
+assert text Setup changes since the run before
+assert text deltaT          0.0025;
+assert text Reached t = 0.5 of endTime 0.5
+assert text icoFoam
+screenshot $OUT/captains_log.png
+# run 3 fails (a scheme removed behind the app's back): recorded as failed, with the reason in words
+shell sed -i '/div(phi,U)/d' system/fvSchemes
+wait 120
+click nav:run
+wait-until page Run
+click run-go
+wait-until modal any timeout 10
+click? m-rr-over
+wait-until modal precheck timeout 10
+click m-pc-go
+wait-until job failed timeout 60
+click nav:history
+wait-until page History
+wait-until text Run 3 timeout 15
+assert text Why: div(phi,U) is missing from system/fvSchemes
+screenshot $OUT/captains_log_failed.png
+# Markdown for the lab notebook
+click rl-export
+wait 5
+assert toast Copied 3 runs as Markdown
+assert file .qcontinuum/run-log.md
+assert log .qcontinuum/run-log.md | 3 |
+assert log .qcontinuum/run-log.md ## Run 2
+assert clipboard # Run log: cavity
+# going back to run 2's setup puts the scheme back
+click rl-row#1
+wait 5
+click rl-restore
+wait-until modal any timeout 5
+screenshot $OUT/captains_log_restore.png

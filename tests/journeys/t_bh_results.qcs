@@ -1,0 +1,30 @@
+# Bug hunt H-18: the results dialog says what Start over does in a whole sentence, and Continue is only offered below
+# the end time (results to 0.5: not with endTime 0.5 or 0.05, yes with 1).
+open $SB/ws/cavity
+click nav:run
+wait-until page Run
+click run-go
+wait-until job running timeout 20
+wait-until job finished timeout 120
+click run-go
+wait-until modal any timeout 10
+assert text moves them to the trash
+assert not enabled m-rr-cont
+assert text The results already reach endTime 0.5
+key ESCAPE
+wait 3
+click dict:system/controlDict:endTime
+enter 0.05
+wait 3
+click run-go
+wait-until modal any timeout 10
+assert not enabled m-rr-cont
+screenshot $OUT/results_dialog.png
+key ESCAPE
+wait 3
+click dict:system/controlDict:endTime
+enter 1
+wait 3
+click run-go
+wait-until modal any timeout 10
+assert enabled m-rr-cont

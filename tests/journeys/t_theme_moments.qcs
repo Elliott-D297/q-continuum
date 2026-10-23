@@ -1,0 +1,74 @@
+# The themes' full-screen moments, raised as a run would raise them, each closed with Esc: Dark Souls' YOU DIED with the
+# respawn from the last bonfire, MU/TH/UR's Special Order 937, the blue screen and the paperclip, NERV's PATTERN BLUE,
+# Portal's cake, Factorio's biters, Severance's waffle party, Star Citizen's 30k and contract payout.
+open $SB/ws/cavity
+click nav:run
+wait-until page Run
+click run-go
+wait-until job finished timeout 120
+theme 11
+flavour 1 icoFoam
+wait 100
+assert text You died
+assert widget fl-respawn
+key ESCAPE
+wait 5
+assert not modal any
+theme 7
+flavour 2 Residuals rising
+wait 20
+assert text Special order 937
+key ESCAPE
+wait 5
+theme 13
+flavour 1 checkMesh
+wait 10
+assert text A fatal exception 0E has occurred in checkMesh.
+key ESCAPE
+wait 5
+flavour 3 Courant number 1.4
+wait 10
+assert text It looks like your Courant number is above 1
+click fl-clippy-no
+wait 5
+assert not modal any
+theme 9
+flavour 3 Courant number 1.4
+wait 10
+assert text PATTERN BLUE
+key ESCAPE
+wait 5
+theme 10
+flavour 4
+wait 10
+assert text Cake dispensed
+key ESCAPE
+wait 5
+theme 12
+flavour 1 icoFoam
+wait 10
+assert text Your base is under attack
+key ESCAPE
+wait 5
+theme 6
+flavour 5
+wait 10
+assert text WAFFLE PARTY
+key ESCAPE
+wait 5
+assert not modal any
+theme 14
+flavour 1 icoFoam
+wait 20
+assert text Error code 30000
+key ESCAPE
+wait 5
+flavour 4
+wait 10
+assert text Contract complete
+assert text aUEC
+screenshot $OUT/starcitizen_done.png
+key ESCAPE
+wait 5
+assert not modal any
+theme 0

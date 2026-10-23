@@ -1,0 +1,9 @@
+steps 1
+time 0.005
+deltaT 0
+ended 0
+fatal 1
+converged 0
+courant n=1 last=0
+interfaceCourant n=0
+fatalMsg Entry 'div(phi,U)' not found in dictionary "system/fvSchemes/divSchemes"

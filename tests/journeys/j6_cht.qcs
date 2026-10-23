@@ -1,0 +1,29 @@
+# J6: set up a multi-region CHT tutorial, change a solid's conductivity, run. Target: per-region pages; no terminal.
+open $SB/ws/multiRegionHeater
+measure
+budget p95 16.7 max 100
+click nav:physics
+wait-until page Physics
+click region:heater
+wait 5
+screenshot $OUT/j6_physics_heater.png
+click dict:constant/heater/thermophysicalProperties:mixture/transport/kappa
+enter 160
+# B-02: a number in the tree is replaced, not appended to (80 -> 160, never 80160)
+key S ctrl
+wait 5
+assert log constant/heater/thermophysicalProperties kappa   160;
+click nav:run
+wait-until page Run
+click dict:system/controlDict:endTime
+enter 0.02
+click dict:system/controlDict:writeInterval
+enter 0.01
+screenshot $OUT/j6_run_setup.png
+click run-go
+wait-until job running timeout 10
+wait-until job idle timeout 300
+wait 10
+screenshot $OUT/j6_done.png
+assert job finished
+assert log log.chtMultiRegionFoam End

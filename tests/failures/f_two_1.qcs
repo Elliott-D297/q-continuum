@@ -1,0 +1,13 @@
+# 1.10 two instances, A: runs a long cavity, waits for B to look at it, then stops it
+open $SB/ws/cavity
+shell sed -i 's/^endTime .*/endTime         50;/; s/^writeInterval .*/writeInterval   2000;/' system/controlDict
+wait 10
+click nav:run
+wait-until page Run
+click run-go
+wait-until job running timeout 30
+wait-until file $SB/b-done timeout 180
+assert job running
+click run-stop
+wait-until not job running timeout 60
+assert job stopped

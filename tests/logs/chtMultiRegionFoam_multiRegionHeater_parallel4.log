@@ -1,0 +1,2406 @@
+/*---------------------------------------------------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     | Version:  2606                                  |
+|   \\  /    A nd           | Website:  www.openfoam.com                      |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+Build  : 481094fd-20260618 OPENFOAM=2606 version=v2606
+Arch   : "LSB;label=32;scalar=64"
+Exec   : chtMultiRegionFoam -parallel
+Date   : Oct 16 2026
+Time   : 22:05:02
+Host   : qc-host
+PID    : 32386
+I/O    : uncollated
+Case   : <case>
+nProcs : 4
+Hosts  :
+(
+    (qc-host 4)
+)
+Pstream initialized with:
+    node communication : off [type=host] (4 ranks, 1 nodes)
+    topology controls  : none
+    consensus exchange : 0 (tuning: 0)
+    exchange algorithm : 0
+    commsType          : nonBlocking
+    polling iterations : 0
+trapFpe: Floating point exception trapping enabled (FOAM_SIGFPE).
+memory pool : not available
+fileModificationChecking : Monitoring run-time modified files using timeStampMaster (fileModificationSkew 5, maxFileModificationPolls 20)
+
+--> FOAM Warning : allowSystemOperations : Allowing user-supplied system call operations.
+                   This can be a security risk if running untrusted cases
+                   through e.g. 'coded' on-the-fly-compilation functionality.
+
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+Create time
+
+Create fluid mesh for region bottomWater for time = 0
+
+Create fluid mesh for region topAir for time = 0
+
+Create solid mesh for region heater for time = 0
+
+Create solid mesh for region leftSolid for time = 0
+
+Create solid mesh for region rightSolid for time = 0
+
+*** Reading fluid mesh thermophysical properties for region bottomWater
+
+    Adding to thermoFluid
+
+Selecting thermodynamics package 
+{
+    type            heRhoThermo;
+    mixture         pureMixture;
+    transport       const;
+    thermo          hConst;
+    equationOfState rhoConst;
+    specie          specie;
+    energy          sensibleEnthalpy;
+}
+
+    Adding to rhoFluid
+
+    Adding to UFluid
+
+    Adding to phiFluid
+
+    Adding to hRefFluid
+
+    Adding to ghFluid
+
+    Adding to ghfFluid
+
+    Adding to turbulenceFluid
+
+Selecting turbulence model type laminar
+Selecting laminar stress model Stokes
+    Adding to reactionFluid
+
+Combustion model not active: combustionProperties not found
+Selecting combustion model none
+    Adding to radiationFluid
+
+Selecting radiationModel none
+    Adding to KFluid
+
+    Adding to dpdtFluid
+
+    Adding to fieldsFluid
+
+    Adding to QdotFluid
+
+    Adding MRF
+
+No MRF models present
+
+    Adding fvOptions
+
+*** Reading fluid mesh thermophysical properties for region topAir
+
+    Adding to thermoFluid
+
+Selecting thermodynamics package 
+{
+    type            heRhoThermo;
+    mixture         pureMixture;
+    transport       const;
+    thermo          hConst;
+    equationOfState perfectGas;
+    specie          specie;
+    energy          sensibleEnthalpy;
+}
+
+    Adding to rhoFluid
+
+    Adding to UFluid
+
+    Adding to phiFluid
+
+    Adding to hRefFluid
+
+    Adding to ghFluid
+
+    Adding to ghfFluid
+
+    Adding to turbulenceFluid
+
+Selecting turbulence model type laminar
+Selecting laminar stress model Stokes
+    Adding to reactionFluid
+
+Combustion model not active: combustionProperties not found
+Selecting combustion model none
+    Adding to radiationFluid
+
+Selecting radiationModel none
+    Adding to KFluid
+
+    Adding to dpdtFluid
+
+    Adding to fieldsFluid
+
+    Adding to QdotFluid
+
+    Adding MRF
+
+No MRF models present
+
+    Adding fvOptions
+
+*** Reading solid mesh thermophysical properties for region heater
+
+    Adding to thermos
+
+Selecting thermodynamics package 
+{
+    type            heSolidThermo;
+    mixture         pureMixture;
+    transport       constIso;
+    thermo          hConst;
+    equationOfState rhoConst;
+    specie          specie;
+    energy          sensibleEnthalpy;
+}
+
+    Adding to radiations
+
+Selecting radiationModel none
+    Adding fvOptions
+
+*** Reading solid mesh thermophysical properties for region leftSolid
+
+    Adding to thermos
+
+Selecting thermodynamics package 
+{
+    type            heSolidThermo;
+    mixture         pureMixture;
+    transport       constIso;
+    thermo          hConst;
+    equationOfState rhoConst;
+    specie          specie;
+    energy          sensibleEnthalpy;
+}
+
+    Adding to radiations
+
+Selecting radiationModel none
+    Adding fvOptions
+
+*** Reading solid mesh thermophysical properties for region rightSolid
+
+    Adding to thermos
+
+Selecting thermodynamics package 
+{
+    type            heSolidThermo;
+    mixture         pureMixture;
+    transport       constIso;
+    thermo          hConst;
+    equationOfState rhoConst;
+    specie          specie;
+    energy          sensibleEnthalpy;
+}
+
+    Adding to radiations
+
+Selecting radiationModel none
+    Adding fvOptions
+
+Region: bottomWater Courant Number mean: 0.00017208904 max: 0.00082499996
+Region: topAir Courant Number mean: 0.015 max: 0.015000002
+Region: heater Diffusion Number mean: 0.00036111112 max: 0.0020000002
+Region: leftSolid Diffusion Number mean: 0.00036373166 max: 0.0019999998
+Region: rightSolid Diffusion Number mean: 0.00036373166 max: 0.0019999998
+deltaT = 0.001
+Region: bottomWater Courant Number mean: 0.00017208904 max: 0.00082499996
+Region: topAir Courant Number mean: 0.015 max: 0.015000002
+Region: heater Diffusion Number mean: 0.00036111112 max: 0.0020000002
+Region: leftSolid Diffusion Number mean: 0.00036373166 max: 0.0019999998
+Region: rightSolid Diffusion Number mean: 0.00036373166 max: 0.0019999998
+deltaT = 0.0011990408
+Time = 0.00119904
+
+
+Solving for fluid region bottomWater
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+DILUPBiCGStab:  Solving for Ux, Initial residual = 1, Final residual = 1.2386766e-09, No Iterations 1
+DILUPBiCGStab:  Solving for Uy, Initial residual = 1, Final residual = 5.9031896e-10, No Iterations 1
+DILUPBiCGStab:  Solving for Uz, Initial residual = 1, Final residual = 2.3729343e-08, No Iterations 1
+DILUPBiCGStab:  Solving for h, Initial residual = 0.99999997, Final residual = 2.7386026e-10, No Iterations 1
+Min/max T:300 300
+GAMG:  Solving for p_rgh, Initial residual = 0.82697362, Final residual = 0.0027476049, No Iterations 3
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (bottomWater): sum local = 3.7115548e-06, global = -1.4190817e-06, cumulative = -1.4190817e-06
+GAMG:  Solving for p_rgh, Initial residual = 0.046643685, Final residual = 7.7748645e-08, No Iterations 17
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (bottomWater): sum local = 6.093298e-12, global = -2.6019776e-12, cumulative = -1.4190843e-06
+
+Solving for fluid region topAir
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+DILUPBiCGStab:  Solving for Ux, Initial residual = 1, Final residual = 2.07462e-08, No Iterations 1
+DILUPBiCGStab:  Solving for Uy, Initial residual = 1, Final residual = 2.9479001e-08, No Iterations 2
+DILUPBiCGStab:  Solving for Uz, Initial residual = 0.99451015, Final residual = 1.0385684e-08, No Iterations 2
+DILUPBiCGStab:  Solving for h, Initial residual = 0.9999998, Final residual = 5.2247789e-08, No Iterations 2
+Min/max T:300 300
+GAMG:  Solving for p_rgh, Initial residual = 0.87372228, Final residual = 0.0064582954, No Iterations 2
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (topAir): sum local = 9.974923e-06, global = 2.6613202e-06, cumulative = 2.6613202e-06
+GAMG:  Solving for p_rgh, Initial residual = 0.22283542, Final residual = 7.3837498e-08, No Iterations 17
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (topAir): sum local = 8.3303878e-12, global = -5.5189318e-12, cumulative = 2.6613146e-06
+
+Solving for solid region heater
+DICPCG:  Solving for h, Initial residual = 1, Final residual = 3.0154996e-07, No Iterations 1
+Min/max T:300 500
+
+Solving for solid region leftSolid
+DICPCG:  Solving for h, Initial residual = 1, Final residual = 2.4508031e-08, No Iterations 2
+Min/max T:300 300
+
+Solving for solid region rightSolid
+DICPCG:  Solving for h, Initial residual = 1, Final residual = 2.4452951e-08, No Iterations 2
+Min/max T:300 300
+ExecutionTime = 0.07 s  ClockTime = 0 s
+
+Region: bottomWater Courant Number mean: 0.00019022746 max: 0.0002856637
+Region: topAir Courant Number mean: 0.018022223 max: 0.018065206
+Region: heater Diffusion Number mean: 0.00043298695 max: 0.0023980818
+Region: leftSolid Diffusion Number mean: 0.00043612908 max: 0.0023980813
+Region: rightSolid Diffusion Number mean: 0.00043612909 max: 0.0023980813
+deltaT = 0.0014374667
+Time = 0.00263651
+
+
+Solving for fluid region bottomWater
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+DILUPBiCGStab:  Solving for Ux, Initial residual = 0.36127876, Final residual = 5.7789925e-10, No Iterations 1
+DILUPBiCGStab:  Solving for Uy, Initial residual = 0.83296443, Final residual = 1.9480393e-09, No Iterations 1
+DILUPBiCGStab:  Solving for Uz, Initial residual = 0.37476467, Final residual = 2.8772722e-10, No Iterations 1
+DILUPBiCGStab:  Solving for h, Initial residual = 0.99740048, Final residual = 5.6043976e-10, No Iterations 1
+Min/max T:300 300.16508
+GAMG:  Solving for p_rgh, Initial residual = 0.10254894, Final residual = 0.00070364137, No Iterations 6
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (bottomWater): sum local = 2.6212451e-08, global = -7.6673965e-09, cumulative = -1.4267517e-06
+GAMG:  Solving for p_rgh, Initial residual = 0.0075610559, Final residual = 7.0812004e-08, No Iterations 15
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (bottomWater): sum local = 2.5144172e-13, global = -8.1259069e-14, cumulative = -1.4267518e-06
+
+Solving for fluid region topAir
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+DILUPBiCGStab:  Solving for Ux, Initial residual = 0.60367801, Final residual = 3.0438033e-08, No Iterations 2
+DILUPBiCGStab:  Solving for Uy, Initial residual = 0.64428543, Final residual = 3.3921233e-08, No Iterations 2
+DILUPBiCGStab:  Solving for Uz, Initial residual = 0.42550598, Final residual = 7.4247102e-09, No Iterations 2
+DILUPBiCGStab:  Solving for h, Initial residual = 0.99792742, Final residual = 8.9793527e-08, No Iterations 2
+Min/max T:300 300.00002
+GAMG:  Solving for p_rgh, Initial residual = 0.039757754, Final residual = 0.00027008193, No Iterations 7
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (topAir): sum local = 4.3276368e-08, global = -2.1611678e-08, cumulative = 2.639703e-06
+GAMG:  Solving for p_rgh, Initial residual = 0.0013698109, Final residual = 8.2936662e-08, No Iterations 13
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (topAir): sum local = 6.1511714e-12, global = 2.0255966e-12, cumulative = 2.639705e-06
+
+Solving for solid region heater
+DICPCG:  Solving for h, Initial residual = 0.24974999, Final residual = 1.0815072e-07, No Iterations 1
+Min/max T:300 500
+
+Solving for solid region leftSolid
+DICPCG:  Solving for h, Initial residual = 0.99996276, Final residual = 3.5145109e-08, No Iterations 2
+Min/max T:300 300
+
+Solving for solid region rightSolid
+DICPCG:  Solving for h, Initial residual = 0.9998799, Final residual = 3.88025e-08, No Iterations 2
+Min/max T:300 300
+ExecutionTime = 0.09 s  ClockTime = 0 s
+
+Region: bottomWater Courant Number mean: 0.00022807949 max: 0.0003422146
+Region: topAir Courant Number mean: 0.021571474 max: 0.021594589
+Region: heater Diffusion Number mean: 0.00051908522 max: 0.0028749338
+Region: leftSolid Diffusion Number mean: 0.00052285216 max: 0.0028749332
+Region: rightSolid Diffusion Number mean: 0.00052285216 max: 0.0028749332
+deltaT = 0.0017269566
+Time = 0.00436346
+
+
+Solving for fluid region bottomWater
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+DILUPBiCGStab:  Solving for Ux, Initial residual = 0.022940548, Final residual = 2.5567525e-11, No Iterations 1
+DILUPBiCGStab:  Solving for Uy, Initial residual = 0.33487367, Final residual = 2.8228699e-10, No Iterations 1
+DILUPBiCGStab:  Solving for Uz, Initial residual = 0.038155354, Final residual = 2.4608336e-11, No Iterations 1
+DILUPBiCGStab:  Solving for h, Initial residual = 0.47539737, Final residual = 2.5825577e-10, No Iterations 1
+Min/max T:299.99999 300.36268
+GAMG:  Solving for p_rgh, Initial residual = 0.20839881, Final residual = 0.0016366624, No Iterations 3
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (bottomWater): sum local = 5.7346348e-09, global = -9.3059074e-10, cumulative = -1.4276824e-06
+GAMG:  Solving for p_rgh, Initial residual = 0.0022753123, Final residual = 4.5842708e-08, No Iterations 14
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (bottomWater): sum local = 1.161065e-13, global = -4.0011226e-14, cumulative = -1.4276824e-06
+
+Solving for fluid region topAir
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+DILUPBiCGStab:  Solving for Ux, Initial residual = 0.72040536, Final residual = 6.140099e-08, No Iterations 2
+DILUPBiCGStab:  Solving for Uy, Initial residual = 0.76749317, Final residual = 6.7041708e-08, No Iterations 2
+DILUPBiCGStab:  Solving for Uz, Initial residual = 0.24960543, Final residual = 3.8820226e-09, No Iterations 2
+DILUPBiCGStab:  Solving for h, Initial residual = 0.91162487, Final residual = 1.2842912e-09, No Iterations 2
+Min/max T:299.99995 300
+GAMG:  Solving for p_rgh, Initial residual = 0.025581268, Final residual = 0.00017129483, No Iterations 7
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (topAir): sum local = 1.8093259e-08, global = 9.3421381e-09, cumulative = 2.6490471e-06
+GAMG:  Solving for p_rgh, Initial residual = 0.004412077, Final residual = 1.2981522e-07, No Iterations 1000
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (topAir): sum local = 2.2730497e-12, global = 2.9434708e-13, cumulative = 2.6490474e-06
+
+Solving for solid region heater
+DICPCG:  Solving for h, Initial residual = 0.15384915, Final residual = 9.6060925e-08, No Iterations 1
+Min/max T:300 500
+
+Solving for solid region leftSolid
+DICPCG:  Solving for h, Initial residual = 0.9756416, Final residual = 5.096864e-08, No Iterations 2
+Min/max T:300 300
+
+Solving for solid region rightSolid
+DICPCG:  Solving for h, Initial residual = 0.76987284, Final residual = 3.9491434e-08, No Iterations 2
+Min/max T:300 300
+ExecutionTime = 0.26 s  ClockTime = 0 s
+
+Region: bottomWater Courant Number mean: 0.00027403816 max: 0.00041150956
+Region: topAir Courant Number mean: 0.025900391 max: 0.025941443
+Region: heater Diffusion Number mean: 0.00062362322 max: 0.0034539135
+Region: leftSolid Diffusion Number mean: 0.00062814877 max: 0.0034539128
+Region: rightSolid Diffusion Number mean: 0.00062814878 max: 0.0034539128
+deltaT = 0.002073793
+Time = 0.00643726
+
+
+Solving for fluid region bottomWater
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+DILUPBiCGStab:  Solving for Ux, Initial residual = 0.014665827, Final residual = 2.562021e-11, No Iterations 1
+DILUPBiCGStab:  Solving for Uy, Initial residual = 0.19967126, Final residual = 1.0072019e-10, No Iterations 1
+DILUPBiCGStab:  Solving for Uz, Initial residual = 0.024335074, Final residual = 2.5164016e-11, No Iterations 1
+DILUPBiCGStab:  Solving for h, Initial residual = 0.012925957, Final residual = 1.1358947e-11, No Iterations 1
+Min/max T:299.99999 300.59965
+GAMG:  Solving for p_rgh, Initial residual = 0.1863974, Final residual = 0.0012370308, No Iterations 3
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (bottomWater): sum local = 3.676889e-09, global = -5.2408889e-10, cumulative = -1.4282065e-06
+GAMG:  Solving for p_rgh, Initial residual = 0.0016108464, Final residual = 7.0049094e-08, No Iterations 13
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (bottomWater): sum local = 1.604928e-13, global = -5.8562582e-14, cumulative = -1.4282065e-06
+
+Solving for fluid region topAir
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+DILUPBiCGStab:  Solving for Ux, Initial residual = 0.2968085, Final residual = 4.2642444e-08, No Iterations 2
+DILUPBiCGStab:  Solving for Uy, Initial residual = 0.23749842, Final residual = 7.0544956e-09, No Iterations 2
+DILUPBiCGStab:  Solving for Uz, Initial residual = 0.194666, Final residual = 5.2765175e-09, No Iterations 2
+DILUPBiCGStab:  Solving for h, Initial residual = 0.49241267, Final residual = 1.3719697e-09, No Iterations 2
+Min/max T:299.99997 300
+GAMG:  Solving for p_rgh, Initial residual = 0.075404406, Final residual = 0.00072553376, No Iterations 7
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (topAir): sum local = 1.5432162e-08, global = 7.2119529e-09, cumulative = 2.6562594e-06
+GAMG:  Solving for p_rgh, Initial residual = 0.00076241697, Final residual = 9.0534783e-08, No Iterations 13
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (topAir): sum local = 5.3001918e-12, global = -1.9469016e-12, cumulative = 2.6562574e-06
+
+Solving for solid region heater
+DICPCG:  Solving for h, Initial residual = 0.11650976, Final residual = 1.0477444e-07, No Iterations 1
+Min/max T:300 500
+
+Solving for solid region leftSolid
+DICPCG:  Solving for h, Initial residual = 0.94751738, Final residual = 7.1501435e-08, No Iterations 2
+Min/max T:300 300
+
+Solving for solid region rightSolid
+DICPCG:  Solving for h, Initial residual = 0.5052308, Final residual = 3.6980534e-08, No Iterations 2
+Min/max T:300 300
+ExecutionTime = 0.27 s  ClockTime = 0 s
+
+Region: bottomWater Courant Number mean: 0.00032910168 max: 0.00049447994
+Region: topAir Courant Number mean: 0.031108093 max: 0.0311737
+Region: heater Diffusion Number mean: 0.00074886972 max: 0.0041475865
+Region: leftSolid Diffusion Number mean: 0.00075430418 max: 0.0041475857
+Region: rightSolid Diffusion Number mean: 0.00075430418 max: 0.0041475857
+deltaT = 0.0024927411
+Time = 0.00893
+
+
+Solving for fluid region bottomWater
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+DILUPBiCGStab:  Solving for Ux, Initial residual = 0.010583547, Final residual = 2.8509476e-11, No Iterations 1
+DILUPBiCGStab:  Solving for Uy, Initial residual = 0.1668745, Final residual = 9.7940956e-11, No Iterations 1
+DILUPBiCGStab:  Solving for Uz, Initial residual = 0.017499086, Final residual = 2.8315059e-11, No Iterations 1
+DILUPBiCGStab:  Solving for h, Initial residual = 0.017999231, Final residual = 2.3026676e-11, No Iterations 1
+Min/max T:299.99999 300.8836
+GAMG:  Solving for p_rgh, Initial residual = 0.16240252, Final residual = 0.0010016646, No Iterations 3
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (bottomWater): sum local = 2.7869357e-09, global = -3.980242e-10, cumulative = -1.4286046e-06
+GAMG:  Solving for p_rgh, Initial residual = 0.0012551387, Final residual = 5.490147e-08, No Iterations 13
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (bottomWater): sum local = 1.2241417e-13, global = -4.5492567e-14, cumulative = -1.4286046e-06
+
+Solving for fluid region topAir
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+DILUPBiCGStab:  Solving for Ux, Initial residual = 0.1610026, Final residual = 4.0341629e-08, No Iterations 2
+DILUPBiCGStab:  Solving for Uy, Initial residual = 0.1729378, Final residual = 3.9291466e-08, No Iterations 1
+DILUPBiCGStab:  Solving for Uz, Initial residual = 0.16355986, Final residual = 7.4986991e-09, No Iterations 2
+DILUPBiCGStab:  Solving for h, Initial residual = 0.44307504, Final residual = 2.741898e-09, No Iterations 2
+Min/max T:299.99998 300
+GAMG:  Solving for p_rgh, Initial residual = 0.0052169013, Final residual = 4.9257907e-05, No Iterations 7
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (topAir): sum local = 3.7767409e-09, global = -1.7807886e-09, cumulative = 2.6544766e-06
+GAMG:  Solving for p_rgh, Initial residual = 0.00020675715, Final residual = 8.1336363e-08, No Iterations 12
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (topAir): sum local = 5.4324758e-12, global = 1.0618675e-12, cumulative = 2.6544777e-06
+
+Solving for solid region heater
+DICPCG:  Solving for h, Initial residual = 0.09698313, Final residual = 1.2582812e-07, No Iterations 1
+Min/max T:300 500
+
+Solving for solid region leftSolid
+DICPCG:  Solving for h, Initial residual = 0.92020741, Final residual = 1.0039837e-07, No Iterations 2
+Min/max T:300 300
+
+Solving for solid region rightSolid
+DICPCG:  Solving for h, Initial residual = 0.38926655, Final residual = 4.0834793e-08, No Iterations 2
+Min/max T:300 300
+ExecutionTime = 0.29 s  ClockTime = 0 s
+
+Region: bottomWater Courant Number mean: 0.00039561492 max: 0.00059457759
+Region: topAir Courant Number mean: 0.037394526 max: 0.037502107
+Region: heater Diffusion Number mean: 0.00090015653 max: 0.0049854828
+Region: leftSolid Diffusion Number mean: 0.00090668886 max: 0.0049854818
+Region: rightSolid Diffusion Number mean: 0.00090668886 max: 0.0049854818
+deltaT = 0.0029943293
+Time = 0.0119243
+
+
+Solving for fluid region bottomWater
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+DILUPBiCGStab:  Solving for Ux, Initial residual = 0.0081838004, Final residual = 3.3691319e-11, No Iterations 1
+DILUPBiCGStab:  Solving for Uy, Initial residual = 0.14714716, Final residual = 1.1799036e-10, No Iterations 1
+DILUPBiCGStab:  Solving for Uz, Initial residual = 0.013395763, Final residual = 3.3269116e-11, No Iterations 1
+DILUPBiCGStab:  Solving for h, Initial residual = 0.027310544, Final residual = 5.0317866e-11, No Iterations 1
+Min/max T:299.99999 301.22402
+GAMG:  Solving for p_rgh, Initial residual = 0.14750241, Final residual = 0.00083631812, No Iterations 3
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (bottomWater): sum local = 2.3040084e-09, global = -3.4212594e-10, cumulative = -1.4289467e-06
+GAMG:  Solving for p_rgh, Initial residual = 0.0010234761, Final residual = 9.8466278e-08, No Iterations 12
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (bottomWater): sum local = 2.2293078e-13, global = -8.5431843e-14, cumulative = -1.4289468e-06
+
+Solving for fluid region topAir
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+DILUPBiCGStab:  Solving for Ux, Initial residual = 0.14226093, Final residual = 6.0385123e-08, No Iterations 2
+DILUPBiCGStab:  Solving for Uy, Initial residual = 0.15061782, Final residual = 2.9274246e-08, No Iterations 1
+DILUPBiCGStab:  Solving for Uz, Initial residual = 0.14479156, Final residual = 1.1675059e-08, No Iterations 2
+DILUPBiCGStab:  Solving for h, Initial residual = 0.096223904, Final residual = 7.2470906e-08, No Iterations 2
+Min/max T:299.99998 300
+GAMG:  Solving for p_rgh, Initial residual = 0.0020031078, Final residual = 1.7036518e-05, No Iterations 7
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (topAir): sum local = 1.4628734e-09, global = -6.7689972e-10, cumulative = 2.6538008e-06
+GAMG:  Solving for p_rgh, Initial residual = 7.7033048e-05, Final residual = 7.3129453e-08, No Iterations 11
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (topAir): sum local = 7.4943763e-12, global = 1.6053173e-12, cumulative = 2.6538024e-06
+
+Solving for solid region heater
+DICPCG:  Solving for h, Initial residual = 0.085041537, Final residual = 1.5892672e-07, No Iterations 1
+Min/max T:300 500
+
+Solving for solid region leftSolid
+DICPCG:  Solving for h, Initial residual = 0.90140531, Final residual = 1.4173324e-07, No Iterations 2
+Min/max T:300 300
+
+Solving for solid region rightSolid
+DICPCG:  Solving for h, Initial residual = 0.33981495, Final residual = 5.1446743e-08, No Iterations 2
+Min/max T:300 300
+ExecutionTime = 0.31 s  ClockTime = 0 s
+
+Region: bottomWater Courant Number mean: 0.00047525039 max: 0.00071430823
+Region: topAir Courant Number mean: 0.044919353 max: 0.04509173
+Region: heater Diffusion Number mean: 0.0010812856 max: 0.0059886592
+Region: leftSolid Diffusion Number mean: 0.0010891323 max: 0.005988658
+Region: rightSolid Diffusion Number mean: 0.0010891323 max: 0.005988658
+deltaT = 0.0035887917
+Time = 0.0155131
+
+
+Solving for fluid region bottomWater
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+DILUPBiCGStab:  Solving for Ux, Initial residual = 0.0065777036, Final residual = 4.1196333e-11, No Iterations 1
+DILUPBiCGStab:  Solving for Uy, Initial residual = 0.13350375, Final residual = 1.4926156e-10, No Iterations 1
+DILUPBiCGStab:  Solving for Uz, Initial residual = 0.010674144, Final residual = 3.9831745e-11, No Iterations 1
+DILUPBiCGStab:  Solving for h, Initial residual = 0.040130955, Final residual = 1.0585064e-10, No Iterations 1
+Min/max T:299.99999 301.63168
+GAMG:  Solving for p_rgh, Initial residual = 0.1352267, Final residual = 0.00071455183, No Iterations 3
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (bottomWater): sum local = 2.0178881e-09, global = -3.1535855e-10, cumulative = -1.4292622e-06
+GAMG:  Solving for p_rgh, Initial residual = 0.0008599878, Final residual = 8.4592289e-08, No Iterations 12
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (bottomWater): sum local = 2.001586e-13, global = -7.7613537e-14, cumulative = -1.4292623e-06
+
+Solving for fluid region topAir
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+DILUPBiCGStab:  Solving for Ux, Initial residual = 0.13022088, Final residual = 9.2773227e-08, No Iterations 2
+DILUPBiCGStab:  Solving for Uy, Initial residual = 0.13653482, Final residual = 3.5538714e-08, No Iterations 1
+DILUPBiCGStab:  Solving for Uz, Initial residual = 0.13186043, Final residual = 1.8658856e-08, No Iterations 2
+DILUPBiCGStab:  Solving for h, Initial residual = 0.026095071, Final residual = 3.2437673e-08, No Iterations 2
+Min/max T:299.99998 300
+GAMG:  Solving for p_rgh, Initial residual = 0.0010127401, Final residual = 5.4547016e-06, No Iterations 7
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (topAir): sum local = 6.1934442e-10, global = 2.88864e-10, cumulative = 2.6540913e-06
+GAMG:  Solving for p_rgh, Initial residual = 3.5964526e-05, Final residual = 8.7734567e-08, No Iterations 9
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (topAir): sum local = 1.1536458e-11, global = -3.1657821e-12, cumulative = 2.6540881e-06
+
+Solving for solid region heater
+DICPCG:  Solving for h, Initial residual = 0.076953878, Final residual = 2.061535e-07, No Iterations 1
+Min/max T:300 500
+
+Solving for solid region leftSolid
+DICPCG:  Solving for h, Initial residual = 0.88557182, Final residual = 1.9976896e-07, No Iterations 2
+Min/max T:300 300
+
+Solving for solid region rightSolid
+DICPCG:  Solving for h, Initial residual = 0.30502557, Final residual = 6.6314714e-08, No Iterations 2
+Min/max T:300 300
+ExecutionTime = 0.32 s  ClockTime = 0 s
+
+Region: bottomWater Courant Number mean: 0.00056963357 max: 0.00085610789
+Region: topAir Courant Number mean: 0.053838717 max: 0.054105961
+Region: heater Diffusion Number mean: 0.0012959526 max: 0.0071775842
+Region: leftSolid Diffusion Number mean: 0.0013053572 max: 0.0071775827
+Region: rightSolid Diffusion Number mean: 0.0013053572 max: 0.0071775827
+deltaT = 0.0042874945
+Time = 0.0198006
+
+
+Solving for fluid region bottomWater
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+DILUPBiCGStab:  Solving for Ux, Initial residual = 0.0054509633, Final residual = 5.0893545e-11, No Iterations 1
+DILUPBiCGStab:  Solving for Uy, Initial residual = 0.12349777, Final residual = 1.9345341e-10, No Iterations 1
+DILUPBiCGStab:  Solving for Uz, Initial residual = 0.0087402221, Final residual = 4.7961536e-11, No Iterations 1
+DILUPBiCGStab:  Solving for h, Initial residual = 0.055911209, Final residual = 2.0978245e-10, No Iterations 1
+Min/max T:299.99999 302.11844
+GAMG:  Solving for p_rgh, Initial residual = 0.12428868, Final residual = 0.0006219101, No Iterations 3
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (bottomWater): sum local = 1.8453646e-09, global = -3.0392526e-10, cumulative = -1.4295662e-06
+GAMG:  Solving for p_rgh, Initial residual = 0.00073882671, Final residual = 7.4444478e-08, No Iterations 12
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (bottomWater): sum local = 1.8809744e-13, global = -7.3857277e-14, cumulative = -1.4295663e-06
+
+Solving for fluid region topAir
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+DILUPBiCGStab:  Solving for Ux, Initial residual = 0.1200635, Final residual = 1.4002567e-09, No Iterations 2
+DILUPBiCGStab:  Solving for Uy, Initial residual = 0.12621486, Final residual = 4.9626663e-08, No Iterations 1
+DILUPBiCGStab:  Solving for Uz, Initial residual = 0.1222779, Final residual = 3.0176335e-08, No Iterations 2
+DILUPBiCGStab:  Solving for h, Initial residual = 0.0092048771, Final residual = 8.967801e-08, No Iterations 1
+Min/max T:299.99998 300
+GAMG:  Solving for p_rgh, Initial residual = 0.00068585525, Final residual = 5.5112334e-06, No Iterations 3
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (topAir): sum local = 9.0342855e-10, global = 9.2335431e-11, cumulative = 2.6541804e-06
+GAMG:  Solving for p_rgh, Initial residual = 2.4776937e-05, Final residual = 7.9712512e-08, No Iterations 6
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (topAir): sum local = 1.5668835e-11, global = 2.1103786e-12, cumulative = 2.6541826e-06
+
+Solving for solid region heater
+DICPCG:  Solving for h, Initial residual = 0.071062625, Final residual = 2.7104877e-07, No Iterations 1
+Min/max T:300 500
+
+Solving for solid region leftSolid
+DICPCG:  Solving for h, Initial residual = 0.87200022, Final residual = 2.8037233e-07, No Iterations 2
+Min/max T:300 300
+
+Solving for solid region rightSolid
+DICPCG:  Solving for h, Initial residual = 0.27965772, Final residual = 8.6728474e-08, No Iterations 2
+Min/max T:300 300
+ExecutionTime = 0.35 s  ClockTime = 0 s
+
+Region: bottomWater Courant Number mean: 0.00068056963 max: 0.0010226808
+Region: topAir Courant Number mean: 0.064322862 max: 0.064727864
+Region: heater Diffusion Number mean: 0.0015482619 max: 0.00857499
+Region: leftSolid Diffusion Number mean: 0.0015594975 max: 0.0085749882
+Region: rightSolid Diffusion Number mean: 0.0015594975 max: 0.0085749882
+deltaT = 0.0051634343
+Time = 0.024964
+
+
+Solving for fluid region bottomWater
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+DILUPBiCGStab:  Solving for Ux, Initial residual = 0.0047831156, Final residual = 6.5962295e-11, No Iterations 1
+DILUPBiCGStab:  Solving for Uy, Initial residual = 0.11698068, Final residual = 2.6261455e-10, No Iterations 1
+DILUPBiCGStab:  Solving for Uz, Initial residual = 0.0073958617, Final residual = 6.0226882e-11, No Iterations 1
+DILUPBiCGStab:  Solving for h, Initial residual = 0.07413884, Final residual = 4.0220965e-10, No Iterations 1
+Min/max T:299.99999 302.69738
+GAMG:  Solving for p_rgh, Initial residual = 0.11943794, Final residual = 0.00056065524, No Iterations 3
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (bottomWater): sum local = 1.8154093e-09, global = -2.8726522e-10, cumulative = -1.4298535e-06
+GAMG:  Solving for p_rgh, Initial residual = 0.00066360898, Final residual = 6.6813387e-08, No Iterations 12
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (bottomWater): sum local = 1.8541817e-13, global = -7.3726615e-14, cumulative = -1.4298536e-06
+
+Solving for fluid region topAir
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+DILUPBiCGStab:  Solving for Ux, Initial residual = 0.11366241, Final residual = 2.569197e-09, No Iterations 2
+DILUPBiCGStab:  Solving for Uy, Initial residual = 0.11948529, Final residual = 7.6755583e-08, No Iterations 1
+DILUPBiCGStab:  Solving for Uz, Initial residual = 0.11602356, Final residual = 5.1366016e-08, No Iterations 2
+DILUPBiCGStab:  Solving for h, Initial residual = 0.0086355172, Final residual = 1.174029e-08, No Iterations 2
+Min/max T:299.99998 300
+GAMG:  Solving for p_rgh, Initial residual = 0.00068612573, Final residual = 5.8335882e-06, No Iterations 4
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (topAir): sum local = 1.3708153e-09, global = -5.7212775e-10, cumulative = 2.6536104e-06
+GAMG:  Solving for p_rgh, Initial residual = 3.477523e-05, Final residual = 9.5287409e-08, No Iterations 6
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (topAir): sum local = 2.4551354e-11, global = -2.9234383e-12, cumulative = 2.6536075e-06
+
+Solving for solid region heater
+DICPCG:  Solving for h, Initial residual = 0.06725924, Final residual = 3.7094347e-07, No Iterations 1
+Min/max T:300 500
+
+Solving for solid region leftSolid
+DICPCG:  Solving for h, Initial residual = 0.86174477, Final residual = 4.0116145e-07, No Iterations 2
+Min/max T:300 300
+
+Solving for solid region rightSolid
+DICPCG:  Solving for h, Initial residual = 0.26330975, Final residual = 1.1836724e-07, No Iterations 2
+Min/max T:300 300
+ExecutionTime = 0.36 s  ClockTime = 0 s
+
+Region: bottomWater Courant Number mean: 0.00081964706 max: 0.0012314265
+Region: topAir Courant Number mean: 0.077467305 max: 0.07807847
+Region: heater Diffusion Number mean: 0.0018645735 max: 0.01032687
+Region: leftSolid Diffusion Number mean: 0.0018781045 max: 0.010326867
+Region: rightSolid Diffusion Number mean: 0.0018781045 max: 0.010326867
+deltaT = 0.0061692981
+Time = 0.0311333
+
+
+Solving for fluid region bottomWater
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+DILUPBiCGStab:  Solving for Ux, Initial residual = 0.0042300528, Final residual = 8.4039033e-11, No Iterations 1
+DILUPBiCGStab:  Solving for Uy, Initial residual = 0.11129319, Final residual = 3.5477661e-10, No Iterations 1
+DILUPBiCGStab:  Solving for Uz, Initial residual = 0.0062623349, Final residual = 7.385213e-11, No Iterations 1
+DILUPBiCGStab:  Solving for h, Initial residual = 0.091904092, Final residual = 7.0977644e-10, No Iterations 1
+Min/max T:299.99999 303.39087
+GAMG:  Solving for p_rgh, Initial residual = 0.10936407, Final residual = 0.00049301037, No Iterations 3
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (bottomWater): sum local = 1.7438629e-09, global = -2.7898735e-10, cumulative = -1.4301326e-06
+GAMG:  Solving for p_rgh, Initial residual = 0.000577489, Final residual = 5.8691322e-08, No Iterations 12
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (bottomWater): sum local = 1.8042755e-13, global = -7.2315263e-14, cumulative = -1.4301327e-06
+
+Solving for fluid region topAir
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+DILUPBiCGStab:  Solving for Ux, Initial residual = 0.10794929, Final residual = 4.5367578e-09, No Iterations 2
+DILUPBiCGStab:  Solving for Uy, Initial residual = 0.11336572, Final residual = 1.2894817e-08, No Iterations 2
+DILUPBiCGStab:  Solving for Uz, Initial residual = 0.11041742, Final residual = 8.6209413e-08, No Iterations 2
+DILUPBiCGStab:  Solving for h, Initial residual = 0.010576464, Final residual = 2.6092784e-08, No Iterations 2
+Min/max T:299.99998 300
+GAMG:  Solving for p_rgh, Initial residual = 0.00076039468, Final residual = 4.7651537e-06, No Iterations 4
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (topAir): sum local = 1.5749975e-09, global = -5.8462786e-10, cumulative = 2.6530229e-06
+GAMG:  Solving for p_rgh, Initial residual = 4.3865849e-05, Final residual = 6.7613769e-08, No Iterations 7
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (topAir): sum local = 2.812567e-11, global = 1.0707613e-12, cumulative = 2.6530239e-06
+
+Solving for solid region heater
+DICPCG:  Solving for h, Initial residual = 0.063897661, Final residual = 5.0130937e-07, No Iterations 1
+Min/max T:300 500
+
+Solving for solid region leftSolid
+DICPCG:  Solving for h, Initial residual = 0.85222181, Final residual = 5.6525845e-07, No Iterations 2
+Min/max T:300 300
+
+Solving for solid region rightSolid
+DICPCG:  Solving for h, Initial residual = 0.24955871, Final residual = 1.6005743e-07, No Iterations 2
+Min/max T:300 300
+ExecutionTime = 0.38 s  ClockTime = 0 s
+
+Region: bottomWater Courant Number mean: 0.00097935735 max: 0.0014710474
+Region: topAir Courant Number mean: 0.092562912 max: 0.093469083
+Region: heater Diffusion Number mean: 0.0022278021 max: 0.012338598
+Region: leftSolid Diffusion Number mean: 0.002243969 max: 0.012338595
+Region: rightSolid Diffusion Number mean: 0.002243969 max: 0.012338595
+deltaT = 0.0074423278
+Time = 0.0385757
+
+
+Solving for fluid region bottomWater
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+DILUPBiCGStab:  Solving for Ux, Initial residual = 0.0038790268, Final residual = 1.1270202e-10, No Iterations 1
+DILUPBiCGStab:  Solving for Uy, Initial residual = 0.1079216, Final residual = 4.9905701e-10, No Iterations 1
+DILUPBiCGStab:  Solving for Uz, Initial residual = 0.0054676671, Final residual = 9.4267821e-11, No Iterations 1
+DILUPBiCGStab:  Solving for h, Initial residual = 0.10705437, Final residual = 1.2001185e-09, No Iterations 1
+Min/max T:299.99999 304.21416
+GAMG:  Solving for p_rgh, Initial residual = 0.10661367, Final residual = 0.00046329181, No Iterations 3
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (bottomWater): sum local = 1.8571164e-09, global = -2.979311e-10, cumulative = -1.4304306e-06
+GAMG:  Solving for p_rgh, Initial residual = 0.00054247511, Final residual = 5.5442752e-08, No Iterations 12
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (bottomWater): sum local = 1.9387523e-13, global = -7.8478725e-14, cumulative = -1.4304307e-06
+
+Solving for fluid region topAir
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+DILUPBiCGStab:  Solving for Ux, Initial residual = 0.10428269, Final residual = 8.2980131e-09, No Iterations 2
+DILUPBiCGStab:  Solving for Uy, Initial residual = 0.10978961, Final residual = 2.6304361e-08, No Iterations 2
+DILUPBiCGStab:  Solving for Uz, Initial residual = 0.10702704, Final residual = 2.9837695e-09, No Iterations 2
+DILUPBiCGStab:  Solving for h, Initial residual = 0.012656897, Final residual = 5.2927478e-08, No Iterations 2
+Min/max T:299.99998 300
+GAMG:  Solving for p_rgh, Initial residual = 0.00077845453, Final residual = 5.8477812e-06, No Iterations 4
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (topAir): sum local = 2.7573835e-09, global = -1.0393552e-09, cumulative = 2.6519846e-06
+GAMG:  Solving for p_rgh, Initial residual = 5.4748938e-05, Final residual = 7.6686936e-08, No Iterations 7
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (topAir): sum local = 4.3338864e-11, global = 3.6347208e-12, cumulative = 2.6519882e-06
+
+Solving for solid region heater
+DICPCG:  Solving for h, Initial residual = 0.061857183, Final residual = 7.031483e-07, No Iterations 1
+Min/max T:300 500
+
+Solving for solid region leftSolid
+DICPCG:  Solving for h, Initial residual = 0.84530724, Final residual = 8.1396839e-07, No Iterations 2
+Min/max T:300 300
+
+Solving for solid region rightSolid
+DICPCG:  Solving for h, Initial residual = 0.24096555, Final residual = 2.2470005e-07, No Iterations 2
+Min/max T:300 300
+ExecutionTime = 0.39 s  ClockTime = 0 s
+
+Region: bottomWater Courant Number mean: 0.0011814895 max: 0.001774261
+Region: topAir Courant Number mean: 0.11166982 max: 0.11301618
+Region: heater Diffusion Number mean: 0.0026875073 max: 0.014884657
+Region: leftSolid Diffusion Number mean: 0.0027070102 max: 0.014884654
+Region: rightSolid Diffusion Number mean: 0.0027070102 max: 0.014884654
+deltaT = 0.0088735447
+Time = 0.0474492
+
+
+Solving for fluid region bottomWater
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+DILUPBiCGStab:  Solving for Ux, Initial residual = 0.0035565774, Final residual = 1.4791637e-10, No Iterations 1
+DILUPBiCGStab:  Solving for Uy, Initial residual = 0.10400714, Final residual = 6.8037184e-10, No Iterations 1
+DILUPBiCGStab:  Solving for Uz, Initial residual = 0.0047291224, Final residual = 1.1976982e-10, No Iterations 1
+DILUPBiCGStab:  Solving for h, Initial residual = 0.11324854, Final residual = 1.8004708e-09, No Iterations 1
+Min/max T:299.99999 305.1997
+GAMG:  Solving for p_rgh, Initial residual = 0.096326693, Final residual = 0.00040726242, No Iterations 3
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (bottomWater): sum local = 1.8312213e-09, global = -2.9406705e-10, cumulative = -1.4307247e-06
+GAMG:  Solving for p_rgh, Initial residual = 0.00047187384, Final residual = 4.8288025e-08, No Iterations 12
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (bottomWater): sum local = 1.9202953e-13, global = -7.8031842e-14, cumulative = -1.4307248e-06
+
+Solving for fluid region topAir
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+DILUPBiCGStab:  Solving for Ux, Initial residual = 0.10017482, Final residual = 1.4256232e-08, No Iterations 2
+DILUPBiCGStab:  Solving for Uy, Initial residual = 0.10566462, Final residual = 5.2022327e-08, No Iterations 2
+DILUPBiCGStab:  Solving for Uz, Initial residual = 0.1031801, Final residual = 6.2102888e-09, No Iterations 2
+DILUPBiCGStab:  Solving for h, Initial residual = 0.015043035, Final residual = 3.6036526e-09, No Iterations 2
+Min/max T:299.99998 300
+GAMG:  Solving for p_rgh, Initial residual = 0.00086775672, Final residual = 6.9383992e-06, No Iterations 4
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (topAir): sum local = 4.5603441e-09, global = -1.7330247e-09, cumulative = 2.6502552e-06
+GAMG:  Solving for p_rgh, Initial residual = 7.123837e-05, Final residual = 9.0051496e-08, No Iterations 7
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (topAir): sum local = 6.6122877e-11, global = 1.347861e-11, cumulative = 2.6502687e-06
+
+Solving for solid region heater
+DICPCG:  Solving for h, Initial residual = 0.059573193, Final residual = 9.5787666e-07, No Iterations 1
+Min/max T:300 500
+
+Solving for solid region leftSolid
+DICPCG:  Solving for h, Initial residual = 0.83750376, Final residual = 2.33854e-09, No Iterations 3
+Min/max T:300 300
+
+Solving for solid region rightSolid
+DICPCG:  Solving for h, Initial residual = 0.23202432, Final residual = 3.0721457e-07, No Iterations 2
+Min/max T:300 300
+ExecutionTime = 0.41 s  ClockTime = 0 s
+
+Region: bottomWater Courant Number mean: 0.0014087463 max: 0.0021150789
+Region: topAir Courant Number mean: 0.13315415 max: 0.1351141
+Region: heater Diffusion Number mean: 0.0032043356 max: 0.017747091
+Region: leftSolid Diffusion Number mean: 0.0032275891 max: 0.017747088
+Region: rightSolid Diffusion Number mean: 0.0032275891 max: 0.017747088
+deltaT = 0.010524437
+Time = 0.0579737
+
+
+Solving for fluid region bottomWater
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+DILUPBiCGStab:  Solving for Ux, Initial residual = 0.003340459, Final residual = 1.9740956e-10, No Iterations 1
+DILUPBiCGStab:  Solving for Uy, Initial residual = 0.10059999, Final residual = 9.2089652e-10, No Iterations 1
+DILUPBiCGStab:  Solving for Uz, Initial residual = 0.0041803733, Final residual = 1.5784992e-10, No Iterations 1
+DILUPBiCGStab:  Solving for h, Initial residual = 0.11215269, Final residual = 2.5024562e-09, No Iterations 1
+Min/max T:299.99999 306.36404
+GAMG:  Solving for p_rgh, Initial residual = 0.088948102, Final residual = 0.00036547027, No Iterations 3
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (bottomWater): sum local = 1.8641937e-09, global = -2.9919987e-10, cumulative = -1.431024e-06
+GAMG:  Solving for p_rgh, Initial residual = 0.00042097587, Final residual = 9.0830543e-08, No Iterations 11
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (bottomWater): sum local = 4.1395239e-13, global = -1.7096172e-13, cumulative = -1.4310242e-06
+
+Solving for fluid region topAir
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+DILUPBiCGStab:  Solving for Ux, Initial residual = 0.096285852, Final residual = 2.3660478e-08, No Iterations 2
+DILUPBiCGStab:  Solving for Uy, Initial residual = 0.10218745, Final residual = 2.7874997e-09, No Iterations 2
+DILUPBiCGStab:  Solving for Uz, Initial residual = 0.09968399, Final residual = 1.2955263e-08, No Iterations 2
+DILUPBiCGStab:  Solving for h, Initial residual = 0.017692739, Final residual = 8.7892204e-09, No Iterations 2
+Min/max T:299.99998 300
+GAMG:  Solving for p_rgh, Initial residual = 0.00090713113, Final residual = 8.1490082e-06, No Iterations 4
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (topAir): sum local = 7.3547499e-09, global = -2.8136123e-09, cumulative = 2.6474551e-06
+GAMG:  Solving for p_rgh, Initial residual = 8.6783859e-05, Final residual = 7.9906567e-08, No Iterations 8
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (topAir): sum local = 7.9172969e-11, global = 1.6133757e-11, cumulative = 2.6474712e-06
+
+Solving for solid region heater
+DICPCG:  Solving for h, Initial residual = 0.05746397, Final residual = 3.1011776e-11, No Iterations 2
+Min/max T:300 500
+
+Solving for solid region leftSolid
+DICPCG:  Solving for h, Initial residual = 0.82982402, Final residual = 3.8616684e-09, No Iterations 3
+Min/max T:300 300
+
+Solving for solid region rightSolid
+DICPCG:  Solving for h, Initial residual = 0.22403797, Final residual = 4.1653974e-07, No Iterations 2
+Min/max T:300 300
+ExecutionTime = 0.42 s  ClockTime = 0 s
+
+Region: bottomWater Courant Number mean: 0.0016708918 max: 0.0025081666
+Region: topAir Courant Number mean: 0.1579401 max: 0.16075392
+Region: heater Diffusion Number mean: 0.0038004911 max: 0.021048876
+Region: leftSolid Diffusion Number mean: 0.0038280708 max: 0.021048871
+Region: rightSolid Diffusion Number mean: 0.0038280708 max: 0.021048871
+deltaT = 0.012629324
+Time = 0.070603
+
+
+Solving for fluid region bottomWater
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+DILUPBiCGStab:  Solving for Ux, Initial residual = 0.0032454252, Final residual = 2.7951239e-10, No Iterations 1
+DILUPBiCGStab:  Solving for Uy, Initial residual = 0.098926022, Final residual = 1.2986577e-09, No Iterations 1
+DILUPBiCGStab:  Solving for Uz, Initial residual = 0.0038237033, Final residual = 2.2156649e-10, No Iterations 1
+DILUPBiCGStab:  Solving for h, Initial residual = 0.10979118, Final residual = 3.5197049e-09, No Iterations 1
+Min/max T:299.99999 307.73007
+GAMG:  Solving for p_rgh, Initial residual = 0.087709648, Final residual = 0.00034731411, No Iterations 3
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (bottomWater): sum local = 2.0822488e-09, global = -3.3430356e-10, cumulative = -1.4313585e-06
+GAMG:  Solving for p_rgh, Initial residual = 0.00040112564, Final residual = 8.6467197e-08, No Iterations 11
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (bottomWater): sum local = 4.6413882e-13, global = -1.9294914e-13, cumulative = -1.4313587e-06
+
+Solving for fluid region topAir
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+DILUPBiCGStab:  Solving for Ux, Initial residual = 0.093958555, Final residual = 4.0552025e-08, No Iterations 2
+DILUPBiCGStab:  Solving for Uy, Initial residual = 0.10046384, Final residual = 6.4036063e-09, No Iterations 2
+DILUPBiCGStab:  Solving for Uz, Initial residual = 0.09786911, Final residual = 2.9604636e-08, No Iterations 2
+DILUPBiCGStab:  Solving for h, Initial residual = 0.021009952, Final residual = 2.2862774e-08, No Iterations 2
+Min/max T:299.99998 300
+GAMG:  Solving for p_rgh, Initial residual = 0.00088516914, Final residual = 4.533968e-06, No Iterations 5
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (topAir): sum local = 5.7198957e-09, global = -2.2970685e-09, cumulative = 2.6451741e-06
+GAMG:  Solving for p_rgh, Initial residual = 9.7860462e-05, Final residual = 9.5458897e-08, No Iterations 8
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (topAir): sum local = 1.3715715e-10, global = 3.850509e-11, cumulative = 2.6452126e-06
+
+Solving for solid region heater
+DICPCG:  Solving for h, Initial residual = 0.056373689, Final residual = 6.2327408e-11, No Iterations 2
+Min/max T:300 500
+
+Solving for solid region leftSolid
+DICPCG:  Solving for h, Initial residual = 0.82465033, Final residual = 6.6176289e-09, No Iterations 3
+Min/max T:300 300
+
+Solving for solid region rightSolid
+DICPCG:  Solving for h, Initial residual = 0.21989113, Final residual = 5.8669648e-07, No Iterations 2
+Min/max T:300 300
+ExecutionTime = 0.44 s  ClockTime = 0 s
+
+Region: bottomWater Courant Number mean: 0.0020051326 max: 0.0030093696
+Region: topAir Courant Number mean: 0.18954679 max: 0.19361393
+Region: heater Diffusion Number mean: 0.0045605893 max: 0.025258651
+Region: leftSolid Diffusion Number mean: 0.004593685 max: 0.025258646
+Region: rightSolid Diffusion Number mean: 0.004593685 max: 0.025258646
+deltaT = 0.015335608
+Time = 0.0859386
+
+
+Solving for fluid region bottomWater
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+DILUPBiCGStab:  Solving for Ux, Initial residual = 0.0032321032, Final residual = 4.1512703e-10, No Iterations 1
+DILUPBiCGStab:  Solving for Uy, Initial residual = 0.098376867, Final residual = 1.8986694e-09, No Iterations 1
+DILUPBiCGStab:  Solving for Uz, Initial residual = 0.0035266183, Final residual = 3.3296753e-10, No Iterations 1
+DILUPBiCGStab:  Solving for h, Initial residual = 0.10899802, Final residual = 5.1405977e-09, No Iterations 1
+Min/max T:299.99999 309.34813
+GAMG:  Solving for p_rgh, Initial residual = 0.085701418, Final residual = 0.00032779639, No Iterations 3
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (bottomWater): sum local = 2.3760334e-09, global = -3.8154892e-10, cumulative = -1.4317402e-06
+GAMG:  Solving for p_rgh, Initial residual = 0.00038013201, Final residual = 8.1562765e-08, No Iterations 11
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (bottomWater): sum local = 5.3119163e-13, global = -2.2218628e-13, cumulative = -1.4317405e-06
+
+Solving for fluid region topAir
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+DILUPBiCGStab:  Solving for Ux, Initial residual = 0.092783844, Final residual = 7.1086765e-08, No Iterations 2
+DILUPBiCGStab:  Solving for Uy, Initial residual = 0.099826331, Final residual = 1.5986721e-08, No Iterations 2
+DILUPBiCGStab:  Solving for Uz, Initial residual = 0.097284331, Final residual = 7.5625054e-08, No Iterations 2
+DILUPBiCGStab:  Solving for h, Initial residual = 0.025284051, Final residual = 6.3930992e-08, No Iterations 2
+Min/max T:299.99998 300
+GAMG:  Solving for p_rgh, Initial residual = 0.00088001443, Final residual = 5.4620895e-06, No Iterations 5
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (topAir): sum local = 9.7853001e-09, global = -3.9412215e-09, cumulative = 2.6412714e-06
+GAMG:  Solving for p_rgh, Initial residual = 0.00011706403, Final residual = 7.902314e-08, No Iterations 9
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (topAir): sum local = 1.7124569e-10, global = 4.3562776e-11, cumulative = 2.641315e-06
+
+Solving for solid region heater
+DICPCG:  Solving for h, Initial residual = 0.056067416, Final residual = 1.3276201e-10, No Iterations 2
+Min/max T:300 500
+
+Solving for solid region leftSolid
+DICPCG:  Solving for h, Initial residual = 0.82161644, Final residual = 1.1762999e-08, No Iterations 3
+Min/max T:300 300
+
+Solving for solid region rightSolid
+DICPCG:  Solving for h, Initial residual = 0.21868864, Final residual = 8.5404747e-07, No Iterations 2
+Min/max T:300 300
+ExecutionTime = 0.47 s  ClockTime = 0 s
+
+Region: bottomWater Courant Number mean: 0.0024348799 max: 0.00365381
+Region: topAir Courant Number mean: 0.23019123 max: 0.23614191
+Region: heater Diffusion Number mean: 0.0055378585 max: 0.030671219
+Region: leftSolid Diffusion Number mean: 0.0055780461 max: 0.030671213
+Region: rightSolid Diffusion Number mean: 0.0055780461 max: 0.030671213
+deltaT = 0.01800267
+Time = 0.103941
+
+
+Solving for fluid region bottomWater
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+DILUPBiCGStab:  Solving for Ux, Initial residual = 0.0031728067, Final residual = 5.6595708e-10, No Iterations 1
+DILUPBiCGStab:  Solving for Uy, Initial residual = 0.094793648, Final residual = 2.52148e-09, No Iterations 1
+DILUPBiCGStab:  Solving for Uz, Initial residual = 0.0031363508, Final residual = 4.6617147e-10, No Iterations 1
+DILUPBiCGStab:  Solving for h, Initial residual = 0.10510204, Final residual = 6.8151644e-09, No Iterations 1
+Min/max T:299.99999 311.28221
+GAMG:  Solving for p_rgh, Initial residual = 0.069063068, Final residual = 0.00025875219, No Iterations 3
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (bottomWater): sum local = 2.1606518e-09, global = -3.5007998e-10, cumulative = -1.4320905e-06
+GAMG:  Solving for p_rgh, Initial residual = 0.00029691725, Final residual = 6.3381846e-08, No Iterations 11
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (bottomWater): sum local = 4.8602096e-13, global = -2.0370462e-13, cumulative = -1.4320907e-06
+
+Solving for fluid region topAir
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+DILUPBiCGStab:  Solving for Ux, Initial residual = 0.088770308, Final residual = 5.8995625e-11, No Iterations 3
+DILUPBiCGStab:  Solving for Uy, Initial residual = 0.096180797, Final residual = 3.541509e-08, No Iterations 2
+DILUPBiCGStab:  Solving for Uz, Initial residual = 0.093773632, Final residual = 8.5731946e-11, No Iterations 3
+DILUPBiCGStab:  Solving for h, Initial residual = 0.029557962, Final residual = 1.2833907e-10, No Iterations 3
+Min/max T:299.99998 300
+GAMG:  Solving for p_rgh, Initial residual = 0.00097129868, Final residual = 6.2962068e-06, No Iterations 5
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (topAir): sum local = 1.5025395e-08, global = -6.0505271e-09, cumulative = 2.6352645e-06
+GAMG:  Solving for p_rgh, Initial residual = 0.00014186693, Final residual = 9.1641286e-08, No Iterations 9
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (topAir): sum local = 2.4773448e-10, global = 6.8791922e-11, cumulative = 2.6353332e-06
+
+Solving for solid region heater
+DICPCG:  Solving for h, Initial residual = 0.054025028, Final residual = 2.3947678e-10, No Iterations 2
+Min/max T:300 500
+
+Solving for solid region leftSolid
+DICPCG:  Solving for h, Initial residual = 0.81335145, Final residual = 1.8766273e-08, No Iterations 3
+Min/max T:300 300
+
+Solving for solid region rightSolid
+DICPCG:  Solving for h, Initial residual = 0.21124543, Final residual = 9.8356804e-09, No Iterations 3
+Min/max T:300 300
+ExecutionTime = 0.49 s  ClockTime = 0 s
+
+Region: bottomWater Courant Number mean: 0.0028584276 max: 0.0042888746
+Region: topAir Courant Number mean: 0.27026161 max: 0.27859854
+Region: heater Diffusion Number mean: 0.0065009643 max: 0.036005344
+Region: leftSolid Diffusion Number mean: 0.006548141 max: 0.036005337
+Region: rightSolid Diffusion Number mean: 0.006548141 max: 0.036005337
+deltaT = 0.022003263
+Time = 0.125945
+
+
+Solving for fluid region bottomWater
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+DILUPBiCGStab:  Solving for Ux, Initial residual = 0.0033916483, Final residual = 9.0447682e-10, No Iterations 1
+DILUPBiCGStab:  Solving for Uy, Initial residual = 0.095760296, Final residual = 3.7837093e-09, No Iterations 1
+DILUPBiCGStab:  Solving for Uz, Initial residual = 0.0030828904, Final residual = 7.4790482e-10, No Iterations 1
+DILUPBiCGStab:  Solving for h, Initial residual = 0.10563362, Final residual = 1.0207642e-08, No Iterations 1
+Min/max T:299.99999 313.51122
+GAMG:  Solving for p_rgh, Initial residual = 0.075234438, Final residual = 0.00027184649, No Iterations 3
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (bottomWater): sum local = 2.8826057e-09, global = -4.6154162e-10, cumulative = -1.4325523e-06
+GAMG:  Solving for p_rgh, Initial residual = 0.00031870538, Final residual = 6.671219e-08, No Iterations 11
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (bottomWater): sum local = 6.4442153e-13, global = -2.7222843e-13, cumulative = -1.4325526e-06
+
+Solving for fluid region topAir
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+DILUPBiCGStab:  Solving for Ux, Initial residual = 0.088335242, Final residual = 1.4696612e-10, No Iterations 3
+DILUPBiCGStab:  Solving for Uy, Initial residual = 0.097083044, Final residual = 3.818079e-10, No Iterations 3
+DILUPBiCGStab:  Solving for Uz, Initial residual = 0.094312038, Final residual = 2.7444522e-10, No Iterations 3
+DILUPBiCGStab:  Solving for h, Initial residual = 0.036004804, Final residual = 3.765903e-10, No Iterations 3
+Min/max T:299.99998 300
+GAMG:  Solving for p_rgh, Initial residual = 0.00084128012, Final residual = 7.4000986e-06, No Iterations 5
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (topAir): sum local = 2.502263e-08, global = -1.0091695e-08, cumulative = 2.6252416e-06
+GAMG:  Solving for p_rgh, Initial residual = 0.00015194305, Final residual = 7.5483698e-08, No Iterations 10
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (topAir): sum local = 3.0691684e-10, global = 5.8937626e-11, cumulative = 2.6253005e-06
+
+Solving for solid region heater
+DICPCG:  Solving for h, Initial residual = 0.054353082, Final residual = 5.2640886e-10, No Iterations 2
+Min/max T:300 500
+
+Solving for solid region leftSolid
+DICPCG:  Solving for h, Initial residual = 0.81229869, Final residual = 3.3963268e-08, No Iterations 3
+Min/max T:300 300
+
+Solving for solid region rightSolid
+DICPCG:  Solving for h, Initial residual = 0.21154677, Final residual = 1.8354517e-08, No Iterations 3
+Min/max T:300 300
+ExecutionTime = 0.5 s  ClockTime = 0 s
+
+Region: bottomWater Courant Number mean: 0.0034937498 max: 0.0052416557
+Region: topAir Courant Number mean: 0.3303744 max: 0.34254561
+Region: heater Diffusion Number mean: 0.007945623 max: 0.044006532
+Region: leftSolid Diffusion Number mean: 0.0080032835 max: 0.044006523
+Region: rightSolid Diffusion Number mean: 0.0080032835 max: 0.044006523
+deltaT = 0.026718248
+Time = 0.152663
+
+
+Solving for fluid region bottomWater
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+DILUPBiCGStab:  Solving for Ux, Initial residual = 0.0036163512, Final residual = 1.407197e-09, No Iterations 1
+DILUPBiCGStab:  Solving for Uy, Initial residual = 0.095389109, Final residual = 5.5514162e-09, No Iterations 1
+DILUPBiCGStab:  Solving for Uz, Initial residual = 0.0029590325, Final residual = 1.1463174e-09, No Iterations 1
+DILUPBiCGStab:  Solving for h, Initial residual = 0.10541581, Final residual = 1.4981827e-08, No Iterations 1
+Min/max T:299.99999 316.17519
+GAMG:  Solving for p_rgh, Initial residual = 0.066530465, Final residual = 0.00023499378, No Iterations 3
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (bottomWater): sum local = 3.1218674e-09, global = -4.998741e-10, cumulative = -1.4330524e-06
+GAMG:  Solving for p_rgh, Initial residual = 0.0002787111, Final residual = 5.6957158e-08, No Iterations 11
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (bottomWater): sum local = 6.9719216e-13, global = -2.956691e-13, cumulative = -1.4330527e-06
+
+Solving for fluid region topAir
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+DILUPBiCGStab:  Solving for Ux, Initial residual = 0.086993972, Final residual = 3.5599865e-10, No Iterations 3
+DILUPBiCGStab:  Solving for Uy, Initial residual = 0.096401852, Final residual = 1.034271e-09, No Iterations 3
+DILUPBiCGStab:  Solving for Uz, Initial residual = 0.093862387, Final residual = 9.2218004e-10, No Iterations 3
+DILUPBiCGStab:  Solving for h, Initial residual = 0.0434986, Final residual = 1.1307056e-09, No Iterations 3
+Min/max T:299.99998 300
+GAMG:  Solving for p_rgh, Initial residual = 0.00084860299, Final residual = 4.2256658e-06, No Iterations 6
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (topAir): sum local = 1.9877369e-08, global = -8.1288266e-09, cumulative = 2.6171717e-06
+GAMG:  Solving for p_rgh, Initial residual = 0.00017385582, Final residual = 9.148373e-08, No Iterations 10
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (topAir): sum local = 4.717436e-10, global = 1.3153816e-10, cumulative = 2.6173032e-06
+
+Solving for solid region heater
+DICPCG:  Solving for h, Initial residual = 0.054217566, Final residual = 1.1136539e-09, No Iterations 2
+Min/max T:300 500
+
+Solving for solid region leftSolid
+DICPCG:  Solving for h, Initial residual = 0.80983334, Final residual = 6.0028309e-08, No Iterations 3
+Min/max T:300 300
+
+Solving for solid region rightSolid
+DICPCG:  Solving for h, Initial residual = 0.21220733, Final residual = 3.4394402e-08, No Iterations 3
+Min/max T:300 300
+ExecutionTime = 0.51 s  ClockTime = 0 s
+
+Region: bottomWater Courant Number mean: 0.0042425611 max: 0.0063647105
+Region: topAir Courant Number mean: 0.40124811 max: 0.41884317
+Region: heater Diffusion Number mean: 0.0096482566 max: 0.053436503
+Region: leftSolid Diffusion Number mean: 0.0097182728 max: 0.053436492
+Region: rightSolid Diffusion Number mean: 0.0097182728 max: 0.053436492
+deltaT = 0.031576112
+Time = 0.184239
+
+
+Solving for fluid region bottomWater
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+DILUPBiCGStab:  Solving for Ux, Initial residual = 0.0038591585, Final residual = 2.0534554e-09, No Iterations 1
+DILUPBiCGStab:  Solving for Uy, Initial residual = 0.092934497, Final residual = 7.5126754e-09, No Iterations 1
+DILUPBiCGStab:  Solving for Uz, Initial residual = 0.002820427, Final residual = 1.6241178e-09, No Iterations 1
+DILUPBiCGStab:  Solving for h, Initial residual = 0.1026425, Final residual = 2.0319267e-08, No Iterations 1
+Min/max T:299.99999 319.32362
+GAMG:  Solving for p_rgh, Initial residual = 0.053452616, Final residual = 0.00018553292, No Iterations 3
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (bottomWater): sum local = 2.9975874e-09, global = -4.846371e-10, cumulative = -1.4335374e-06
+GAMG:  Solving for p_rgh, Initial residual = 0.0002221493, Final residual = 9.2681703e-08, No Iterations 10
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (bottomWater): sum local = 1.4032295e-12, global = -5.9892445e-13, cumulative = -1.433538e-06
+
+Solving for fluid region topAir
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+DILUPBiCGStab:  Solving for Ux, Initial residual = 0.083302697, Final residual = 7.3135257e-10, No Iterations 3
+DILUPBiCGStab:  Solving for Uy, Initial residual = 0.093540669, Final residual = 2.6907844e-09, No Iterations 3
+DILUPBiCGStab:  Solving for Uz, Initial residual = 0.091076843, Final residual = 1.1465745e-09, No Iterations 3
+DILUPBiCGStab:  Solving for h, Initial residual = 0.051176725, Final residual = 3.0463998e-09, No Iterations 3
+Min/max T:299.99998 300
+GAMG:  Solving for p_rgh, Initial residual = 0.00086958893, Final residual = 4.9378736e-06, No Iterations 6
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (topAir): sum local = 3.0642387e-08, global = -1.2573818e-08, cumulative = 2.6047294e-06
+GAMG:  Solving for p_rgh, Initial residual = 0.00019858533, Final residual = 7.469247e-08, No Iterations 11
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (topAir): sum local = 5.6042252e-10, global = 9.2525964e-11, cumulative = 2.6048219e-06
+
+Solving for solid region heater
+DICPCG:  Solving for h, Initial residual = 0.052672649, Final residual = 2.0568988e-09, No Iterations 2
+Min/max T:300 500
+
+Solving for solid region leftSolid
+DICPCG:  Solving for h, Initial residual = 0.80280323, Final residual = 9.7183385e-08, No Iterations 3
+Min/max T:300 300
+
+Solving for solid region rightSolid
+DICPCG:  Solving for h, Initial residual = 0.21339213, Final residual = 6.1111129e-08, No Iterations 3
+Min/max T:300 300
+ExecutionTime = 0.53 s  ClockTime = 0 s
+
+Region: bottomWater Courant Number mean: 0.0050141264 max: 0.0075219922
+Region: topAir Courant Number mean: 0.47431067 max: 0.49894175
+Region: heater Diffusion Number mean: 0.011402485 max: 0.063152231
+Region: leftSolid Diffusion Number mean: 0.011485231 max: 0.063152217
+Region: rightSolid Diffusion Number mean: 0.011485231 max: 0.063152217
+deltaT = 0.035084569
+Time = 0.219323
+
+
+Solving for fluid region bottomWater
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+DILUPBiCGStab:  Solving for Ux, Initial residual = 0.0039806609, Final residual = 2.5430983e-09, No Iterations 1
+DILUPBiCGStab:  Solving for Uy, Initial residual = 0.086247836, Final residual = 8.514004e-09, No Iterations 1
+DILUPBiCGStab:  Solving for Uz, Initial residual = 0.0026499953, Final residual = 1.9877774e-09, No Iterations 1
+DILUPBiCGStab:  Solving for h, Initial residual = 0.09483139, Final residual = 2.3110657e-08, No Iterations 1
+Min/max T:299.99999 322.92807
+GAMG:  Solving for p_rgh, Initial residual = 0.034903613, Final residual = 0.00011898555, No Iterations 3
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (bottomWater): sum local = 2.1433162e-09, global = -3.6421686e-10, cumulative = -1.4339022e-06
+GAMG:  Solving for p_rgh, Initial residual = 0.00014311673, Final residual = 5.9715581e-08, No Iterations 10
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (bottomWater): sum local = 1.0321953e-12, global = -4.3945538e-13, cumulative = -1.4339026e-06
+
+Solving for fluid region topAir
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+DILUPBiCGStab:  Solving for Ux, Initial residual = 0.075535683, Final residual = 1.0631371e-09, No Iterations 3
+DILUPBiCGStab:  Solving for Uy, Initial residual = 0.086278687, Final residual = 5.935022e-09, No Iterations 3
+DILUPBiCGStab:  Solving for Uz, Initial residual = 0.08384557, Final residual = 2.5201663e-09, No Iterations 3
+DILUPBiCGStab:  Solving for h, Initial residual = 0.056759323, Final residual = 6.1259759e-09, No Iterations 3
+Min/max T:299.99998 300
+GAMG:  Solving for p_rgh, Initial residual = 0.00090696941, Final residual = 5.395362e-06, No Iterations 6
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (topAir): sum local = 3.9619472e-08, global = -1.6423638e-08, cumulative = 2.5883983e-06
+GAMG:  Solving for p_rgh, Initial residual = 0.0002105709, Final residual = 8.1626927e-08, No Iterations 11
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (topAir): sum local = 6.9701202e-10, global = 1.6347925e-10, cumulative = 2.5885617e-06
+
+Solving for solid region heater
+DICPCG:  Solving for h, Initial residual = 0.04847497, Final residual = 2.829032e-09, No Iterations 2
+Min/max T:300 500
+
+Solving for solid region leftSolid
+DICPCG:  Solving for h, Initial residual = 0.785593, Final residual = 1.2930756e-07, No Iterations 3
+Min/max T:300 300
+
+Solving for solid region rightSolid
+DICPCG:  Solving for h, Initial residual = 0.21043448, Final residual = 9.6764438e-08, No Iterations 3
+Min/max T:300 300
+ExecutionTime = 0.55 s  ClockTime = 0 s
+
+Region: bottomWater Courant Number mean: 0.0055714727 max: 0.008358069
+Region: topAir Courant Number mean: 0.52714262 max: 0.55912064
+Region: heater Diffusion Number mean: 0.012669428 max: 0.070169145
+Region: leftSolid Diffusion Number mean: 0.012761368 max: 0.07016913
+Region: rightSolid Diffusion Number mean: 0.012761368 max: 0.07016913
+deltaT = 0.04009665
+Time = 0.25942
+
+
+Solving for fluid region bottomWater
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+DILUPBiCGStab:  Solving for Ux, Initial residual = 0.0043514719, Final residual = 3.5501785e-09, No Iterations 1
+DILUPBiCGStab:  Solving for Uy, Initial residual = 0.083636692, Final residual = 1.0576555e-08, No Iterations 1
+DILUPBiCGStab:  Solving for Uz, Initial residual = 0.0027246418, Final residual = 2.7845249e-09, No Iterations 1
+DILUPBiCGStab:  Solving for h, Initial residual = 0.090801957, Final residual = 2.8815885e-08, No Iterations 1
+Min/max T:299.99999 326.7948
+GAMG:  Solving for p_rgh, Initial residual = 0.037636639, Final residual = 0.00012701481, No Iterations 3
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (bottomWater): sum local = 2.7571415e-09, global = -4.5237925e-10, cumulative = -1.434355e-06
+GAMG:  Solving for p_rgh, Initial residual = 0.00015553295, Final residual = 6.2294368e-08, No Iterations 10
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (bottomWater): sum local = 1.2929043e-12, global = -5.5350454e-13, cumulative = -1.4343555e-06
+
+Solving for fluid region topAir
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+DILUPBiCGStab:  Solving for Ux, Initial residual = 0.070836709, Final residual = 1.7771344e-09, No Iterations 3
+DILUPBiCGStab:  Solving for Uy, Initial residual = 0.082665813, Final residual = 4.0635686e-09, No Iterations 3
+DILUPBiCGStab:  Solving for Uz, Initial residual = 0.080100047, Final residual = 2.8737444e-09, No Iterations 3
+DILUPBiCGStab:  Solving for h, Initial residual = 0.064424754, Final residual = 1.2134377e-08, No Iterations 3
+Min/max T:299.99998 300
+GAMG:  Solving for p_rgh, Initial residual = 0.00078644603, Final residual = 6.1138494e-06, No Iterations 6
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (topAir): sum local = 5.5456312e-08, global = -2.3589518e-08, cumulative = 2.5649722e-06
+GAMG:  Solving for p_rgh, Initial residual = 0.00021562363, Final residual = 8.5284158e-08, No Iterations 11
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (topAir): sum local = 8.4629418e-10, global = 2.3740205e-10, cumulative = 2.5652096e-06
+
+Solving for solid region heater
+DICPCG:  Solving for h, Initial residual = 0.046359039, Final residual = 4.4914377e-09, No Iterations 2
+Min/max T:300 500
+
+Solving for solid region leftSolid
+DICPCG:  Solving for h, Initial residual = 0.77512806, Final residual = 1.8795282e-07, No Iterations 3
+Min/max T:300 300
+
+Solving for solid region rightSolid
+DICPCG:  Solving for h, Initial residual = 0.22651375, Final residual = 1.8190155e-07, No Iterations 3
+Min/max T:300 300
+ExecutionTime = 0.56 s  ClockTime = 0 s
+
+Region: bottomWater Courant Number mean: 0.0063676683 max: 0.0095527158
+Region: topAir Courant Number mean: 0.60261516 max: 0.64523723
+Region: heater Diffusion Number mean: 0.014479346 max: 0.080193309
+Region: leftSolid Diffusion Number mean: 0.014584421 max: 0.080193292
+Region: rightSolid Diffusion Number mean: 0.014584421 max: 0.080193292
+deltaT = 0.04009665
+Time = 0.299517
+
+
+Solving for fluid region bottomWater
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+DILUPBiCGStab:  Solving for Ux, Initial residual = 0.0041822585, Final residual = 3.3217617e-09, No Iterations 1
+DILUPBiCGStab:  Solving for Uy, Initial residual = 0.071518622, Final residual = 8.909026e-09, No Iterations 1
+DILUPBiCGStab:  Solving for Uz, Initial residual = 0.0024444889, Final residual = 2.608662e-09, No Iterations 1
+DILUPBiCGStab:  Solving for h, Initial residual = 0.077331723, Final residual = 2.4466951e-08, No Iterations 1
+Min/max T:299.99999 331.0413
+GAMG:  Solving for p_rgh, Initial residual = 0.010006089, Final residual = 9.2131205e-05, No Iterations 2
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (bottomWater): sum local = 1.8953843e-09, global = -2.5960116e-10, cumulative = -1.4346151e-06
+GAMG:  Solving for p_rgh, Initial residual = 9.7846648e-05, Final residual = 7.9057103e-08, No Iterations 9
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (bottomWater): sum local = 1.6127555e-12, global = -6.7080101e-13, cumulative = -1.4346158e-06
+
+Solving for fluid region topAir
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+DILUPBiCGStab:  Solving for Ux, Initial residual = 0.059098597, Final residual = 1.4842994e-09, No Iterations 3
+DILUPBiCGStab:  Solving for Uy, Initial residual = 0.069806778, Final residual = 4.1392019e-09, No Iterations 3
+DILUPBiCGStab:  Solving for Uz, Initial residual = 0.067880587, Final residual = 1.9506304e-09, No Iterations 3
+DILUPBiCGStab:  Solving for h, Initial residual = 0.064238062, Final residual = 6.1914014e-09, No Iterations 3
+Min/max T:299.99998 300
+GAMG:  Solving for p_rgh, Initial residual = 0.00096325145, Final residual = 5.8461779e-06, No Iterations 6
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (topAir): sum local = 5.2740086e-08, global = -2.3346914e-08, cumulative = 2.5418627e-06
+GAMG:  Solving for p_rgh, Initial residual = 0.00023212564, Final residual = 8.487073e-08, No Iterations 11
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (topAir): sum local = 8.6404792e-10, global = 2.5916035e-10, cumulative = 2.5421219e-06
+
+Solving for solid region heater
+DICPCG:  Solving for h, Initial residual = 0.039339553, Final residual = 3.7949437e-09, No Iterations 2
+Min/max T:300 500
+
+Solving for solid region leftSolid
+DICPCG:  Solving for h, Initial residual = 0.73893659, Final residual = 1.7864319e-07, No Iterations 3
+Min/max T:300 300
+
+Solving for solid region rightSolid
+DICPCG:  Solving for h, Initial residual = 0.21961665, Final residual = 2.0026326e-07, No Iterations 3
+Min/max T:300 300
+ExecutionTime = 0.59 s  ClockTime = 0 s
+
+Region: bottomWater Courant Number mean: 0.0063679403 max: 0.0095534882
+Region: topAir Courant Number mean: 0.6027774 max: 0.65132484
+Region: heater Diffusion Number mean: 0.014479346 max: 0.080193309
+Region: leftSolid Diffusion Number mean: 0.014584421 max: 0.080193292
+Region: rightSolid Diffusion Number mean: 0.014584421 max: 0.080193292
+deltaT = 0.04009665
+Time = 0.339613
+
+
+Solving for fluid region bottomWater
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+DILUPBiCGStab:  Solving for Ux, Initial residual = 0.0041275396, Final residual = 3.2657602e-09, No Iterations 1
+DILUPBiCGStab:  Solving for Uy, Initial residual = 0.063617251, Final residual = 7.6654184e-09, No Iterations 1
+DILUPBiCGStab:  Solving for Uz, Initial residual = 0.0023596339, Final residual = 2.5581196e-09, No Iterations 1
+DILUPBiCGStab:  Solving for h, Initial residual = 0.06711585, Final residual = 2.1171683e-08, No Iterations 1
+Min/max T:299.99999 335.12271
+GAMG:  Solving for p_rgh, Initial residual = 0.0093315534, Final residual = 8.6692807e-05, No Iterations 2
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (bottomWater): sum local = 1.7548608e-09, global = -2.3763104e-10, cumulative = -1.4348535e-06
+GAMG:  Solving for p_rgh, Initial residual = 9.1614335e-05, Final residual = 7.3886449e-08, No Iterations 9
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (bottomWater): sum local = 1.4836238e-12, global = -6.201863e-13, cumulative = -1.4348541e-06
+
+Solving for fluid region topAir
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+DILUPBiCGStab:  Solving for Ux, Initial residual = 0.050262538, Final residual = 1.2556619e-09, No Iterations 3
+DILUPBiCGStab:  Solving for Uy, Initial residual = 0.060895906, Final residual = 1.7979387e-09, No Iterations 3
+DILUPBiCGStab:  Solving for Uz, Initial residual = 0.058894403, Final residual = 2.3424435e-09, No Iterations 3
+DILUPBiCGStab:  Solving for h, Initial residual = 0.063723483, Final residual = 7.2420987e-09, No Iterations 3
+Min/max T:299.99998 300
+GAMG:  Solving for p_rgh, Initial residual = 0.00072066527, Final residual = 5.5391398e-06, No Iterations 6
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (topAir): sum local = 4.9705635e-08, global = -2.3059815e-08, cumulative = 2.5190621e-06
+GAMG:  Solving for p_rgh, Initial residual = 0.00019453486, Final residual = 8.4913198e-08, No Iterations 11
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (topAir): sum local = 8.6522647e-10, global = 2.7483566e-10, cumulative = 2.5193369e-06
+
+Solving for solid region heater
+DICPCG:  Solving for h, Initial residual = 0.034125732, Final residual = 3.2762208e-09, No Iterations 2
+Min/max T:300 500
+
+Solving for solid region leftSolid
+DICPCG:  Solving for h, Initial residual = 0.7052518, Final residual = 1.6991543e-07, No Iterations 3
+Min/max T:300 300
+
+Solving for solid region rightSolid
+DICPCG:  Solving for h, Initial residual = 0.21897549, Final residual = 1.6487642e-07, No Iterations 3
+Min/max T:300 300
+ExecutionTime = 0.61 s  ClockTime = 0 s
+
+Region: bottomWater Courant Number mean: 0.006368221 max: 0.0095543622
+Region: topAir Courant Number mean: 0.60293555 max: 0.65726291
+Region: heater Diffusion Number mean: 0.014479346 max: 0.080193309
+Region: leftSolid Diffusion Number mean: 0.014584421 max: 0.080193292
+Region: rightSolid Diffusion Number mean: 0.014584421 max: 0.080193292
+deltaT = 0.04009665
+Time = 0.37971
+
+
+Solving for fluid region bottomWater
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+DILUPBiCGStab:  Solving for Ux, Initial residual = 0.0040812948, Final residual = 3.2212514e-09, No Iterations 1
+DILUPBiCGStab:  Solving for Uy, Initial residual = 0.057023764, Final residual = 6.7713279e-09, No Iterations 1
+DILUPBiCGStab:  Solving for Uz, Initial residual = 0.0022796993, Final residual = 2.5062398e-09, No Iterations 1
+DILUPBiCGStab:  Solving for h, Initial residual = 0.059147119, Final residual = 1.8603416e-08, No Iterations 1
+Min/max T:299.99999 339.04622
+GAMG:  Solving for p_rgh, Initial residual = 0.0088211395, Final residual = 8.2212586e-05, No Iterations 2
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (bottomWater): sum local = 1.638602e-09, global = -2.180773e-10, cumulative = -1.4350721e-06
+GAMG:  Solving for p_rgh, Initial residual = 8.6578412e-05, Final residual = 6.9099177e-08, No Iterations 9
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (bottomWater): sum local = 1.3666424e-12, global = -5.7392339e-13, cumulative = -1.4350727e-06
+
+Solving for fluid region topAir
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+DILUPBiCGStab:  Solving for Ux, Initial residual = 0.043393707, Final residual = 1.0737447e-09, No Iterations 3
+DILUPBiCGStab:  Solving for Uy, Initial residual = 0.053419647, Final residual = 2.1598139e-09, No Iterations 3
+DILUPBiCGStab:  Solving for Uz, Initial residual = 0.051793187, Final residual = 2.5670664e-09, No Iterations 3
+DILUPBiCGStab:  Solving for h, Initial residual = 0.062885677, Final residual = 5.0738348e-09, No Iterations 3
+Min/max T:299.99998 300
+GAMG:  Solving for p_rgh, Initial residual = 0.00063593661, Final residual = 5.2305505e-06, No Iterations 6
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (topAir): sum local = 4.6631687e-08, global = -2.2912788e-08, cumulative = 2.4964241e-06
+GAMG:  Solving for p_rgh, Initial residual = 0.00019121799, Final residual = 8.3714175e-08, No Iterations 11
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (topAir): sum local = 8.877584e-10, global = 2.5678732e-10, cumulative = 2.4966809e-06
+
+Solving for solid region heater
+DICPCG:  Solving for h, Initial residual = 0.030102255, Final residual = 2.8747186e-09, No Iterations 2
+Min/max T:300 500
+
+Solving for solid region leftSolid
+DICPCG:  Solving for h, Initial residual = 0.67106193, Final residual = 1.6106472e-07, No Iterations 3
+Min/max T:300 300
+
+Solving for solid region rightSolid
+DICPCG:  Solving for h, Initial residual = 0.21257504, Final residual = 1.2500454e-07, No Iterations 3
+Min/max T:300 300
+ExecutionTime = 0.63 s  ClockTime = 0 s
+
+Region: bottomWater Courant Number mean: 0.0063685004 max: 0.0095553138
+Region: topAir Courant Number mean: 0.60308974 max: 0.6630558
+Region: heater Diffusion Number mean: 0.014479346 max: 0.080193309
+Region: leftSolid Diffusion Number mean: 0.014584421 max: 0.080193292
+Region: rightSolid Diffusion Number mean: 0.014584421 max: 0.080193292
+deltaT = 0.04009665
+Time = 0.419807
+
+
+Solving for fluid region bottomWater
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+DILUPBiCGStab:  Solving for Ux, Initial residual = 0.0040433647, Final residual = 3.1801067e-09, No Iterations 1
+DILUPBiCGStab:  Solving for Uy, Initial residual = 0.051529323, Final residual = 6.0600033e-09, No Iterations 1
+DILUPBiCGStab:  Solving for Uz, Initial residual = 0.002203423, Final residual = 2.4541209e-09, No Iterations 1
+DILUPBiCGStab:  Solving for h, Initial residual = 0.052789772, Final residual = 1.6556049e-08, No Iterations 1
+Min/max T:299.99999 342.81869
+GAMG:  Solving for p_rgh, Initial residual = 0.0080866011, Final residual = 7.7300233e-05, No Iterations 2
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (bottomWater): sum local = 1.5182013e-09, global = -2.0077521e-10, cumulative = -1.4352735e-06
+GAMG:  Solving for p_rgh, Initial residual = 8.1038828e-05, Final residual = 6.4851535e-08, No Iterations 9
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (bottomWater): sum local = 1.2644672e-12, global = -5.3184494e-13, cumulative = -1.435274e-06
+
+Solving for fluid region topAir
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+DILUPBiCGStab:  Solving for Ux, Initial residual = 0.037897401, Final residual = 9.2717126e-10, No Iterations 3
+DILUPBiCGStab:  Solving for Uy, Initial residual = 0.047274515, Final residual = 2.4660481e-09, No Iterations 3
+DILUPBiCGStab:  Solving for Uz, Initial residual = 0.04608247, Final residual = 2.58719e-09, No Iterations 3
+DILUPBiCGStab:  Solving for h, Initial residual = 0.061846169, Final residual = 5.4116239e-09, No Iterations 3
+Min/max T:299.99998 300.00001
+GAMG:  Solving for p_rgh, Initial residual = 0.0006096436, Final residual = 4.9270862e-06, No Iterations 6
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (topAir): sum local = 4.3740431e-08, global = -2.2878387e-08, cumulative = 2.4738025e-06
+GAMG:  Solving for p_rgh, Initial residual = 0.00019396523, Final residual = 8.0763138e-08, No Iterations 11
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (topAir): sum local = 8.5255648e-10, global = 2.1609256e-10, cumulative = 2.4740186e-06
+
+Solving for solid region heater
+DICPCG:  Solving for h, Initial residual = 0.026904832, Final residual = 2.5545589e-09, No Iterations 2
+Min/max T:300 500
+
+Solving for solid region leftSolid
+DICPCG:  Solving for h, Initial residual = 0.63790071, Final residual = 1.5246499e-07, No Iterations 3
+Min/max T:300 300
+
+Solving for solid region rightSolid
+DICPCG:  Solving for h, Initial residual = 0.19592374, Final residual = 9.5915709e-08, No Iterations 3
+Min/max T:300 300
+ExecutionTime = 0.64 s  ClockTime = 0 s
+
+Region: bottomWater Courant Number mean: 0.006368777 max: 0.0095563253
+Region: topAir Courant Number mean: 0.60324009 max: 0.66870782
+Region: heater Diffusion Number mean: 0.014479346 max: 0.080193309
+Region: leftSolid Diffusion Number mean: 0.014584421 max: 0.080193292
+Region: rightSolid Diffusion Number mean: 0.014584421 max: 0.080193292
+deltaT = 0.04009665
+Time = 0.459903
+
+
+Solving for fluid region bottomWater
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+DILUPBiCGStab:  Solving for Ux, Initial residual = 0.0040090325, Final residual = 3.1397121e-09, No Iterations 1
+DILUPBiCGStab:  Solving for Uy, Initial residual = 0.046931207, Final residual = 5.4708939e-09, No Iterations 1
+DILUPBiCGStab:  Solving for Uz, Initial residual = 0.0021355048, Final residual = 2.4014374e-09, No Iterations 1
+DILUPBiCGStab:  Solving for h, Initial residual = 0.047613073, Final residual = 1.4890132e-08, No Iterations 1
+Min/max T:299.99999 346.44665
+GAMG:  Solving for p_rgh, Initial residual = 0.0076164685, Final residual = 7.2994919e-05, No Iterations 2
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (bottomWater): sum local = 1.4139585e-09, global = -1.8564064e-10, cumulative = -1.4354597e-06
+GAMG:  Solving for p_rgh, Initial residual = 7.6224198e-05, Final residual = 6.0855936e-08, No Iterations 9
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (bottomWater): sum local = 1.1707905e-12, global = -4.9238439e-13, cumulative = -1.4354602e-06
+
+Solving for fluid region topAir
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+DILUPBiCGStab:  Solving for Ux, Initial residual = 0.03339805, Final residual = 8.0847098e-10, No Iterations 3
+DILUPBiCGStab:  Solving for Uy, Initial residual = 0.042189218, Final residual = 2.4561001e-09, No Iterations 3
+DILUPBiCGStab:  Solving for Uz, Initial residual = 0.04140449, Final residual = 2.4351971e-09, No Iterations 3
+DILUPBiCGStab:  Solving for h, Initial residual = 0.060525235, Final residual = 6.378987e-09, No Iterations 3
+Min/max T:299.99998 300.00001
+GAMG:  Solving for p_rgh, Initial residual = 0.0006008473, Final residual = 4.6263981e-06, No Iterations 6
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (topAir): sum local = 4.0902025e-08, global = -2.2710325e-08, cumulative = 2.4513083e-06
+GAMG:  Solving for p_rgh, Initial residual = 0.00019592243, Final residual = 8.1986436e-08, No Iterations 11
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (topAir): sum local = 8.4822356e-10, global = 2.4139953e-10, cumulative = 2.4515497e-06
+
+Solving for solid region heater
+DICPCG:  Solving for h, Initial residual = 0.024304032, Final residual = 2.2931604e-09, No Iterations 2
+Min/max T:300 500
+
+Solving for solid region leftSolid
+DICPCG:  Solving for h, Initial residual = 0.60712634, Final residual = 1.4442808e-07, No Iterations 3
+Min/max T:300 300
+
+Solving for solid region rightSolid
+DICPCG:  Solving for h, Initial residual = 0.17113612, Final residual = 7.3590529e-08, No Iterations 3
+Min/max T:300 300.00001
+ExecutionTime = 0.66 s  ClockTime = 0 s
+
+Region: bottomWater Courant Number mean: 0.0063690499 max: 0.0095573847
+Region: topAir Courant Number mean: 0.60338671 max: 0.67422284
+Region: heater Diffusion Number mean: 0.014479346 max: 0.080193309
+Region: leftSolid Diffusion Number mean: 0.014584421 max: 0.080193292
+Region: rightSolid Diffusion Number mean: 0.014584421 max: 0.080193292
+deltaT = 0.04009665
+Time = 0.5
+
+
+Solving for fluid region bottomWater
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+DILUPBiCGStab:  Solving for Ux, Initial residual = 0.0039756498, Final residual = 3.1006291e-09, No Iterations 1
+DILUPBiCGStab:  Solving for Uy, Initial residual = 0.043041088, Final residual = 4.9983417e-09, No Iterations 1
+DILUPBiCGStab:  Solving for Uz, Initial residual = 0.0020783404, Final residual = 2.3499629e-09, No Iterations 1
+DILUPBiCGStab:  Solving for h, Initial residual = 0.043323353, Final residual = 1.3510639e-08, No Iterations 1
+Min/max T:299.99999 349.93635
+GAMG:  Solving for p_rgh, Initial residual = 0.0072093494, Final residual = 6.9085536e-05, No Iterations 2
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (bottomWater): sum local = 1.3208985e-09, global = -1.7224416e-10, cumulative = -1.4356324e-06
+GAMG:  Solving for p_rgh, Initial residual = 7.1908521e-05, Final residual = 5.7013689e-08, No Iterations 9
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (bottomWater): sum local = 1.0830452e-12, global = -4.5599393e-13, cumulative = -1.4356329e-06
+
+Solving for fluid region topAir
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+DILUPBiCGStab:  Solving for Ux, Initial residual = 0.02964622, Final residual = 7.1134196e-10, No Iterations 3
+DILUPBiCGStab:  Solving for Uy, Initial residual = 0.037937197, Final residual = 2.2440836e-09, No Iterations 3
+DILUPBiCGStab:  Solving for Uz, Initial residual = 0.037508924, Final residual = 2.1750976e-09, No Iterations 3
+DILUPBiCGStab:  Solving for h, Initial residual = 0.058968344, Final residual = 6.71801e-09, No Iterations 3
+Min/max T:299.99998 300.00002
+GAMG:  Solving for p_rgh, Initial residual = 0.00059460041, Final residual = 4.4252287e-06, No Iterations 6
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (topAir): sum local = 3.8994462e-08, global = -2.242128e-08, cumulative = 2.4291284e-06
+GAMG:  Solving for p_rgh, Initial residual = 0.00019705856, Final residual = 8.2929732e-08, No Iterations 11
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (topAir): sum local = 8.5167733e-10, global = 2.2873407e-10, cumulative = 2.4293571e-06
+
+Solving for solid region heater
+DICPCG:  Solving for h, Initial residual = 0.022148167, Final residual = 2.0755932e-09, No Iterations 2
+Min/max T:300 500
+
+Solving for solid region leftSolid
+DICPCG:  Solving for h, Initial residual = 0.57815881, Final residual = 1.3679287e-07, No Iterations 3
+Min/max T:300 300
+
+Solving for solid region rightSolid
+DICPCG:  Solving for h, Initial residual = 0.15102076, Final residual = 6.1415587e-08, No Iterations 3
+Min/max T:300 300.00001
+ExecutionTime = 0.71 s  ClockTime = 0 s
+
+vtkWrite output Time: 0.5
+    Internal  : "postProcessing/vtkWrite/bottomWater/mrhApp_00000027/internal.vtu"
+    Boundary  : "postProcessing/vtkWrite/bottomWater/mrhApp_00000027/boundary/minX.vtp"
+    Boundary  : "postProcessing/vtkWrite/bottomWater/mrhApp_00000027/boundary/maxX.vtp"
+    Boundary  : "postProcessing/vtkWrite/bottomWater/mrhApp_00000027/boundary/minY.vtp"
+    Boundary  : "postProcessing/vtkWrite/bottomWater/mrhApp_00000027/boundary/minZ.vtp"
+    Boundary  : "postProcessing/vtkWrite/bottomWater/mrhApp_00000027/boundary/maxZ.vtp"
+    Boundary  : "postProcessing/vtkWrite/bottomWater/mrhApp_00000027/boundary/bottomWater_to_rightSolid.vtp"
+    Boundary  : "postProcessing/vtkWrite/bottomWater/mrhApp_00000027/boundary/bottomWater_to_leftSolid.vtp"
+    Boundary  : "postProcessing/vtkWrite/bottomWater/mrhApp_00000027/boundary/bottomWater_to_heater.vtp"
+    volScalarField(K Qdot T dpdt gh h p p_rgh rho thermo:alpha thermo:mu thermo:psi thermo:rho)
+    volVectorField(U)
+    volScalarField->point(K Qdot T dpdt gh h p p_rgh rho thermo:alpha thermo:mu thermo:psi thermo:rho)
+    volVectorField->point(U)
+    Internal  : "postProcessing/vtkWrite/heater/mrhApp_00000027/internal.vtu"
+    Boundary  : "postProcessing/vtkWrite/heater/mrhApp_00000027/boundary/minY.vtp"
+    Boundary  : "postProcessing/vtkWrite/heater/mrhApp_00000027/boundary/minZ.vtp"
+    Boundary  : "postProcessing/vtkWrite/heater/mrhApp_00000027/boundary/maxZ.vtp"
+    Boundary  : "postProcessing/vtkWrite/heater/mrhApp_00000027/boundary/heater_to_topAir.vtp"
+    Boundary  : "postProcessing/vtkWrite/heater/mrhApp_00000027/boundary/heater_to_rightSolid.vtp"
+    Boundary  : "postProcessing/vtkWrite/heater/mrhApp_00000027/boundary/heater_to_leftSolid.vtp"
+    Boundary  : "postProcessing/vtkWrite/heater/mrhApp_00000027/boundary/heater_to_bottomWater.vtp"
+    volScalarField(T betavSolid h p thermo:alpha thermo:mu thermo:psi thermo:rho)
+    volScalarField->point(T betavSolid h p thermo:alpha thermo:mu thermo:psi thermo:rho)
+    Internal  : "postProcessing/vtkWrite/leftSolid/mrhApp_00000027/internal.vtu"
+    Boundary  : "postProcessing/vtkWrite/leftSolid/mrhApp_00000027/boundary/minX.vtp"
+    Boundary  : "postProcessing/vtkWrite/leftSolid/mrhApp_00000027/boundary/minZ.vtp"
+    Boundary  : "postProcessing/vtkWrite/leftSolid/mrhApp_00000027/boundary/maxZ.vtp"
+    Boundary  : "postProcessing/vtkWrite/leftSolid/mrhApp_00000027/boundary/leftSolid_to_bottomWater.vtp"
+    Boundary  : "postProcessing/vtkWrite/leftSolid/mrhApp_00000027/boundary/leftSolid_to_heater.vtp"
+    Boundary  : "postProcessing/vtkWrite/leftSolid/mrhApp_00000027/boundary/leftSolid_to_topAir.vtp"
+    volScalarField(T betavSolid h p thermo:alpha thermo:mu thermo:psi thermo:rho)
+    volScalarField->point(T betavSolid h p thermo:alpha thermo:mu thermo:psi thermo:rho)
+    Internal  : "postProcessing/vtkWrite/rightSolid/mrhApp_00000027/internal.vtu"
+    Boundary  : "postProcessing/vtkWrite/rightSolid/mrhApp_00000027/boundary/maxX.vtp"
+    Boundary  : "postProcessing/vtkWrite/rightSolid/mrhApp_00000027/boundary/minZ.vtp"
+    Boundary  : "postProcessing/vtkWrite/rightSolid/mrhApp_00000027/boundary/maxZ.vtp"
+    Boundary  : "postProcessing/vtkWrite/rightSolid/mrhApp_00000027/boundary/rightSolid_to_bottomWater.vtp"
+    Boundary  : "postProcessing/vtkWrite/rightSolid/mrhApp_00000027/boundary/rightSolid_to_topAir.vtp"
+    Boundary  : "postProcessing/vtkWrite/rightSolid/mrhApp_00000027/boundary/rightSolid_to_heater.vtp"
+    volScalarField(T betavSolid h p thermo:alpha thermo:mu thermo:psi thermo:rho)
+    volScalarField->point(T betavSolid h p thermo:alpha thermo:mu thermo:psi thermo:rho)
+    Internal  : "postProcessing/vtkWrite/topAir/mrhApp_00000027/internal.vtu"
+    Boundary  : "postProcessing/vtkWrite/topAir/mrhApp_00000027/boundary/maxY.vtp"
+    Boundary  : "postProcessing/vtkWrite/topAir/mrhApp_00000027/boundary/minX.vtp"
+    Boundary  : "postProcessing/vtkWrite/topAir/mrhApp_00000027/boundary/maxX.vtp"
+    Boundary  : "postProcessing/vtkWrite/topAir/mrhApp_00000027/boundary/minZ.vtp"
+    Boundary  : "postProcessing/vtkWrite/topAir/mrhApp_00000027/boundary/maxZ.vtp"
+    Boundary  : "postProcessing/vtkWrite/topAir/mrhApp_00000027/boundary/topAir_to_rightSolid.vtp"
+    Boundary  : "postProcessing/vtkWrite/topAir/mrhApp_00000027/boundary/topAir_to_heater.vtp"
+    Boundary  : "postProcessing/vtkWrite/topAir/mrhApp_00000027/boundary/topAir_to_leftSolid.vtp"
+    volScalarField(K Qdot T dpdt gh h p p_rgh rho thermo:alpha thermo:mu thermo:psi thermo:rho)
+    volVectorField(U)
+    volScalarField->point(K Qdot T dpdt gh h p p_rgh rho thermo:alpha thermo:mu thermo:psi thermo:rho)
+    volVectorField->point(U)
+walls output Time: 0.5
+    Boundary  : "postProcessing/walls/heater/mrhApp_00000027/boundary/heater_to_topAir.vtp"
+    Boundary  : "postProcessing/walls/heater/mrhApp_00000027/boundary/heater_to_bottomWater.vtp"
+    volScalarField(T)
+    Boundary  : "postProcessing/walls/leftSolid/mrhApp_00000027/boundary/leftSolid_to_bottomWater.vtp"
+    Boundary  : "postProcessing/walls/leftSolid/mrhApp_00000027/boundary/leftSolid_to_heater.vtp"
+    Boundary  : "postProcessing/walls/leftSolid/mrhApp_00000027/boundary/leftSolid_to_topAir.vtp"
+    volScalarField(T)
+    Boundary  : "postProcessing/walls/rightSolid/mrhApp_00000027/boundary/rightSolid_to_bottomWater.vtp"
+    Boundary  : "postProcessing/walls/rightSolid/mrhApp_00000027/boundary/rightSolid_to_topAir.vtp"
+    Boundary  : "postProcessing/walls/rightSolid/mrhApp_00000027/boundary/rightSolid_to_heater.vtp"
+    volScalarField(T)
+Region: bottomWater Courant Number mean: 0.0063693192 max: 0.009558483
+Region: topAir Courant Number mean: 0.60352971 max: 0.67962564
+Region: heater Diffusion Number mean: 0.014479346 max: 0.080193309
+Region: leftSolid Diffusion Number mean: 0.014584421 max: 0.080193292
+Region: rightSolid Diffusion Number mean: 0.014584421 max: 0.080193292
+deltaT = 0.035714286
+Time = 0.535714
+
+
+Solving for fluid region bottomWater
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+DILUPBiCGStab:  Solving for Ux, Initial residual = 0.0035141364, Final residual = 2.1727193e-09, No Iterations 1
+DILUPBiCGStab:  Solving for Uy, Initial residual = 0.035567813, Final residual = 3.2760165e-09, No Iterations 1
+DILUPBiCGStab:  Solving for Uz, Initial residual = 0.0018053937, Final residual = 1.6301386e-09, No Iterations 1
+DILUPBiCGStab:  Solving for h, Initial residual = 0.035528353, Final residual = 8.7671024e-09, No Iterations 1
+Min/max T:299.99999 353.29376
+GAMG:  Solving for p_rgh, Initial residual = 0.018074746, Final residual = 5.8838776e-05, No Iterations 3
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (bottomWater): sum local = 9.0297566e-10, global = 3.0134229e-11, cumulative = -1.4356027e-06
+GAMG:  Solving for p_rgh, Initial residual = 6.2124183e-05, Final residual = 5.1883921e-08, No Iterations 8
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (bottomWater): sum local = 8.1166858e-13, global = 2.7542209e-13, cumulative = -1.4356025e-06
+
+Solving for fluid region topAir
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+DILUPBiCGStab:  Solving for Ux, Initial residual = 0.023777113, Final residual = 3.5265417e-10, No Iterations 3
+DILUPBiCGStab:  Solving for Uy, Initial residual = 0.030781708, Final residual = 1.0105633e-09, No Iterations 3
+DILUPBiCGStab:  Solving for Uz, Initial residual = 0.030638504, Final residual = 9.1356623e-10, No Iterations 3
+DILUPBiCGStab:  Solving for h, Initial residual = 0.051336661, Final residual = 3.3476644e-09, No Iterations 3
+Min/max T:299.99998 300.00002
+GAMG:  Solving for p_rgh, Initial residual = 0.00094007556, Final residual = 9.3995657e-06, No Iterations 5
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (topAir): sum local = 6.8402438e-08, global = -3.3018054e-08, cumulative = 2.3963391e-06
+GAMG:  Solving for p_rgh, Initial residual = 0.00023879218, Final residual = 7.4369709e-08, No Iterations 11
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (topAir): sum local = 6.7837187e-10, global = 1.0080439e-10, cumulative = 2.3964399e-06
+
+Solving for solid region heater
+DICPCG:  Solving for h, Initial residual = 0.018194616, Final residual = 1.0876107e-09, No Iterations 2
+Min/max T:300 500
+
+Solving for solid region leftSolid
+DICPCG:  Solving for h, Initial residual = 0.51332534, Final residual = 8.6160334e-08, No Iterations 3
+Min/max T:300 300
+
+Solving for solid region rightSolid
+DICPCG:  Solving for h, Initial residual = 0.11814395, Final residual = 3.3761717e-08, No Iterations 3
+Min/max T:300 300.00002
+ExecutionTime = 0.82 s  ClockTime = 0 s
+
+Region: bottomWater Courant Number mean: 0.0056734014 max: 0.0085146796
+Region: topAir Courant Number mean: 0.53767787 max: 0.60955092
+Region: heater Diffusion Number mean: 0.012896826 max: 0.071428579
+Region: leftSolid Diffusion Number mean: 0.012990416 max: 0.071428564
+Region: rightSolid Diffusion Number mean: 0.012990416 max: 0.071428564
+deltaT = 0.035714286
+Time = 0.571429
+
+
+Solving for fluid region bottomWater
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+DILUPBiCGStab:  Solving for Ux, Initial residual = 0.0035258852, Final residual = 2.2115899e-09, No Iterations 1
+DILUPBiCGStab:  Solving for Uy, Initial residual = 0.034224954, Final residual = 3.096503e-09, No Iterations 1
+DILUPBiCGStab:  Solving for Uz, Initial residual = 0.001850661, Final residual = 1.654956e-09, No Iterations 1
+DILUPBiCGStab:  Solving for h, Initial residual = 0.033035822, Final residual = 8.1314767e-09, No Iterations 1
+Min/max T:299.99999 356.1833
+GAMG:  Solving for p_rgh, Initial residual = 0.0068205836, Final residual = 2.2531899e-05, No Iterations 3
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (bottomWater): sum local = 3.5070122e-10, global = -7.2721053e-11, cumulative = -1.4356752e-06
+GAMG:  Solving for p_rgh, Initial residual = 2.6933336e-05, Final residual = 5.3266666e-08, No Iterations 8
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (bottomWater): sum local = 8.2327452e-13, global = -3.4870408e-13, cumulative = -1.4356755e-06
+
+Solving for fluid region topAir
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+DILUPBiCGStab:  Solving for Ux, Initial residual = 0.02156143, Final residual = 3.1839277e-10, No Iterations 3
+DILUPBiCGStab:  Solving for Uy, Initial residual = 0.028806091, Final residual = 8.6262151e-10, No Iterations 3
+DILUPBiCGStab:  Solving for Uz, Initial residual = 0.028498874, Final residual = 7.9724139e-10, No Iterations 3
+DILUPBiCGStab:  Solving for h, Initial residual = 0.049909699, Final residual = 3.0677285e-09, No Iterations 3
+Min/max T:299.99998 300.00003
+GAMG:  Solving for p_rgh, Initial residual = 0.00068788273, Final residual = 4.2405753e-06, No Iterations 6
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (topAir): sum local = 3.076645e-08, global = -1.4905756e-08, cumulative = 2.3815341e-06
+GAMG:  Solving for p_rgh, Initial residual = 0.00018451454, Final residual = 9.7996762e-08, No Iterations 10
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (topAir): sum local = 8.2919859e-10, global = 2.5644701e-10, cumulative = 2.3817906e-06
+
+Solving for solid region heater
+DICPCG:  Solving for h, Initial residual = 0.016945169, Final residual = 1.0077593e-09, No Iterations 2
+Min/max T:300 500
+
+Solving for solid region leftSolid
+DICPCG:  Solving for h, Initial residual = 0.48976482, Final residual = 8.1659476e-08, No Iterations 3
+Min/max T:300 300
+
+Solving for solid region rightSolid
+DICPCG:  Solving for h, Initial residual = 0.10929833, Final residual = 3.1459322e-08, No Iterations 3
+Min/max T:300 300.00002
+ExecutionTime = 0.84 s  ClockTime = 0 s
+
+Region: bottomWater Courant Number mean: 0.0056736151 max: 0.0085155751
+Region: topAir Courant Number mean: 0.53778641 max: 0.61366701
+Region: heater Diffusion Number mean: 0.012896826 max: 0.071428579
+Region: leftSolid Diffusion Number mean: 0.012990416 max: 0.071428564
+Region: rightSolid Diffusion Number mean: 0.012990416 max: 0.071428564
+deltaT = 0.035714286
+Time = 0.607143
+
+
+Solving for fluid region bottomWater
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+DILUPBiCGStab:  Solving for Ux, Initial residual = 0.0034991256, Final residual = 2.1856323e-09, No Iterations 1
+DILUPBiCGStab:  Solving for Uy, Initial residual = 0.031872104, Final residual = 2.9038719e-09, No Iterations 1
+DILUPBiCGStab:  Solving for Uz, Initial residual = 0.0018069849, Final residual = 1.6219013e-09, No Iterations 1
+DILUPBiCGStab:  Solving for h, Initial residual = 0.03085935, Final residual = 7.5768234e-09, No Iterations 1
+Min/max T:299.99999 358.9758
+GAMG:  Solving for p_rgh, Initial residual = 0.0064788419, Final residual = 2.0912283e-05, No Iterations 3
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (bottomWater): sum local = 3.2143183e-10, global = -6.8003493e-11, cumulative = -1.4357435e-06
+GAMG:  Solving for p_rgh, Initial residual = 2.4955423e-05, Final residual = 4.9732738e-08, No Iterations 8
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (bottomWater): sum local = 7.5935449e-13, global = -3.2103473e-13, cumulative = -1.4357438e-06
+
+Solving for fluid region topAir
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+DILUPBiCGStab:  Solving for Ux, Initial residual = 0.019622143, Final residual = 2.8829029e-10, No Iterations 3
+DILUPBiCGStab:  Solving for Uy, Initial residual = 0.02633312, Final residual = 7.2555252e-10, No Iterations 3
+DILUPBiCGStab:  Solving for Uz, Initial residual = 0.026426558, Final residual = 6.9652405e-10, No Iterations 3
+DILUPBiCGStab:  Solving for h, Initial residual = 0.048310193, Final residual = 2.7228547e-09, No Iterations 3
+Min/max T:299.99998 300.00005
+GAMG:  Solving for p_rgh, Initial residual = 0.00056409244, Final residual = 4.5300582e-06, No Iterations 6
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (topAir): sum local = 3.2755617e-08, global = -1.432144e-08, cumulative = 2.3674691e-06
+GAMG:  Solving for p_rgh, Initial residual = 0.00016422587, Final residual = 9.9805358e-08, No Iterations 10
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (topAir): sum local = 8.3632982e-10, global = 2.6085011e-10, cumulative = 2.36773e-06
+
+Solving for solid region heater
+DICPCG:  Solving for h, Initial residual = 0.015851309, Final residual = 9.3773528e-10, No Iterations 2
+Min/max T:300 500
+
+Solving for solid region leftSolid
+DICPCG:  Solving for h, Initial residual = 0.46778355, Final residual = 7.7453551e-08, No Iterations 3
+Min/max T:300 300
+
+Solving for solid region rightSolid
+DICPCG:  Solving for h, Initial residual = 0.10189595, Final residual = 2.9815831e-08, No Iterations 3
+Min/max T:300 300.00003
+ExecutionTime = 0.86 s  ClockTime = 0 s
+
+Region: bottomWater Courant Number mean: 0.0056738259 max: 0.0085164816
+Region: topAir Courant Number mean: 0.53789258 max: 0.61769623
+Region: heater Diffusion Number mean: 0.012896826 max: 0.071428579
+Region: leftSolid Diffusion Number mean: 0.012990416 max: 0.071428564
+Region: rightSolid Diffusion Number mean: 0.012990416 max: 0.071428564
+deltaT = 0.035714286
+Time = 0.642857
+
+
+Solving for fluid region bottomWater
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+DILUPBiCGStab:  Solving for Ux, Initial residual = 0.0034741995, Final residual = 2.1630053e-09, No Iterations 1
+DILUPBiCGStab:  Solving for Uy, Initial residual = 0.029873488, Final residual = 2.7325961e-09, No Iterations 1
+DILUPBiCGStab:  Solving for Uz, Initial residual = 0.0017681916, Final residual = 1.5936413e-09, No Iterations 1
+DILUPBiCGStab:  Solving for h, Initial residual = 0.028943137, Final residual = 7.0888277e-09, No Iterations 1
+Min/max T:299.99999 361.67497
+GAMG:  Solving for p_rgh, Initial residual = 0.0062845904, Final residual = 6.2046913e-05, No Iterations 2
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (bottomWater): sum local = 9.4232544e-10, global = -1.1110561e-10, cumulative = -1.435855e-06
+GAMG:  Solving for p_rgh, Initial residual = 6.3447756e-05, Final residual = 9.7964191e-08, No Iterations 8
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (bottomWater): sum local = 1.478876e-12, global = -6.2267862e-13, cumulative = -1.4358556e-06
+
+Solving for fluid region topAir
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+DILUPBiCGStab:  Solving for Ux, Initial residual = 0.017903838, Final residual = 2.612495e-10, No Iterations 3
+DILUPBiCGStab:  Solving for Uy, Initial residual = 0.024305958, Final residual = 6.1436673e-10, No Iterations 3
+DILUPBiCGStab:  Solving for Uz, Initial residual = 0.02464033, Final residual = 6.1643814e-10, No Iterations 3
+DILUPBiCGStab:  Solving for h, Initial residual = 0.046675796, Final residual = 2.407698e-09, No Iterations 3
+Min/max T:299.99998 300.00006
+GAMG:  Solving for p_rgh, Initial residual = 0.00052269768, Final residual = 4.7247004e-06, No Iterations 6
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (topAir): sum local = 3.4105935e-08, global = -1.3456867e-08, cumulative = 2.3542731e-06
+GAMG:  Solving for p_rgh, Initial residual = 0.00015667121, Final residual = 9.8096967e-08, No Iterations 10
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (topAir): sum local = 8.4080449e-10, global = 2.5022376e-10, cumulative = 2.3545233e-06
+
+Solving for solid region heater
+DICPCG:  Solving for h, Initial residual = 0.014886037, Final residual = 8.7561248e-10, No Iterations 2
+Min/max T:300 500
+
+Solving for solid region leftSolid
+DICPCG:  Solving for h, Initial residual = 0.44765314, Final residual = 7.4188904e-08, No Iterations 3
+Min/max T:300 300
+
+Solving for solid region rightSolid
+DICPCG:  Solving for h, Initial residual = 0.095523564, Final residual = 2.8586503e-08, No Iterations 3
+Min/max T:300 300.00004
+ExecutionTime = 0.88 s  ClockTime = 1 s
+
+Region: bottomWater Courant Number mean: 0.005674041 max: 0.0085174019
+Region: topAir Courant Number mean: 0.53799645 max: 0.62164043
+Region: heater Diffusion Number mean: 0.012896826 max: 0.071428579
+Region: leftSolid Diffusion Number mean: 0.012990416 max: 0.071428564
+Region: rightSolid Diffusion Number mean: 0.012990416 max: 0.071428564
+deltaT = 0.035714286
+Time = 0.678571
+
+
+Solving for fluid region bottomWater
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+DILUPBiCGStab:  Solving for Ux, Initial residual = 0.0034517234, Final residual = 2.141855e-09, No Iterations 1
+DILUPBiCGStab:  Solving for Uy, Initial residual = 0.028136195, Final residual = 2.5817959e-09, No Iterations 1
+DILUPBiCGStab:  Solving for Uz, Initial residual = 0.0017319287, Final residual = 1.5682295e-09, No Iterations 1
+DILUPBiCGStab:  Solving for h, Initial residual = 0.027243706, Final residual = 6.6563327e-09, No Iterations 1
+Min/max T:299.99999 364.28439
+GAMG:  Solving for p_rgh, Initial residual = 0.0059217847, Final residual = 5.878813e-05, No Iterations 2
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (bottomWater): sum local = 8.8264964e-10, global = -1.044906e-10, cumulative = -1.4359601e-06
+GAMG:  Solving for p_rgh, Initial residual = 6.0023866e-05, Final residual = 9.2590356e-08, No Iterations 8
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (bottomWater): sum local = 1.3822353e-12, global = -5.8153301e-13, cumulative = -1.4359606e-06
+
+Solving for fluid region topAir
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+DILUPBiCGStab:  Solving for Ux, Initial residual = 0.016370771, Final residual = 2.3717679e-10, No Iterations 3
+DILUPBiCGStab:  Solving for Uy, Initial residual = 0.022551611, Final residual = 5.3168433e-10, No Iterations 3
+DILUPBiCGStab:  Solving for Uz, Initial residual = 0.02306384, Final residual = 9.9403013e-08, No Iterations 2
+DILUPBiCGStab:  Solving for h, Initial residual = 0.044981508, Final residual = 2.1510997e-09, No Iterations 3
+Min/max T:299.99998 300.00008
+GAMG:  Solving for p_rgh, Initial residual = 0.00050001223, Final residual = 4.8237368e-06, No Iterations 6
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (topAir): sum local = 3.4739731e-08, global = -1.2440163e-08, cumulative = 2.3420832e-06
+GAMG:  Solving for p_rgh, Initial residual = 0.00015265989, Final residual = 7.6301273e-08, No Iterations 11
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (topAir): sum local = 6.7868614e-10, global = 6.7107954e-11, cumulative = 2.3421503e-06
+
+Solving for solid region heater
+DICPCG:  Solving for h, Initial residual = 0.014028253, Final residual = 8.2010144e-10, No Iterations 2
+Min/max T:300 500
+
+Solving for solid region leftSolid
+DICPCG:  Solving for h, Initial residual = 0.42909864, Final residual = 7.2029562e-08, No Iterations 3
+Min/max T:300 300
+
+Solving for solid region rightSolid
+DICPCG:  Solving for h, Initial residual = 0.089950948, Final residual = 2.7628383e-08, No Iterations 3
+Min/max T:300 300.00005
+ExecutionTime = 0.9 s  ClockTime = 1 s
+
+Region: bottomWater Courant Number mean: 0.0056742552 max: 0.0085183369
+Region: topAir Courant Number mean: 0.53809807 max: 0.62550132
+Region: heater Diffusion Number mean: 0.012896826 max: 0.071428579
+Region: leftSolid Diffusion Number mean: 0.012990416 max: 0.071428564
+Region: rightSolid Diffusion Number mean: 0.012990416 max: 0.071428564
+deltaT = 0.035714286
+Time = 0.714286
+
+
+Solving for fluid region bottomWater
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+DILUPBiCGStab:  Solving for Ux, Initial residual = 0.0034297362, Final residual = 2.1211673e-09, No Iterations 1
+DILUPBiCGStab:  Solving for Uy, Initial residual = 0.026606983, Final residual = 2.4478622e-09, No Iterations 1
+DILUPBiCGStab:  Solving for Uz, Initial residual = 0.0017008936, Final residual = 1.5439686e-09, No Iterations 1
+DILUPBiCGStab:  Solving for h, Initial residual = 0.025726697, Final residual = 6.2705222e-09, No Iterations 1
+Min/max T:299.99999 366.80747
+GAMG:  Solving for p_rgh, Initial residual = 0.0058696939, Final residual = 5.6859887e-05, No Iterations 2
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (bottomWater): sum local = 8.4444294e-10, global = -9.8671566e-11, cumulative = -1.4360593e-06
+GAMG:  Solving for p_rgh, Initial residual = 5.7983047e-05, Final residual = 8.7007844e-08, No Iterations 8
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (bottomWater): sum local = 1.2851591e-12, global = -5.4363753e-13, cumulative = -1.4360599e-06
+
+Solving for fluid region topAir
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+DILUPBiCGStab:  Solving for Ux, Initial residual = 0.014994408, Final residual = 2.1605287e-10, No Iterations 3
+DILUPBiCGStab:  Solving for Uy, Initial residual = 0.021004821, Final residual = 4.744387e-10, No Iterations 3
+DILUPBiCGStab:  Solving for Uz, Initial residual = 0.02165808, Final residual = 9.4447898e-08, No Iterations 2
+DILUPBiCGStab:  Solving for h, Initial residual = 0.043277815, Final residual = 1.9996191e-09, No Iterations 3
+Min/max T:299.99998 300.00011
+GAMG:  Solving for p_rgh, Initial residual = 0.00048556496, Final residual = 4.8262059e-06, No Iterations 6
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (topAir): sum local = 3.4695716e-08, global = -1.1314597e-08, cumulative = 2.3308357e-06
+GAMG:  Solving for p_rgh, Initial residual = 0.00015007335, Final residual = 9.71064e-08, No Iterations 10
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (topAir): sum local = 7.9278502e-10, global = 2.1380574e-10, cumulative = 2.3310495e-06
+
+Solving for solid region heater
+DICPCG:  Solving for h, Initial residual = 0.013241638, Final residual = 7.6904254e-10, No Iterations 2
+Min/max T:300 500
+
+Solving for solid region leftSolid
+DICPCG:  Solving for h, Initial residual = 0.41188007, Final residual = 7.0305767e-08, No Iterations 3
+Min/max T:300 300
+
+Solving for solid region rightSolid
+DICPCG:  Solving for h, Initial residual = 0.085021353, Final residual = 2.6854404e-08, No Iterations 3
+Min/max T:300 300.00007
+ExecutionTime = 0.91 s  ClockTime = 1 s
+
+Region: bottomWater Courant Number mean: 0.0056744685 max: 0.008519287
+Region: topAir Courant Number mean: 0.5381975 max: 0.6292804
+Region: heater Diffusion Number mean: 0.012896826 max: 0.071428579
+Region: leftSolid Diffusion Number mean: 0.012990416 max: 0.071428564
+Region: rightSolid Diffusion Number mean: 0.012990416 max: 0.071428564
+deltaT = 0.035714286
+Time = 0.75
+
+
+Solving for fluid region bottomWater
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+DILUPBiCGStab:  Solving for Ux, Initial residual = 0.0034096028, Final residual = 2.1015366e-09, No Iterations 1
+DILUPBiCGStab:  Solving for Uy, Initial residual = 0.025236061, Final residual = 2.3283742e-09, No Iterations 1
+DILUPBiCGStab:  Solving for Uz, Initial residual = 0.0016691393, Final residual = 1.5218969e-09, No Iterations 1
+DILUPBiCGStab:  Solving for h, Initial residual = 0.024362907, Final residual = 5.9239284e-09, No Iterations 1
+Min/max T:299.99999 369.24749
+GAMG:  Solving for p_rgh, Initial residual = 0.0054747774, Final residual = 5.341494e-05, No Iterations 2
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (bottomWater): sum local = 7.854144e-10, global = -9.3049638e-11, cumulative = -1.4361529e-06
+GAMG:  Solving for p_rgh, Initial residual = 5.4340584e-05, Final residual = 8.307241e-08, No Iterations 8
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (bottomWater): sum local = 1.2156912e-12, global = -5.118183e-13, cumulative = -1.4361534e-06
+
+Solving for fluid region topAir
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+DILUPBiCGStab:  Solving for Ux, Initial residual = 0.013751747, Final residual = 1.9886113e-10, No Iterations 3
+DILUPBiCGStab:  Solving for Uy, Initial residual = 0.019626438, Final residual = 9.9417718e-08, No Iterations 2
+DILUPBiCGStab:  Solving for Uz, Initial residual = 0.02039579, Final residual = 8.9030445e-08, No Iterations 2
+DILUPBiCGStab:  Solving for h, Initial residual = 0.041626828, Final residual = 1.9392667e-09, No Iterations 3
+Min/max T:299.99998 300.00014
+GAMG:  Solving for p_rgh, Initial residual = 0.00047486978, Final residual = 4.7333247e-06, No Iterations 6
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (topAir): sum local = 3.4019504e-08, global = -1.0215533e-08, cumulative = 2.320834e-06
+GAMG:  Solving for p_rgh, Initial residual = 0.00014731593, Final residual = 9.6525109e-08, No Iterations 10
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (topAir): sum local = 8.3903955e-10, global = 1.8052178e-10, cumulative = 2.3210145e-06
+
+Solving for solid region heater
+DICPCG:  Solving for h, Initial residual = 0.012520177, Final residual = 7.2206734e-10, No Iterations 2
+Min/max T:300 500
+
+Solving for solid region leftSolid
+DICPCG:  Solving for h, Initial residual = 0.39595791, Final residual = 6.9056559e-08, No Iterations 3
+Min/max T:300 300
+
+Solving for solid region rightSolid
+DICPCG:  Solving for h, Initial residual = 0.080619405, Final residual = 2.6209344e-08, No Iterations 3
+Min/max T:300 300.00009
+ExecutionTime = 0.93 s  ClockTime = 1 s
+
+Region: bottomWater Courant Number mean: 0.0056746797 max: 0.0085202488
+Region: topAir Courant Number mean: 0.53829478 max: 0.63297903
+Region: heater Diffusion Number mean: 0.012896826 max: 0.071428579
+Region: leftSolid Diffusion Number mean: 0.012990416 max: 0.071428564
+Region: rightSolid Diffusion Number mean: 0.012990416 max: 0.071428564
+deltaT = 0.035714286
+Time = 0.785714
+
+
+Solving for fluid region bottomWater
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+DILUPBiCGStab:  Solving for Ux, Initial residual = 0.0033895102, Final residual = 2.0821074e-09, No Iterations 1
+DILUPBiCGStab:  Solving for Uy, Initial residual = 0.024000437, Final residual = 2.2194944e-09, No Iterations 1
+DILUPBiCGStab:  Solving for Uz, Initial residual = 0.0016435125, Final residual = 1.5008206e-09, No Iterations 1
+DILUPBiCGStab:  Solving for h, Initial residual = 0.023130917, Final residual = 5.6110497e-09, No Iterations 1
+Min/max T:299.99999 371.60762
+GAMG:  Solving for p_rgh, Initial residual = 0.0052168822, Final residual = 5.161239e-05, No Iterations 2
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (bottomWater): sum local = 7.5209054e-10, global = -8.8364591e-11, cumulative = -1.4362418e-06
+GAMG:  Solving for p_rgh, Initial residual = 5.2279316e-05, Final residual = 7.8512725e-08, No Iterations 8
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (bottomWater): sum local = 1.1389548e-12, global = -4.8289364e-13, cumulative = -1.4362423e-06
+
+Solving for fluid region topAir
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+DILUPBiCGStab:  Solving for Ux, Initial residual = 0.012624269, Final residual = 9.953072e-08, No Iterations 2
+DILUPBiCGStab:  Solving for Uy, Initial residual = 0.018385986, Final residual = 9.2360808e-08, No Iterations 2
+DILUPBiCGStab:  Solving for Uz, Initial residual = 0.019254821, Final residual = 8.3497361e-08, No Iterations 2
+DILUPBiCGStab:  Solving for h, Initial residual = 0.040139711, Final residual = 1.9412077e-09, No Iterations 3
+Min/max T:299.99998 300.00018
+GAMG:  Solving for p_rgh, Initial residual = 0.00046374393, Final residual = 4.583052e-06, No Iterations 6
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (topAir): sum local = 3.285173e-08, global = -9.1187833e-09, cumulative = 2.3118957e-06
+GAMG:  Solving for p_rgh, Initial residual = 0.00014492307, Final residual = 9.6404327e-08, No Iterations 10
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (topAir): sum local = 8.2199451e-10, global = 1.397978e-10, cumulative = 2.3120355e-06
+
+Solving for solid region heater
+DICPCG:  Solving for h, Initial residual = 0.011850008, Final residual = 6.7835794e-10, No Iterations 2
+Min/max T:300 500
+
+Solving for solid region leftSolid
+DICPCG:  Solving for h, Initial residual = 0.38130112, Final residual = 6.8368813e-08, No Iterations 3
+Min/max T:300 300
+
+Solving for solid region rightSolid
+DICPCG:  Solving for h, Initial residual = 0.076667132, Final residual = 2.5656956e-08, No Iterations 3
+Min/max T:300 300.00011
+ExecutionTime = 0.94 s  ClockTime = 1 s
+
+Region: bottomWater Courant Number mean: 0.0056748949 max: 0.0085212222
+Region: topAir Courant Number mean: 0.53838996 max: 0.63659807
+Region: heater Diffusion Number mean: 0.012896826 max: 0.071428579
+Region: leftSolid Diffusion Number mean: 0.012990416 max: 0.071428564
+Region: rightSolid Diffusion Number mean: 0.012990416 max: 0.071428564
+deltaT = 0.035714286
+Time = 0.821429
+
+
+Solving for fluid region bottomWater
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+DILUPBiCGStab:  Solving for Ux, Initial residual = 0.0033698153, Final residual = 2.0628978e-09, No Iterations 1
+DILUPBiCGStab:  Solving for Uy, Initial residual = 0.022893627, Final residual = 2.1218824e-09, No Iterations 1
+DILUPBiCGStab:  Solving for Uz, Initial residual = 0.001621631, Final residual = 1.4795455e-09, No Iterations 1
+DILUPBiCGStab:  Solving for h, Initial residual = 0.022012385, Final residual = 5.3271868e-09, No Iterations 1
+Min/max T:299.99999 373.89086
+GAMG:  Solving for p_rgh, Initial residual = 0.0050525899, Final residual = 4.9891674e-05, No Iterations 2
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (bottomWater): sum local = 7.2080262e-10, global = -8.4224369e-11, cumulative = -1.4363265e-06
+GAMG:  Solving for p_rgh, Initial residual = 5.0341658e-05, Final residual = 7.4902554e-08, No Iterations 8
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (bottomWater): sum local = 1.0774909e-12, global = -4.5645273e-13, cumulative = -1.436327e-06
+
+Solving for fluid region topAir
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+DILUPBiCGStab:  Solving for Ux, Initial residual = 0.011596852, Final residual = 9.40612e-08, No Iterations 2
+DILUPBiCGStab:  Solving for Uy, Initial residual = 0.017261226, Final residual = 8.5665661e-08, No Iterations 2
+DILUPBiCGStab:  Solving for Uz, Initial residual = 0.018218199, Final residual = 7.8202952e-08, No Iterations 2
+DILUPBiCGStab:  Solving for h, Initial residual = 0.038814048, Final residual = 2.0710448e-09, No Iterations 3
+Min/max T:299.99998 300.00023
+GAMG:  Solving for p_rgh, Initial residual = 0.00045464274, Final residual = 4.4005523e-06, No Iterations 6
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (topAir): sum local = 3.1519664e-08, global = -8.0771547e-09, cumulative = 2.3039583e-06
+GAMG:  Solving for p_rgh, Initial residual = 0.00014182271, Final residual = 7.0650307e-08, No Iterations 11
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (topAir): sum local = 6.5986643e-10, global = 5.5548094e-11, cumulative = 2.3040139e-06
+
+Solving for solid region heater
+DICPCG:  Solving for h, Initial residual = 0.01123044, Final residual = 6.3786027e-10, No Iterations 2
+Min/max T:300 500
+
+Solving for solid region leftSolid
+DICPCG:  Solving for h, Initial residual = 0.36773642, Final residual = 6.8408806e-08, No Iterations 3
+Min/max T:300 300
+
+Solving for solid region rightSolid
+DICPCG:  Solving for h, Initial residual = 0.073092959, Final residual = 2.5172767e-08, No Iterations 3
+Min/max T:300 300.00014
+ExecutionTime = 0.96 s  ClockTime = 1 s
+
+Region: bottomWater Courant Number mean: 0.0056751114 max: 0.0085222061
+Region: topAir Courant Number mean: 0.53848306 max: 0.64013904
+Region: heater Diffusion Number mean: 0.012896826 max: 0.071428579
+Region: leftSolid Diffusion Number mean: 0.012990416 max: 0.071428564
+Region: rightSolid Diffusion Number mean: 0.012990416 max: 0.071428564
+deltaT = 0.035714286
+Time = 0.857143
+
+
+Solving for fluid region bottomWater
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+DILUPBiCGStab:  Solving for Ux, Initial residual = 0.0033505501, Final residual = 2.0443826e-09, No Iterations 1
+DILUPBiCGStab:  Solving for Uy, Initial residual = 0.021895126, Final residual = 2.0444731e-09, No Iterations 1
+DILUPBiCGStab:  Solving for Uz, Initial residual = 0.0016009891, Final residual = 1.4589488e-09, No Iterations 1
+DILUPBiCGStab:  Solving for h, Initial residual = 0.020992218, Final residual = 5.0684736e-09, No Iterations 1
+Min/max T:299.99999 376.10013
+GAMG:  Solving for p_rgh, Initial residual = 0.004993357, Final residual = 4.909249e-05, No Iterations 2
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (bottomWater): sum local = 7.0342268e-10, global = -8.0284361e-11, cumulative = -1.4364072e-06
+GAMG:  Solving for p_rgh, Initial residual = 4.9281101e-05, Final residual = 7.0983606e-08, No Iterations 8
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (bottomWater): sum local = 1.0128693e-12, global = -4.3182193e-13, cumulative = -1.4364077e-06
+
+Solving for fluid region topAir
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+DILUPBiCGStab:  Solving for Ux, Initial residual = 0.010656985, Final residual = 8.9202681e-08, No Iterations 2
+DILUPBiCGStab:  Solving for Uy, Initial residual = 0.016235, Final residual = 7.9697145e-08, No Iterations 2
+DILUPBiCGStab:  Solving for Uz, Initial residual = 0.017271248, Final residual = 7.3294196e-08, No Iterations 2
+DILUPBiCGStab:  Solving for h, Initial residual = 0.037708538, Final residual = 2.3302082e-09, No Iterations 3
+Min/max T:299.99998 300.00028
+GAMG:  Solving for p_rgh, Initial residual = 0.00044511319, Final residual = 4.1908606e-06, No Iterations 6
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (topAir): sum local = 3.005911e-08, global = -7.2284572e-09, cumulative = 2.2967854e-06
+GAMG:  Solving for p_rgh, Initial residual = 0.00013884934, Final residual = 9.3493051e-08, No Iterations 10
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (topAir): sum local = 7.7970872e-10, global = 7.8333461e-11, cumulative = 2.2968638e-06
+
+Solving for solid region heater
+DICPCG:  Solving for h, Initial residual = 0.010666705, Final residual = 6.0084739e-10, No Iterations 2
+Min/max T:300 500
+
+Solving for solid region leftSolid
+DICPCG:  Solving for h, Initial residual = 0.35539879, Final residual = 6.9936526e-08, No Iterations 3
+Min/max T:300 300
+
+Solving for solid region rightSolid
+DICPCG:  Solving for h, Initial residual = 0.069842375, Final residual = 2.4740094e-08, No Iterations 3
+Min/max T:300 300.00017
+ExecutionTime = 0.97 s  ClockTime = 1 s
+
+Region: bottomWater Courant Number mean: 0.0056753236 max: 0.0085231993
+Region: topAir Courant Number mean: 0.53857413 max: 0.64360489
+Region: heater Diffusion Number mean: 0.012896826 max: 0.071428579
+Region: leftSolid Diffusion Number mean: 0.012990416 max: 0.071428564
+Region: rightSolid Diffusion Number mean: 0.012990416 max: 0.071428564
+deltaT = 0.035714286
+Time = 0.892857
+
+
+Solving for fluid region bottomWater
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+DILUPBiCGStab:  Solving for Ux, Initial residual = 0.0033314391, Final residual = 2.0276968e-09, No Iterations 1
+DILUPBiCGStab:  Solving for Uy, Initial residual = 0.020981605, Final residual = 1.9749057e-09, No Iterations 1
+DILUPBiCGStab:  Solving for Uz, Initial residual = 0.0015833258, Final residual = 1.4388812e-09, No Iterations 1
+DILUPBiCGStab:  Solving for h, Initial residual = 0.020059195, Final residual = 4.832017e-09, No Iterations 1
+Min/max T:299.99999 378.23821
+GAMG:  Solving for p_rgh, Initial residual = 0.004519922, Final residual = 1.3973465e-05, No Iterations 3
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (bottomWater): sum local = 1.9862741e-10, global = -4.3225884e-11, cumulative = -1.4364509e-06
+GAMG:  Solving for p_rgh, Initial residual = 1.6218166e-05, Final residual = 6.6550974e-08, No Iterations 7
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (bottomWater): sum local = 9.4194085e-13, global = -4.0066348e-13, cumulative = -1.4364513e-06
+
+Solving for fluid region topAir
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+DILUPBiCGStab:  Solving for Ux, Initial residual = 0.0097941503, Final residual = 8.4854278e-08, No Iterations 2
+DILUPBiCGStab:  Solving for Uy, Initial residual = 0.015293364, Final residual = 7.4712778e-08, No Iterations 2
+DILUPBiCGStab:  Solving for Uz, Initial residual = 0.016401516, Final residual = 6.8912612e-08, No Iterations 2
+DILUPBiCGStab:  Solving for h, Initial residual = 0.036759835, Final residual = 2.6489066e-09, No Iterations 3
+Min/max T:299.99998 300.00035
+GAMG:  Solving for p_rgh, Initial residual = 0.00043345771, Final residual = 3.9771571e-06, No Iterations 6
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (topAir): sum local = 2.854774e-08, global = -6.2311173e-09, cumulative = 2.2906327e-06
+GAMG:  Solving for p_rgh, Initial residual = 0.00013499282, Final residual = 9.2143006e-08, No Iterations 10
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (topAir): sum local = 7.7227226e-10, global = 1.2621401e-10, cumulative = 2.2907589e-06
+
+Solving for solid region heater
+DICPCG:  Solving for h, Initial residual = 0.010151849, Final residual = 5.6689473e-10, No Iterations 2
+Min/max T:300 500
+
+Solving for solid region leftSolid
+DICPCG:  Solving for h, Initial residual = 0.34420223, Final residual = 7.3502561e-08, No Iterations 3
+Min/max T:300 300
+
+Solving for solid region rightSolid
+DICPCG:  Solving for h, Initial residual = 0.066864529, Final residual = 2.4347197e-08, No Iterations 3
+Min/max T:300 300.00021
+ExecutionTime = 0.99 s  ClockTime = 1 s
+
+Region: bottomWater Courant Number mean: 0.0056755346 max: 0.0085242024
+Region: topAir Courant Number mean: 0.53866317 max: 0.64699307
+Region: heater Diffusion Number mean: 0.012896826 max: 0.071428579
+Region: leftSolid Diffusion Number mean: 0.012990416 max: 0.071428564
+Region: rightSolid Diffusion Number mean: 0.012990416 max: 0.071428564
+deltaT = 0.035714286
+Time = 0.928571
+
+
+Solving for fluid region bottomWater
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+DILUPBiCGStab:  Solving for Ux, Initial residual = 0.0033145072, Final residual = 2.0129165e-09, No Iterations 1
+DILUPBiCGStab:  Solving for Uy, Initial residual = 0.020140709, Final residual = 1.9107039e-09, No Iterations 1
+DILUPBiCGStab:  Solving for Uz, Initial residual = 0.0015618829, Final residual = 1.420421e-09, No Iterations 1
+DILUPBiCGStab:  Solving for h, Initial residual = 0.019202767, Final residual = 4.6151152e-09, No Iterations 1
+Min/max T:299.99999 380.30777
+GAMG:  Solving for p_rgh, Initial residual = 0.0043356152, Final residual = 1.3435877e-05, No Iterations 3
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (bottomWater): sum local = 1.8952392e-10, global = -4.1280499e-11, cumulative = -1.4364926e-06
+GAMG:  Solving for p_rgh, Initial residual = 1.5530746e-05, Final residual = 6.3552609e-08, No Iterations 7
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (bottomWater): sum local = 8.9277954e-13, global = -3.8064432e-13, cumulative = -1.436493e-06
+
+Solving for fluid region topAir
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+DILUPBiCGStab:  Solving for Ux, Initial residual = 0.008999677, Final residual = 8.0954158e-08, No Iterations 2
+DILUPBiCGStab:  Solving for Uy, Initial residual = 0.014424957, Final residual = 7.0598012e-08, No Iterations 2
+DILUPBiCGStab:  Solving for Uz, Initial residual = 0.015598469, Final residual = 6.5021011e-08, No Iterations 2
+DILUPBiCGStab:  Solving for h, Initial residual = 0.03602174, Final residual = 2.9847484e-09, No Iterations 3
+Min/max T:299.99998 300.00043
+GAMG:  Solving for p_rgh, Initial residual = 0.00042424264, Final residual = 3.770968e-06, No Iterations 6
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (topAir): sum local = 2.7066116e-08, global = -5.3548056e-09, cumulative = 2.2854041e-06
+GAMG:  Solving for p_rgh, Initial residual = 0.00013096619, Final residual = 8.9977141e-08, No Iterations 10
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (topAir): sum local = 7.5430988e-10, global = 4.0021164e-11, cumulative = 2.2854441e-06
+
+Solving for solid region heater
+DICPCG:  Solving for h, Initial residual = 0.00968002, Final residual = 5.3564504e-10, No Iterations 2
+Min/max T:300 500
+
+Solving for solid region leftSolid
+DICPCG:  Solving for h, Initial residual = 0.33642279, Final residual = 7.9075036e-08, No Iterations 3
+Min/max T:300 300
+
+Solving for solid region rightSolid
+DICPCG:  Solving for h, Initial residual = 0.064125213, Final residual = 2.3985644e-08, No Iterations 3
+Min/max T:300 300.00026
+ExecutionTime = 1 s  ClockTime = 1 s
+
+Region: bottomWater Courant Number mean: 0.0056757443 max: 0.0085252142
+Region: topAir Courant Number mean: 0.53875018 max: 0.65030397
+Region: heater Diffusion Number mean: 0.012896826 max: 0.071428579
+Region: leftSolid Diffusion Number mean: 0.012990416 max: 0.071428564
+Region: rightSolid Diffusion Number mean: 0.012990416 max: 0.071428564
+deltaT = 0.035714286
+Time = 0.964286
+
+
+Solving for fluid region bottomWater
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+DILUPBiCGStab:  Solving for Ux, Initial residual = 0.0032983338, Final residual = 1.9984866e-09, No Iterations 1
+DILUPBiCGStab:  Solving for Uy, Initial residual = 0.019369292, Final residual = 1.851171e-09, No Iterations 1
+DILUPBiCGStab:  Solving for Uz, Initial residual = 0.0015430467, Final residual = 1.4024319e-09, No Iterations 1
+DILUPBiCGStab:  Solving for h, Initial residual = 0.018414014, Final residual = 4.4154841e-09, No Iterations 1
+Min/max T:299.99999 382.31137
+GAMG:  Solving for p_rgh, Initial residual = 0.0041696573, Final residual = 1.2922036e-05, No Iterations 3
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (bottomWater): sum local = 1.8094488e-10, global = -3.9486696e-11, cumulative = -1.4365324e-06
+GAMG:  Solving for p_rgh, Initial residual = 1.4893727e-05, Final residual = 6.0667854e-08, No Iterations 7
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (bottomWater): sum local = 8.4620773e-13, global = -3.6150452e-13, cumulative = -1.4365328e-06
+
+Solving for fluid region topAir
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+DILUPBiCGStab:  Solving for Ux, Initial residual = 0.0082662021, Final residual = 7.7458942e-08, No Iterations 2
+DILUPBiCGStab:  Solving for Uy, Initial residual = 0.013618977, Final residual = 6.7232736e-08, No Iterations 2
+DILUPBiCGStab:  Solving for Uz, Initial residual = 0.014852875, Final residual = 6.1574643e-08, No Iterations 2
+DILUPBiCGStab:  Solving for h, Initial residual = 0.035516199, Final residual = 3.3054588e-09, No Iterations 3
+Min/max T:299.99998 300.00052
+GAMG:  Solving for p_rgh, Initial residual = 0.00041334871, Final residual = 3.5678371e-06, No Iterations 6
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (topAir): sum local = 2.557902e-08, global = -4.4363505e-09, cumulative = 2.2810077e-06
+GAMG:  Solving for p_rgh, Initial residual = 0.00012633264, Final residual = 8.765534e-08, No Iterations 10
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (topAir): sum local = 7.4959536e-10, global = 2.4917408e-11, cumulative = 2.2810326e-06
+
+Solving for solid region heater
+DICPCG:  Solving for h, Initial residual = 0.009246256, Final residual = 5.0679561e-10, No Iterations 2
+Min/max T:300 500
+
+Solving for solid region leftSolid
+DICPCG:  Solving for h, Initial residual = 0.32599722, Final residual = 8.5016459e-08, No Iterations 3
+Min/max T:300 300
+
+Solving for solid region rightSolid
+DICPCG:  Solving for h, Initial residual = 0.06159648, Final residual = 2.3652733e-08, No Iterations 3
+Min/max T:300 300.00031
+ExecutionTime = 1.02 s  ClockTime = 1 s
+
+Region: bottomWater Courant Number mean: 0.0056759526 max: 0.0085262342
+Region: topAir Courant Number mean: 0.53883515 max: 0.65353686
+Region: heater Diffusion Number mean: 0.012896826 max: 0.071428579
+Region: leftSolid Diffusion Number mean: 0.012990416 max: 0.071428564
+Region: rightSolid Diffusion Number mean: 0.012990416 max: 0.071428564
+deltaT = 0.035714286
+Time = 1
+
+
+Solving for fluid region bottomWater
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+DILUPBiCGStab:  Solving for Ux, Initial residual = 0.0032822505, Final residual = 1.9842098e-09, No Iterations 1
+DILUPBiCGStab:  Solving for Uy, Initial residual = 0.018656904, Final residual = 1.7992875e-09, No Iterations 1
+DILUPBiCGStab:  Solving for Uz, Initial residual = 0.0015251025, Final residual = 1.3850616e-09, No Iterations 1
+DILUPBiCGStab:  Solving for h, Initial residual = 0.017685341, Final residual = 4.2311796e-09, No Iterations 1
+Min/max T:299.99999 384.25149
+GAMG:  Solving for p_rgh, Initial residual = 0.0040146194, Final residual = 1.2442984e-05, No Iterations 3
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (bottomWater): sum local = 1.7302874e-10, global = -3.7841585e-11, cumulative = -1.4365706e-06
+GAMG:  Solving for p_rgh, Initial residual = 1.4298335e-05, Final residual = 5.8052128e-08, No Iterations 7
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (bottomWater): sum local = 8.0428236e-13, global = -3.4423985e-13, cumulative = -1.436571e-06
+
+Solving for fluid region topAir
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+DILUPBiCGStab:  Solving for Ux, Initial residual = 0.0075875012, Final residual = 7.4353521e-08, No Iterations 2
+DILUPBiCGStab:  Solving for Uy, Initial residual = 0.012866468, Final residual = 6.4439555e-08, No Iterations 2
+DILUPBiCGStab:  Solving for Uz, Initial residual = 0.014156661, Final residual = 5.8560766e-08, No Iterations 2
+DILUPBiCGStab:  Solving for h, Initial residual = 0.035214502, Final residual = 3.5885256e-09, No Iterations 3
+Min/max T:299.99998 300.00063
+GAMG:  Solving for p_rgh, Initial residual = 0.00040236532, Final residual = 3.3577634e-06, No Iterations 6
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (topAir): sum local = 2.412334e-08, global = -3.4502379e-09, cumulative = 2.2775824e-06
+GAMG:  Solving for p_rgh, Initial residual = 0.00012134745, Final residual = 8.2169107e-08, No Iterations 10
+diagonal:  Solving for rho, Initial residual = 0, Final residual = 0, No Iterations 0
+time step continuity errors (topAir): sum local = 7.1313659e-10, global = 4.2890161e-11, cumulative = 2.2776253e-06
+
+Solving for solid region heater
+DICPCG:  Solving for h, Initial residual = 0.008846322, Final residual = 4.8008943e-10, No Iterations 2
+Min/max T:300 500
+
+Solving for solid region leftSolid
+DICPCG:  Solving for h, Initial residual = 0.31098909, Final residual = 8.9783853e-08, No Iterations 3
+Min/max T:300 300
+
+Solving for solid region rightSolid
+DICPCG:  Solving for h, Initial residual = 0.059255966, Final residual = 2.3342146e-08, No Iterations 3
+Min/max T:300 300.00037
+ExecutionTime = 1.05 s  ClockTime = 1 s
+
+vtkWrite output Time: 1
+    Internal  : "postProcessing/vtkWrite/bottomWater/mrhApp_00000041/internal.vtu"
+    Boundary  : "postProcessing/vtkWrite/bottomWater/mrhApp_00000041/boundary/minX.vtp"
+    Boundary  : "postProcessing/vtkWrite/bottomWater/mrhApp_00000041/boundary/maxX.vtp"
+    Boundary  : "postProcessing/vtkWrite/bottomWater/mrhApp_00000041/boundary/minY.vtp"
+    Boundary  : "postProcessing/vtkWrite/bottomWater/mrhApp_00000041/boundary/minZ.vtp"
+    Boundary  : "postProcessing/vtkWrite/bottomWater/mrhApp_00000041/boundary/maxZ.vtp"
+    Boundary  : "postProcessing/vtkWrite/bottomWater/mrhApp_00000041/boundary/bottomWater_to_rightSolid.vtp"
+    Boundary  : "postProcessing/vtkWrite/bottomWater/mrhApp_00000041/boundary/bottomWater_to_leftSolid.vtp"
+    Boundary  : "postProcessing/vtkWrite/bottomWater/mrhApp_00000041/boundary/bottomWater_to_heater.vtp"
+    volScalarField(K Qdot T dpdt gh h p p_rgh rho thermo:alpha thermo:mu thermo:psi thermo:rho)
+    volVectorField(U)
+    volScalarField->point(K Qdot T dpdt gh h p p_rgh rho thermo:alpha thermo:mu thermo:psi thermo:rho)
+    volVectorField->point(U)
+    Internal  : "postProcessing/vtkWrite/heater/mrhApp_00000041/internal.vtu"
+    Boundary  : "postProcessing/vtkWrite/heater/mrhApp_00000041/boundary/minY.vtp"
+    Boundary  : "postProcessing/vtkWrite/heater/mrhApp_00000041/boundary/minZ.vtp"
+    Boundary  : "postProcessing/vtkWrite/heater/mrhApp_00000041/boundary/maxZ.vtp"
+    Boundary  : "postProcessing/vtkWrite/heater/mrhApp_00000041/boundary/heater_to_topAir.vtp"
+    Boundary  : "postProcessing/vtkWrite/heater/mrhApp_00000041/boundary/heater_to_rightSolid.vtp"
+    Boundary  : "postProcessing/vtkWrite/heater/mrhApp_00000041/boundary/heater_to_leftSolid.vtp"
+    Boundary  : "postProcessing/vtkWrite/heater/mrhApp_00000041/boundary/heater_to_bottomWater.vtp"
+    volScalarField(T betavSolid h p thermo:alpha thermo:mu thermo:psi thermo:rho)
+    volScalarField->point(T betavSolid h p thermo:alpha thermo:mu thermo:psi thermo:rho)
+    Internal  : "postProcessing/vtkWrite/leftSolid/mrhApp_00000041/internal.vtu"
+    Boundary  : "postProcessing/vtkWrite/leftSolid/mrhApp_00000041/boundary/minX.vtp"
+    Boundary  : "postProcessing/vtkWrite/leftSolid/mrhApp_00000041/boundary/minZ.vtp"
+    Boundary  : "postProcessing/vtkWrite/leftSolid/mrhApp_00000041/boundary/maxZ.vtp"
+    Boundary  : "postProcessing/vtkWrite/leftSolid/mrhApp_00000041/boundary/leftSolid_to_bottomWater.vtp"
+    Boundary  : "postProcessing/vtkWrite/leftSolid/mrhApp_00000041/boundary/leftSolid_to_heater.vtp"
+    Boundary  : "postProcessing/vtkWrite/leftSolid/mrhApp_00000041/boundary/leftSolid_to_topAir.vtp"
+    volScalarField(T betavSolid h p thermo:alpha thermo:mu thermo:psi thermo:rho)
+    volScalarField->point(T betavSolid h p thermo:alpha thermo:mu thermo:psi thermo:rho)
+    Internal  : "postProcessing/vtkWrite/rightSolid/mrhApp_00000041/internal.vtu"
+    Boundary  : "postProcessing/vtkWrite/rightSolid/mrhApp_00000041/boundary/maxX.vtp"
+    Boundary  : "postProcessing/vtkWrite/rightSolid/mrhApp_00000041/boundary/minZ.vtp"
+    Boundary  : "postProcessing/vtkWrite/rightSolid/mrhApp_00000041/boundary/maxZ.vtp"
+    Boundary  : "postProcessing/vtkWrite/rightSolid/mrhApp_00000041/boundary/rightSolid_to_bottomWater.vtp"
+    Boundary  : "postProcessing/vtkWrite/rightSolid/mrhApp_00000041/boundary/rightSolid_to_topAir.vtp"
+    Boundary  : "postProcessing/vtkWrite/rightSolid/mrhApp_00000041/boundary/rightSolid_to_heater.vtp"
+    volScalarField(T betavSolid h p thermo:alpha thermo:mu thermo:psi thermo:rho)
+    volScalarField->point(T betavSolid h p thermo:alpha thermo:mu thermo:psi thermo:rho)
+    Internal  : "postProcessing/vtkWrite/topAir/mrhApp_00000041/internal.vtu"
+    Boundary  : "postProcessing/vtkWrite/topAir/mrhApp_00000041/boundary/maxY.vtp"
+    Boundary  : "postProcessing/vtkWrite/topAir/mrhApp_00000041/boundary/minX.vtp"
+    Boundary  : "postProcessing/vtkWrite/topAir/mrhApp_00000041/boundary/maxX.vtp"
+    Boundary  : "postProcessing/vtkWrite/topAir/mrhApp_00000041/boundary/minZ.vtp"
+    Boundary  : "postProcessing/vtkWrite/topAir/mrhApp_00000041/boundary/maxZ.vtp"
+    Boundary  : "postProcessing/vtkWrite/topAir/mrhApp_00000041/boundary/topAir_to_rightSolid.vtp"
+    Boundary  : "postProcessing/vtkWrite/topAir/mrhApp_00000041/boundary/topAir_to_heater.vtp"
+    Boundary  : "postProcessing/vtkWrite/topAir/mrhApp_00000041/boundary/topAir_to_leftSolid.vtp"
+    volScalarField(K Qdot T dpdt gh h p p_rgh rho thermo:alpha thermo:mu thermo:psi thermo:rho)
+    volVectorField(U)
+    volScalarField->point(K Qdot T dpdt gh h p p_rgh rho thermo:alpha thermo:mu thermo:psi thermo:rho)
+    volVectorField->point(U)
+walls output Time: 1
+    Boundary  : "postProcessing/walls/heater/mrhApp_00000041/boundary/heater_to_topAir.vtp"
+    Boundary  : "postProcessing/walls/heater/mrhApp_00000041/boundary/heater_to_bottomWater.vtp"
+    volScalarField(T)
+    Boundary  : "postProcessing/walls/leftSolid/mrhApp_00000041/boundary/leftSolid_to_bottomWater.vtp"
+    Boundary  : "postProcessing/walls/leftSolid/mrhApp_00000041/boundary/leftSolid_to_heater.vtp"
+    Boundary  : "postProcessing/walls/leftSolid/mrhApp_00000041/boundary/leftSolid_to_topAir.vtp"
+    volScalarField(T)
+    Boundary  : "postProcessing/walls/rightSolid/mrhApp_00000041/boundary/rightSolid_to_bottomWater.vtp"
+    Boundary  : "postProcessing/walls/rightSolid/mrhApp_00000041/boundary/rightSolid_to_topAir.vtp"
+    Boundary  : "postProcessing/walls/rightSolid/mrhApp_00000041/boundary/rightSolid_to_heater.vtp"
+    volScalarField(T)
+End
+
+Finalising parallel run

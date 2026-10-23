@@ -1,0 +1,9 @@
+# Performance: a 100 MB solver log open on the Run page (follow on), then scrolled. Budget set from this baseline.
+open $SB/ws/bigLog
+click nav:run
+wait-until page Run
+measure
+wait-until text Last run finished timeout 120
+note log parsed
+wait 300
+screenshot $OUT/perf_run.png

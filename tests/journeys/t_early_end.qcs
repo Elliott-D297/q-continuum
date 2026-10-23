@@ -1,0 +1,19 @@
+# B-06: a run that ends without an error but before its end time is not "finished": say where it stopped.
+open $SB/ws/cavity
+click nav:run
+wait-until page Run
+click np-in
+enter 1
+shell sed -i 's/^stopAt .*/stopAt          writeNow;/' system/controlDict
+wait 120
+click run-go
+wait-until job running timeout 10
+wait-until job idle timeout 60
+wait 30
+assert toast stopped at t = 0.005 of 0.5
+click nav:history
+wait-until page History
+wait 10
+screenshot $OUT/early_history.png
+assert text ended early
+assert not text RUN FINISHED

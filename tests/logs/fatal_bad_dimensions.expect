@@ -1,0 +1,9 @@
+steps 0
+time 0
+deltaT 0
+ended 0
+fatal 1
+converged 0
+courant n=0
+interfaceCourant n=0
+fatalMsg The dimensions [0 2 -2 0 0 0 0] provided do not match the expected dimensions [0 2 -1 0 0 0 0]

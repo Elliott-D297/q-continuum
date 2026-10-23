@@ -1,0 +1,85 @@
+# ROADMAP 3.5: nothing is written without being seen. With the review on (Settings), Save shows each changed file, a
+# line per changed entry and the diff; Keep editing writes nothing; the go button writes; Run with unsaved edits
+# reviews first and then runs; Discard puts the disk version back. The other programs' Setup goes through it too.
+#settings: review_save=1
+open $SB/ws/cavity
+click nav:run
+wait-until page Run
+measure
+click dict:system/controlDict:deltaT
+enter 0.0025
+wait 5
+key S ctrl
+wait-until modal any timeout 5
+wait 5
+assert text system/controlDict
+assert text deltaT: 0.005
+assert text 0.0025
+assert text Keep editing
+# nothing written yet
+shell grep -q '^deltaT *0.005;' system/controlDict && touch $OUT/not-yet
+assert file $OUT/not-yet
+click rv-keep
+wait-until modal none timeout 5
+shell grep -q '^deltaT *0.005;' system/controlDict && touch $OUT/still-not
+assert file $OUT/still-not
+# Save again, and go
+click top-save
+wait-until modal any timeout 5
+click rv-go
+wait-until modal none timeout 5
+wait 5
+shell grep -q '^deltaT *0.0025;' system/controlDict && touch $OUT/written
+assert file $OUT/written
+# Run with an unsaved edit: the review, then the run
+click dict:system/controlDict:endTime
+enter 0.1
+wait 5
+click run-go
+wait-until modal any timeout 5
+assert text endTime: 0.5
+assert text and run
+click rv-go
+wait-until job running timeout 20
+wait-until job finished timeout 120
+shell grep -q '^endTime *0.1;' system/controlDict && touch $OUT/run-saved
+assert file $OUT/run-saved
+# Discard: back to the disk version
+click dict:system/controlDict:writeInterval
+enter 7
+wait 5
+click top-save
+wait-until modal any timeout 5
+click rv-discard
+wait-until modal none timeout 5
+wait 5
+assert not text Save 1
+shell grep -q '^writeInterval *20;' system/controlDict && touch $OUT/discarded
+assert file $OUT/discarded
+# another program: a MOOSE-like Setup edit goes through the same review
+action go.new
+wait-until page New case
+click new-prog:sparta
+wait 5
+click label:Flow over a wedge
+click clone-name
+key A ctrl
+type wedgeReview
+click clone-go
+wait-until page Overview timeout 10
+click nav:setup
+wait-until page Setup
+wait 10
+click label:Commands/run
+key A ctrl
+enter 500
+wait 5
+click ps-save
+wait-until modal any timeout 5
+assert text in.wedge
+assert text run: 2000
+click rv-go
+wait-until modal none timeout 5
+wait 5
+shell grep -q '^run  *500$' in.wedge && touch $OUT/prog-written
+assert file $OUT/prog-written

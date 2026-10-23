@@ -1,0 +1,100 @@
+# The other programs get the OpenFOAM workflow: a CalculiX project from a starter (New case), its Setup changed in place
+# (the rest of the file untouched), a real ccx run with progress and residual-like series from its log, the results
+# listed, and Clean moving them to the project's trash. Then a SPARTA starter run on 2 MPI ranks, its particle dumps in
+# the built-in viewer. Real programs: ccx and spa_mpi must be installed.
+action go.new
+wait-until page New case
+measure
+click new-prog:calculix
+wait 5
+click label:Heated slab
+wait 5
+assert text Create project
+click clone-name
+key A ctrl
+type slabTest
+click clone-go
+wait-until page Overview timeout 10
+assert file $SB/home/calculix/slabTest/slab.inp
+assert file $SB/home/calculix/slabTest/slab_mesh.inp
+# made in CalculiX's own folder, not the OpenFOAM workspace
+assert not file $SB/ws/slabTest/slab.inp
+assert text CalculiX project
+assert text nothing in the way of a run
+# Setup: the step period is a basic value; change it from 250 to 100
+click nav:setup
+wait-until page Setup
+wait 10
+assert text step period
+assert text HEAT TRANSFER
+click label:*HEAT TRANSFER/step period
+key A ctrl
+enter 100.
+wait 5
+assert text Edited, not saved
+click ps-save
+wait 10
+shell grep -q '^1., 100.$' slab.inp && touch $OUT/period-ok
+assert file $OUT/period-ok
+# the material, the mesh include and the comments are still there, byte for byte
+shell grep -q '^16.2$' slab.inp && grep -q 'INPUT=slab_mesh.inp' slab.inp && grep -q '^\*\* Heated slab' slab.inp && touch $OUT/rest-ok
+assert file $OUT/rest-ok
+# run it: progress to 100 s from ccx's own output, a series in the chart, the log
+click nav:run
+wait-until page Run
+wait 5
+click run-go
+wait-until job running timeout 10
+wait-until job finished timeout 120
+wait 20
+assert text Finished
+assert text t = 100 of 100 s
+assert text temp increment
+assert log log.calculix.slab Job finished
+# results: the .frd for cgx, the .dat as text
+click nav:results
+wait-until page Results
+wait 10
+assert text slab.frd
+assert text CalculiX results
+# clean: results and logs to the project's trash, the input stays
+click pres-clean
+wait-until modal any timeout 5
+click pc-go
+wait-until modal none timeout 5
+wait 10
+assert not file $SB/home/calculix/slabTest/slab.frd
+assert file $SB/home/calculix/slabTest/slab.inp
+shell ls .qc-trash | grep -q . && touch $OUT/trash-ok
+assert file $OUT/trash-ok
+
+# SPARTA: the wedge starter on 2 ranks, its dumps in the viewer
+action go.new
+wait-until page New case
+click new-prog:sparta
+wait 5
+click label:Flow over a wedge
+wait 5
+click clone-name
+key A ctrl
+type wedgeTest
+click clone-go
+wait-until page Overview timeout 10
+click nav:run
+wait-until page Run
+wait 5
+click np-dec
+click np-dec
+wait 5
+assert text Parallel with MPI on 2 of
+click run-go
+wait-until job finished timeout 300
+wait 20
+assert text Finished
+assert text step 2000 of 2000
+assert text particles
+click nav:results
+wait-until page Results
+wait 20
+assert text particles
+assert text Frame 11 of 11

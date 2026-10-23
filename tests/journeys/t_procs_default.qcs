@@ -1,0 +1,18 @@
+# ROADMAP 4.6: the tutorial decomposeParDict's 9 ranks (44 cells each) are lowered for a 400-cell cavity, with the reason; an explicit
+# choice is kept as typed.
+open $SB/ws/cavity
+click nav:run
+wait-until page Run
+wait 10
+assert text Set to 1, not 9 from decomposeParDict
+click np-in
+enter 3
+wait 10
+assert text Parallel with mpirun on 3
+# no decomposeParDict: the Settings default (4) is lowered too
+shell cp -a . ../cavityNoDecomp && rm ../cavityNoDecomp/system/decomposeParDict
+open $SB/ws/cavityNoDecomp
+click nav:run
+wait-until page Run
+wait 10
+assert text Set to 1, not 4: 400 cells

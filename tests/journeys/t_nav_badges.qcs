@@ -1,0 +1,19 @@
+# 2.4 status badges on the case's page buttons, in words (not a colour alone): Mesh says "No mesh" before meshing,
+# Run says "Failed" after a failed run, Boundaries counts patches without a condition.
+open $SB/ws/cavity
+wait 10
+assert text No mesh
+screenshot $OUT/badges_new.png
+shell sed -i 's/^nu .*/nu              garbage;/' constant/transportProperties
+wait 30
+click nav:run
+wait-until page Run
+click run-go
+wait-until job failed timeout 60
+wait 20
+assert not text No mesh
+assert text Failed
+# a patch with no condition in U
+shell sed -i 's/^    movingWall$/    movingWallX/' 0/U
+wait-until text 1 missing timeout 6
+screenshot $OUT/badges_failed.png

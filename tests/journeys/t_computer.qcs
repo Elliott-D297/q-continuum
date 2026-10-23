@@ -1,0 +1,66 @@
+# 3.4 the COMPUTER bar (Ctrl+K): one search over commands, pages, cases, patches, fields and keywords; "deltaT = 0.002"
+# sets the entry (undoable, waits for Save).
+open $SB/ws/cavity
+wait 5
+key K ctrl
+wait-until modal palette timeout 5
+type numerics
+wait 5
+assert text Numerics
+key ENTER
+wait-until page Numerics
+# a patch goes to its row on Boundaries
+key K ctrl
+wait-until modal palette timeout 5
+type movingW
+wait 5
+assert text movingWall
+key ENTER
+wait-until page Boundary
+# 3.6: a patch opens the patch inspector, every field on it
+wait 5
+assert text Every field on this patch
+# a keyword shows its value and file
+key K ctrl
+wait-until modal palette timeout 5
+type deltaT
+wait 5
+assert text deltaT = 0.005
+assert text system/controlDict
+screenshot $OUT/computer_search.png
+key ESCAPE
+wait 3
+assert modal none
+# set a value: preview old -> new, Enter applies, Ctrl+Z takes it back
+key K ctrl
+wait-until modal palette timeout 5
+type deltaT = 0.002
+wait 5
+assert text 0.005 -> 0.002
+screenshot $OUT/computer_set.png
+key ENTER
+wait 5
+assert modal none
+assert toast deltaT: 0.005 -> 0.002 in system/controlDict
+assert dirty 1
+key Z ctrl
+wait 5
+assert dirty 0
+# a nested path, and a name the case doesn't have
+key K ctrl
+wait-until modal palette timeout 5
+type PISO/nCorrectors = 3
+wait 5
+assert text system/fvSolution: 2 -> 3
+key ENTER
+wait 5
+key S ctrl
+wait 5
+assert log system/fvSolution nCorrectors     3;
+key K ctrl
+wait-until modal palette timeout 5
+type noSuchKey = 1
+wait 5
+assert text No entry by that name
+key ESCAPE
+budget p95 16.7 max 100

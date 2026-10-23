@@ -1,0 +1,18 @@
+open $SB/ws/brDeltaT
+click nav:run
+wait-until page Run
+wait 200
+dump $OUT/pre.txt
+click run-go
+wait 20
+dump $OUT/modal.txt
+screenshot $OUT/modal.png
+click m-pc-go
+wait-until job running timeout 20
+wait 40
+dump $OUT/running.txt
+screenshot $OUT/running.png
+wait-until not job running timeout 120
+wait 30
+dump $OUT/end.txt
+screenshot $OUT/end.png

@@ -1,0 +1,11 @@
+# 1.10 disk full (enospc.so shim: writes under the case fail with ENOSPC after a few kB): the run fails with a plain
+# explanation instead of only OpenFOAM's "error in IOstream ... for operation Ostream&".
+open $SB/ws/cavity
+click nav:run
+wait-until page Run
+click run-go
+wait-until job failed timeout 60
+wait 20
+dump $OUT/failed.txt
+screenshot $OUT/failed.png
+assert text Writing constant/polyMesh/faces failed

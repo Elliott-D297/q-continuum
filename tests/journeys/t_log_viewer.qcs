@@ -1,0 +1,66 @@
+# 2.2 command strip and 2.9 log viewer: the Commands tab lists what ran with copy buttons; the log can be searched
+# (Enter steps through matches), jumps to the first error, and folds finished time steps to their Time = line.
+open $SB/ws/cavity
+click nav:run
+wait-until page Run
+click run-go
+wait-until job running timeout 30
+wait-until not job running timeout 120
+assert job finished
+wait 10
+# Commands: each step, newest first, copyable as terminal commands
+click log-cmds
+wait 5
+assert text blockMesh
+assert text icoFoam
+assert text log.icoFoam
+screenshot $OUT/log_commands.png
+click cmd-copy-job
+wait 3
+assert toast Copied the run's commands
+assert clipboard source
+assert clipboard blockMesh
+assert clipboard ) > 'log.icoFoam' 2>&1
+# back to the solver log
+click log-cmds
+wait 5
+assert widget log-find
+# folding: the finished steps show as their Time = lines with a count
+click log-fold
+click log-max
+wait 5
+assert text Time = 0.495
+assert text 10 lines
+screenshot $OUT/log_folded.png
+click log-max
+click log-fold
+wait 5
+# search: matches counted, Enter moves to the next
+click log-find
+type Courant Number mean
+wait 5
+assert text found
+key ENTER
+wait 3
+assert text 1 of
+key ENTER
+wait 3
+assert text 2 of
+screenshot $OUT/log_search.png
+# no error in a good run: First error is disabled
+assert not enabled log-err
+# a failing run: First error jumps to it
+key ESCAPE
+shell sed -i 's/^nu .*/nu              garbage;/' constant/transportProperties
+wait 20
+click run-go
+wait-until modal any timeout 10
+click m-rr-over
+wait-until job failed timeout 60
+wait 20
+assert enabled log-err
+click log-err
+wait 5
+assert text FOAM FATAL
+screenshot $OUT/log_error.png
+budget p95 16.7 max 100

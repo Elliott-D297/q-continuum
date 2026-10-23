@@ -1,0 +1,31 @@
+# J1: first launch -> clone cavity -> run -> watch residuals converge -> open in ParaView
+# Target: < 2 min, <= 8 clicks, no terminal, no editor.
+budget p95 16.7 max 100
+assert page Cases
+# B-07: a first launch says what to do, even when DEME projects are found elsewhere
+wait-until text No cases here yet timeout 5
+click cases-new
+wait-until page New case
+click text:Lid-driven cavity
+click clone-go
+wait-until page Overview timeout 15
+# B-05: the lid-driven cavity runs on its own: copied alone, not with cavityClipped, cavityFine, ...
+assert file $SB/ws/cavity/system/controlDict
+assert not file $SB/ws/cavityClipped
+screenshot $OUT/j1_overview.png
+click nav:run
+wait-until page Run
+click run-go
+wait-until job running timeout 20
+wait-until text Courant timeout 30
+screenshot $OUT/j1_running.png
+wait-until job finished timeout 180
+assert file log.icoFoam
+assert log log.icoFoam End
+# ROADMAP 4.6: the tutorial's 9 ranks would hold 44 cells each, so a fresh cavity runs in serial
+assert log log.icoFoam nProcs : 1
+assert not file log.reconstructPar
+screenshot $OUT/j1_finished.png
+click top-pv
+wait-until toast ParaView timeout 5
+assert file $LAUNCH

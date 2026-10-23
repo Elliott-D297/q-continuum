@@ -1,0 +1,42 @@
+# Couple two cases: two plain OpenFOAM cases (a buoyantPimpleFoam channel and a laplacianFoam plate, no preCICE in them)
+# made into a CHT coupled case: the form asks what the adapter needs (k for laplacianFoam), checks the time step against
+# the window, copies both, writes precice-config.xml, the preciceDicts, the adapter and the interface conditions; the
+# coupled run then goes with real OpenFOAM through preCICE. The original cases are left as they were.
+click nav:coupling
+wait-until page Coupling
+click cpl-build
+wait-until modal any timeout 5
+choose cb-case#0 fluidCase   (cplpair)
+wait 5
+choose cb-patch#0 interface
+choose cb-case#1 solidCase   (cplpair)
+wait 5
+choose cb-patch#1 interface
+wait 5
+assert text needs the conductivity k
+assert not enabled cb-go
+click cb-k#1
+type 100
+wait 5
+assert text time windows of 0.01 s up to 0.1 s (10 windows)
+assert text 2-D meshes
+click cb-out
+key A ctrl
+type chtBuilt
+screenshot $OUT/cpl_build.png
+click cb-go
+wait-until page Overview timeout 10
+assert text Temperature
+assert file precice-config.xml
+assert log fluid-openfoam/system/preciceDict participant Fluid;
+assert log solid-openfoam/system/preciceDict k   [ 1  1 -3 -1 0 0 0 ] 100;
+assert not file $SB/ws/cplpair/fluidCase/system/preciceDict
+click nav:run
+wait 10
+click cpl-go
+wait-until toast Started 2 participants timeout 20
+wait-until toast Coupled run finished timeout 400
+assert log fluid-openfoam/log.Fluid End
+assert log solid-openfoam/log.Solid End
+assert log fluid-openfoam/precice-Fluid-iterations.log 10
+screenshot $OUT/cpl_build_done.png

@@ -1,0 +1,27 @@
+# J2: double the mesh resolution of a blockMesh case and rerun. Target: <= 30 s.
+open $SB/ws/cavity
+click nav:run
+click run-go
+wait-until job finished timeout 120
+measure
+budget p95 16.7 max 100
+click nav:mesh
+wait-until page Mesh
+screenshot $OUT/j2_mesh.png
+click blk-base
+enter 0.0025
+wait 5
+screenshot $OUT/j2_mesh_after.png
+assert text 1600 cells now
+click nav:run
+click run-go
+wait-until modal any timeout 5
+screenshot $OUT/j2_modal.png
+# B-03: after a mesh change, continuing would run on the old mesh: Continue must not be on offer as a choice to just click
+assert not enabled m-rr-cont
+assert text old 400-cell mesh
+click m-rr-over
+wait-until job running timeout 10
+wait-until job finished timeout 120
+assert log log.blockMesh nCells: 1600
+screenshot $OUT/j2_done.png

@@ -1,0 +1,13 @@
+# Bug hunt H-17: a dictionary deleted outside the app is reported; unsaved edits to it are kept and Save writes it again.
+open $SB/ws/cavity
+click nav:run
+wait-until page Run
+click dict:system/controlDict:deltaT
+enter 0.0025
+wait 5
+shell mv system/controlDict ../controlDict.away && mv system/fvSchemes ../fvSchemes.away
+wait-until toast system/controlDict deleted (your unsaved edits are kept timeout 10
+assert toast system/fvSchemes deleted
+key S ctrl
+wait 5
+assert log system/controlDict deltaT          0.0025;

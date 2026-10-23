@@ -1,0 +1,51 @@
+# 3.2 the error translator: a real FOAM FATAL error explained in plain words with the file and line, Open at line
+# goes there, and the one-click fix (saved, undoable) lets the run go through.
+open $SB/ws/cavity
+shell sed -i '/div(phi,U)/d' system/fvSchemes
+wait 120
+click nav:run
+wait-until page Run
+click run-go
+# SENSOR SWEEP sees it first and asks; run anyway to meet OpenFOAM's own error
+wait-until modal precheck timeout 10
+assert text No div(phi,U) in system/fvSchemes
+click m-pc-go
+wait-until job failed timeout 60
+wait 20
+assert text div(phi,U) is missing from system/fvSchemes
+assert text and there is none there
+assert widget err-fix
+screenshot $OUT/error_fix.png
+click err-fix
+wait 5
+assert toast Add div(phi,U) Gauss linear: saved system/fvSchemes
+assert log system/fvSchemes div(phi,U)      Gauss linear;
+click run-go
+wait-until job finished timeout 60
+# a misspelt patch: Open at line shows it, the fix renames it
+shell sed -i 's/^    movingWall$/    movingWallX/' 0/U
+wait 120
+click run-go
+wait-until modal any timeout 10
+click m-rr-over
+wait-until modal precheck timeout 10
+click m-pc-go
+wait-until job failed timeout 60
+wait 20
+assert text 0/U has no condition for patch movingWall
+assert text most likely the same name misspelt
+click err-open
+wait-until page Files
+wait 10
+assert text movingWallX
+screenshot $OUT/error_open.png
+click nav:run
+wait-until page Run
+wait 5
+click err-fix
+wait 5
+assert toast Rename movingWallX to movingWall
+click run-go
+wait 10
+assert modal none
+wait-until job finished timeout 60

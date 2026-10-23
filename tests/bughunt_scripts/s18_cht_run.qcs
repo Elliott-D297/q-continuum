@@ -1,0 +1,24 @@
+open $SB/ws/multiRegionHeater
+click nav:mesh
+wait-until page Mesh
+click mesh-gen
+wait-until job finished timeout 200
+wait 20
+click nav:run
+wait-until page Run
+click dict:system/controlDict:endTime
+enter 0.5
+click dict:system/controlDict:writeInterval
+enter 0.25
+key S ctrl
+wait 200
+dump $OUT/pre.txt
+screenshot $OUT/pre.png
+click run-go
+wait 30
+dump $OUT/m.txt
+screenshot $OUT/m.png
+wait-until not job running timeout 300
+wait 30
+dump $OUT/end.txt
+screenshot $OUT/end.png

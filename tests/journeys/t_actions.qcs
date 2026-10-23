@@ -1,0 +1,85 @@
+# 2.1 the action registry: shortcuts and "action <id>" run the same commands as the buttons; a blocked action says why;
+# F1 lists them all. tests/actions_covered.py requires every registered action to be exercised by some journey.
+assert page Cases
+key F1
+wait-until modal shortcuts timeout 5
+assert text Keyboard shortcuts
+assert text Ctrl+Shift+Z
+assert text Full screen
+screenshot $OUT/shortcuts.png
+key ESCAPE
+wait 3
+# What's new (shown once after an update; never in scripted runs unless asked)
+action help.whatsnew
+wait-until modal whats-new timeout 5
+assert text Undo and redo
+screenshot $OUT/whats_new.png
+click m-wn-ok
+wait 3
+assert modal none
+key N ctrl
+wait-until page New case
+action go.queue
+wait-until page Queue
+action view.theme
+wait 5
+assert text Q-Continuum
+action view.theme
+wait 5
+# F11 full screen and back (a --hidden run only flips the state; the real window was checked on the desktop)
+assert not fullscreen
+key F11
+wait 3
+assert fullscreen
+action view.fullscreen
+wait 3
+assert not fullscreen
+open $SB/ws/cavity
+wait 5
+key F5
+wait 5
+# blocked: nothing to undo, said in words
+key Z ctrl
+wait 3
+assert toast Undo: Nothing to undo
+# Ctrl+M meshes; Ctrl+6 goes to Run
+key M ctrl
+wait-until job running timeout 30
+wait-until not job running timeout 60
+assert job finished
+wait-until not text No mesh timeout 5
+key 6 ctrl
+wait-until page Run
+click dict:system/controlDict:deltaT
+enter 0.004
+wait 5
+key Z ctrl
+wait 5
+assert toast Undone: deltaT 0.004
+key Z ctrl shift
+wait 5
+assert toast Redone: deltaT 0.004
+key S ctrl
+wait 5
+action history.record
+wait 10
+assert toast record
+action case.clean
+wait-until modal clean timeout 5
+key ESCAPE
+wait 3
+action view.claude
+wait-until modal pv-claude timeout 5
+key ESCAPE
+wait 3
+# a long run, stopped
+shell sed -i 's/^endTime .*/endTime         500;/' system/controlDict
+wait 120
+key R ctrl
+wait 10
+assert modal none
+wait-until job running timeout 30
+wait 60
+action run.stop
+wait-until job stopped timeout 30
+budget p95 16.7 max 100

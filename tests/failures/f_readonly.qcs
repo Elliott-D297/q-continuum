@@ -1,0 +1,29 @@
+# 1.10 read-only case: the Overview says so up front, saving and running say why they can't, and one click gives a
+# writable copy in the workspace.
+shell chmod -R a-w $SB/ws/cavity
+open $SB/ws/cavity
+wait 10
+assert text Read-only folder
+click nav:run
+wait-until page Run
+click dict:system/controlDict:deltaT
+enter 0.002
+key S ctrl
+wait 10
+assert toast the case folder is read-only
+click run-go
+wait 30
+assert not job running
+assert toast Not started: the case folder is read-only
+assert not file log.blockMesh
+# the way out
+click nav:overview
+wait-until page Overview
+click text:Copy to workspace
+wait 20
+assert file $SB/ws/cavity-copy/system/controlDict
+assert text cavity-copy
+assert not text Read-only folder
+shell chmod -R u+w $SB/ws/cavity
+# the edit made in the read-only case (deltaT 0.002) was carried into the copy
+assert log system/controlDict deltaT          0.002;

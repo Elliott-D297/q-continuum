@@ -1,0 +1,24 @@
+# Bug hunt H-14: adjustable writes land on whole multiples of writeInterval (multiRegionHeater starts at 0.001):
+# end 0.5, every 0.25 -> 2 writes, as OpenFOAM writes 0.25 and 0.5.
+open $SB/ws/multiRegionHeater
+click nav:run
+wait-until page Run
+click dict:system/controlDict:endTime
+enter 0.5
+wait 5
+click dict:system/controlDict:writeInterval
+enter 0.25
+wait 5
+key S ctrl
+wait 40
+assert text in 2 writes
+# H-13: an unsaved time step counts in the Courant estimate at once
+open $SB/ws/cavity
+click nav:run
+wait-until page Run
+assert text Co ≈ 1.0
+click dict:system/controlDict:deltaT
+enter 0.001
+wait 3
+assert text Co ≈ 0.2
+assert dirty 1

@@ -1,0 +1,12 @@
+# Regression: the Files tree lists text files in the case root for editing. Its binary check looked for a NUL with
+# memchr over strlen() bytes, which can never find one, so a PNG (no byte below 9 before its first NUL) was listed
+# as text and opened in the text editor. clang-tidy bugprone-not-null-terminated-result, page_dicts.c.
+open $SB/ws/cavity
+shell printf '\211PNG\r\n\032\n\000\000\000\rIHDR' > plot.png
+shell printf '#!/bin/sh\necho hi\n' > notes.sh
+click nav:files
+wait-until page Files
+wait 30
+assert text notes.sh
+assert not text plot.png
+dump $OUT/files.txt

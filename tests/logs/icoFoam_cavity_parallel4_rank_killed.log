@@ -1,0 +1,102 @@
+/*---------------------------------------------------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     | Version:  2606                                  |
+|   \\  /    A nd           | Website:  www.openfoam.com                      |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+Build  : 481094fd-20260618 OPENFOAM=2606 version=v2606
+Arch   : "LSB;label=32;scalar=64"
+Exec   : icoFoam -parallel
+Date   : Oct 17 2026
+Time   : 17:22:36
+Host   : qc-host
+PID    : 681861
+I/O    : uncollated
+Case   : /tmp/scratch/man/heavy/oom
+nProcs : 4
+Hosts  :
+(
+    (qc-host 4)
+)
+Pstream initialized with:
+    node communication : off [type=host] (4 ranks, 1 nodes)
+    topology controls  : none
+    consensus exchange : 0 (tuning: 0)
+    exchange algorithm : 0
+    commsType          : nonBlocking
+    polling iterations : 0
+trapFpe: Floating point exception trapping enabled (FOAM_SIGFPE).
+memory pool : not available
+fileModificationChecking : Monitoring run-time modified files using timeStampMaster (fileModificationSkew 5, maxFileModificationPolls 20)
+
+--> FOAM Warning : allowSystemOperations : Allowing user-supplied system call operations.
+                   This can be a security risk if running untrusted cases
+                   through e.g. 'coded' on-the-fly-compilation functionality.
+
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+Create time
+
+Create mesh for time = 0
+
+
+PISO: Operating solver in PISO mode
+
+Reading transportProperties
+
+Reading field p
+
+Reading field U
+
+Reading/calculating face flux field phi
+
+
+Starting time loop
+
+Time = 5e-05
+
+Courant Number mean: 0 max: 0
+smoothSolver:  Solving for Ux, Initial residual = 1, Final residual = 9.37781e-06, No Iterations 68
+smoothSolver:  Solving for Uy, Initial residual = 0, Final residual = 0, No Iterations 0
+DICPCG:  Solving for p, Initial residual = 1, Final residual = 0.0470617, No Iterations 568
+time step continuity errors : sum local = 3.27799e-07, global = 7.1365e-22, cumulative = 7.1365e-22
+DICPCG:  Solving for p, Initial residual = 0.670775, Final residual = 9.86179e-07, No Iterations 809
+time step continuity errors : sum local = 1.0628e-11, global = 1.04694e-21, cumulative = 1.76059e-21
+ExecutionTime = 4.47 s  ClockTime = 4 s
+
+Time = 0.0001
+
+Courant Number mean: 0.00328926 max: 0.163683
+smoothSolver:  Solving for Ux, Initial residual = 0.126042, Final residual = 9.81387e-06, No Iterations 72
+smoothSolver:  Solving for Uy, Initial residual = 0.361806, Final residual = 9.11234e-06, No Iterations 85
+DICPCG:  Solving for p, Initial residual = 0.753907, Final residual = 0.0373108, No Iterations 287
+time step continuity errors : sum local = 5.51016e-07, global = 1.91989e-21, cumulative = 3.68048e-21
+DICPCG:  Solving for p, Initial residual = 0.694101, Final residual = 9.29995e-07, No Iterations 795
+time step continuity errors : sum local = 1.29918e-11, global = 1.26317e-21, cumulative = 4.94365e-21
+ExecutionTime = 8.36 s  ClockTime = 8 s
+
+Time = 0.00015
+
+Courant Number mean: 0.0049802 max: 0.181985
+smoothSolver:  Solving for Ux, Initial residual = 0.0520837, Final residual = 9.15262e-06, No Iterations 66
+smoothSolver:  Solving for Uy, Initial residual = 0.181361, Final residual = 8.92878e-06, No Iterations 80
+DICPCG:  Solving for p, Initial residual = 0.782779, Final residual = 0.0386298, No Iterations 513
+time step continuity errors : sum local = 5.69411e-07, global = 1.94553e-21, cumulative = 6.88918e-21
+DICPCG:  Solving for p, Initial residual = 0.507713, Final residual = 9.60433e-07, No Iterations 778
+time step continuity errors : sum local = 2.05979e-11, global = 1.53009e-21, cumulative = 8.41927e-21
+ExecutionTime = 12.78 s  ClockTime = 13 s
+
+Time = 0.0002
+
+Courant Number mean: 0.00614876 max: 0.186255
+smoothSolver:  Solving for Ux, Initial residual = 0.0350237, Final residual = 9.97244e-06, No Iterations 63
+smoothSolver:  Solving for Uy, Initial residual = 0.0958968, Final residual = 9.68931e-06, No Iterations 74
+DICPCG:  Solving for p, Initial residual = 0.673871, Final residual = 0.0326314, No Iterations 438
+time step continuity errors : sum local = 4.09194e-07, global = 3.57859e-22, cumulative = 8.77713e-21
+--------------------------------------------------------------------------
+Primary job  terminated normally, but 1 process returned
+a non-zero exit code. Per user-direction, the job has been aborted.
+--------------------------------------------------------------------------
+--------------------------------------------------------------------------
+mpirun noticed that process rank 1 with PID 0 on node qc-host exited on signal 9 (Killed).
+--------------------------------------------------------------------------

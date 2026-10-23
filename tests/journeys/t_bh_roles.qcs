@@ -1,0 +1,20 @@
+# Bug hunt H-15: the Outlet role keeps backflow-safe conditions on every transported field (alpha.water inletOutlet),
+# p_rgh fixed at its starting value.
+open $SB/ws/damBreak
+click nav:mesh
+click mesh-gen
+wait-until job finished timeout 60
+click nav:boundaries
+wait-until page Boundary
+click bc-patch#3
+wait 5
+click pi-role#0
+wait 5
+click pi-role#2
+wait 5
+key S ctrl
+wait 5
+assert log 0.orig/alpha.water inletOutlet
+assert log 0.orig/U inletOutlet
+assert log 0.orig/p_rgh fixedValue
+screenshot $OUT/roles.png

@@ -1,0 +1,34 @@
+Exec   : simpleFoam
+Starting time loop
+
+Time = 1
+
+smoothSolver:  Solving for Ux, Initial residual = 0.1, Final residual = 0.001, No Iterations 2
+ExecutionTime = 0.1 s  ClockTime = 0 s
+
+Time = 2
+
+smoothSolver:  Solving for Ux, Initial residual = 0.2, Final residual = 0.001, No Iterations 2
+ExecutionTime = 0.1 s  ClockTime = 0 s
+
+Time = 3
+
+smoothSolver:  Solving for Ux, Initial residual = 0.3, Final residual = 0.001, No Iterations 2
+ExecutionTime = 0.1 s  ClockTime = 0 s
+
+End
+
+Finalising parallel run
+
+== Q-Continuum: continuing from t = 2 ==
+
+Starting time loop
+
+Time = 3
+
+smoothSolver:  Solving for Ux, Initial residual = 0.03, Final residual = 0.001, No Iterations 2
+
+Time = 4
+
+smoothSolver:  Solving for Ux, Initial residual = 0.04, Final residual = 0.001, No Iterations 2
+

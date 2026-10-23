@@ -1,0 +1,30 @@
+open $SB/ws/brTurb
+click nav:run
+wait-until page Run
+wait 200
+dump $OUT/pre.txt
+screenshot $OUT/pre.png
+click run-go
+wait 20
+dump $OUT/modal.txt
+screenshot $OUT/modal.png
+click m-pc-go
+wait-until not job running timeout 120
+wait 30
+dump $OUT/err.txt
+screenshot $OUT/err.png
+click err-fix
+wait 10
+dump $OUT/fixed.txt
+shell cp -a . $OUT/afterfix
+click run-go
+wait 20
+click m-pc-go
+wait 5
+click m-rr-over
+wait 10
+click m-pc-go
+wait-until not job running timeout 120
+wait 30
+dump $OUT/rerun.txt
+screenshot $OUT/rerun.png

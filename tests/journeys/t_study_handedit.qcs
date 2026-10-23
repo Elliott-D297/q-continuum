@@ -1,0 +1,12 @@
+# Regression: a hand-edited .qcstudy whose case line has two fields (path|value, no second parameter value). split_bar
+# left the unused fields unset, so the missing one was whatever the previous line left in that slot (here the second
+# param line's template, "QCSTALE %s"), shown as the variant's second value. clang-tidy core.uninitialized.Branch.
+shell printf 'name=dt\nbase=%s\nparam=system/controlDict|deltaT|%%s|0.005,0.0025\nparam=system/controlDict|endTime|QCSTALE %%s|0.5\ncase=%s|0.005\n' "$SB/ws/cavity" "$SB/ws/cavity" > "$SB/ws/dt.qcstudy"
+open $SB/ws/cavity
+click nav:studies
+wait-until page Studies
+wait 30
+assert text deltaT
+assert not text QCSTALE
+dump $OUT/studies.txt
+screenshot $OUT/studies.png

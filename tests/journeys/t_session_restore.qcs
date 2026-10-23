@@ -1,0 +1,12 @@
+# 2.6 session restore: settings.ini says the last session ended on cavity's Run page; launching without a case argument
+# goes straight back there.
+#settings: last_case=$SB/ws/cavity
+#settings: last_page=Run
+#settings: last_region=
+wait 10
+assert case-open
+assert page Run
+assert text Processes
+# and the session follows the user: a different page is what would be saved next (not written in test mode)
+click nav:mesh
+wait-until page Mesh

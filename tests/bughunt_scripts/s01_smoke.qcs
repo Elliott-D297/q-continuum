@@ -1,0 +1,9 @@
+open $SB/ws/cavity
+wait 10
+dump $OUT/overview.txt
+screenshot $OUT/overview.png
+click nav:boundaries
+wait-until page Boundary
+wait 10
+dump $OUT/bc.txt
+screenshot $OUT/bc.png

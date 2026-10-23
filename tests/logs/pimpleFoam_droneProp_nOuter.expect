@@ -1,0 +1,14 @@
+steps 3
+time 8.73448e-06
+deltaT 4.1462e-06
+ended 0
+fatal 0
+converged 0
+courant n=4 last=0.674
+interfaceCourant n=0
+series "Ux" n=3 first=1 last=0.005721
+series "Uy" n=3 first=1 last=0.00649
+series "Uz" n=3 first=1 last=0.0001006
+series "p" n=3 first=1 last=0.312
+series "omega" n=3 first=9.528e-06 last=1.152e-05
+series "k" n=3 first=1 last=0.002045

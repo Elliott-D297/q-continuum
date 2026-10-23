@@ -1,0 +1,20 @@
+open $SB/ws/damBreak
+click nav:boundaries
+wait-until page Boundary
+wait 10
+dump $OUT/bc.txt
+screenshot $OUT/bc.png
+click bc-patch#3
+wait 5
+dump $OUT/insp.txt
+screenshot $OUT/insp.png
+click pi-role#2
+wait 5
+key S ctrl
+wait 10
+shell cp -a 0.orig $OUT/afterOutlet
+click pi-role#1
+wait 5
+key S ctrl
+wait 10
+shell cp -a 0.orig $OUT/afterInlet

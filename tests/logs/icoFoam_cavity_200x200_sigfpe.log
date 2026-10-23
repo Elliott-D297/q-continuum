@@ -1,0 +1,140 @@
+/*---------------------------------------------------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     | Version:  2606                                  |
+|   \\  /    A nd           | Website:  www.openfoam.com                      |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+Build  : 481094fd-20260618 OPENFOAM=2606 version=v2606
+Arch   : "LSB;label=32;scalar=64"
+Exec   : icoFoam
+Date   : Oct 16 2026
+Time   : 21:19:41
+Host   : qc-host
+PID    : 3503
+I/O    : uncollated
+Case   : /home/user/OpenFOAM/user-v2606/run/cavity
+nProcs : 1
+trapFpe: Floating point exception trapping enabled (FOAM_SIGFPE).
+memory pool : not available
+fileModificationChecking : Monitoring run-time modified files using timeStampMaster (fileModificationSkew 5, maxFileModificationPolls 20)
+
+--> FOAM Warning : allowSystemOperations : Allowing user-supplied system call operations.
+                   This can be a security risk if running untrusted cases
+                   through e.g. 'coded' on-the-fly-compilation functionality.
+
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+Create time
+
+Create mesh for time = 0
+
+
+PISO: Operating solver in PISO mode
+
+Reading transportProperties
+
+Reading field p
+
+Reading field U
+
+Reading/calculating face flux field phi
+
+
+Starting time loop
+
+Time = 0.005
+
+Courant Number mean: 0 max: 0
+smoothSolver:  Solving for Ux, Initial residual = 1, Final residual = 3.9012e-05, No Iterations 1000
+smoothSolver:  Solving for Uy, Initial residual = 0, Final residual = 0, No Iterations 0
+DICPCG:  Solving for p, Initial residual = 1, Final residual = 0.0473016, No Iterations 246
+time step continuity errors : sum local = 0.000333742, global = 1.14978e-19, cumulative = 1.14978e-19
+DICPCG:  Solving for p, Initial residual = 0.805958, Final residual = 9.88614e-07, No Iterations 354
+time step continuity errors : sum local = 9.00391e-09, global = -3.07339e-20, cumulative = 8.42442e-20
+ExecutionTime = 1.74 s  ClockTime = 2 s
+
+Time = 0.01
+
+Courant Number mean: 1.02868 max: 8.92002
+smoothSolver:  Solving for Ux, Initial residual = 0.130925, Final residual = 0.000129206, No Iterations 1000
+smoothSolver:  Solving for Uy, Initial residual = 0.69375, Final residual = 0.000448089, No Iterations 1000
+DICPCG:  Solving for p, Initial residual = 0.9833, Final residual = 0.0489685, No Iterations 123
+time step continuity errors : sum local = 0.00245497, global = -6.31925e-19, cumulative = -5.4768e-19
+DICPCG:  Solving for p, Initial residual = 0.941637, Final residual = 8.30144e-07, No Iterations 347
+time step continuity errors : sum local = 4.13371e-08, global = -1.11197e-18, cumulative = -1.65966e-18
+ExecutionTime = 4.29 s  ClockTime = 4 s
+
+Time = 0.015
+
+Courant Number mean: 2.14946 max: 16.1344
+smoothSolver:  Solving for Ux, Initial residual = 0.385546, Final residual = 0.000536418, No Iterations 1000
+smoothSolver:  Solving for Uy, Initial residual = 0.88946, Final residual = 0.000692495, No Iterations 1000
+DICPCG:  Solving for p, Initial residual = 0.993707, Final residual = 0.0462164, No Iterations 234
+time step continuity errors : sum local = 0.0155606, global = 9.79382e-20, cumulative = -1.56172e-18
+DICPCG:  Solving for p, Initial residual = 0.733192, Final residual = 9.07684e-07, No Iterations 342
+time step continuity errors : sum local = 4.11775e-07, global = -5.14941e-19, cumulative = -2.07666e-18
+ExecutionTime = 7.38 s  ClockTime = 7 s
+
+Time = 0.02
+
+Courant Number mean: 4.0541 max: 26.9901
+smoothSolver:  Solving for Ux, Initial residual = 0.848452, Final residual = 0.000824337, No Iterations 1000
+smoothSolver:  Solving for Uy, Initial residual = 0.894884, Final residual = 0.000410394, No Iterations 1000
+DICPCG:  Solving for p, Initial residual = 0.996048, Final residual = 0.0473555, No Iterations 218
+time step continuity errors : sum local = 0.0832449, global = -3.47284e-18, cumulative = -5.54949e-18
+DICPCG:  Solving for p, Initial residual = 0.780419, Final residual = 8.73417e-07, No Iterations 341
+time step continuity errors : sum local = 1.94389e-06, global = 8.11157e-18, cumulative = 2.56208e-18
+ExecutionTime = 10.15 s  ClockTime = 10 s
+
+Time = 0.025
+
+Courant Number mean: 16.6591 max: 159.791
+smoothSolver:  Solving for Ux, Initial residual = 0.829832, Final residual = 0.000638335, No Iterations 1000
+smoothSolver:  Solving for Uy, Initial residual = 0.908959, Final residual = 0.000428984, No Iterations 1000
+DICPCG:  Solving for p, Initial residual = 0.995469, Final residual = 0.0472107, No Iterations 229
+time step continuity errors : sum local = 0.356195, global = -4.74855e-17, cumulative = -4.49234e-17
+DICPCG:  Solving for p, Initial residual = 0.777907, Final residual = 9.40312e-07, No Iterations 343
+time step continuity errors : sum local = 9.00062e-06, global = -1.86496e-17, cumulative = -6.3573e-17
+ExecutionTime = 12.77 s  ClockTime = 12 s
+
+Time = 0.03
+
+Courant Number mean: 60.1532 max: 402.097
+smoothSolver:  Solving for Ux, Initial residual = 0.904668, Final residual = 0.000316437, No Iterations 1000
+smoothSolver:  Solving for Uy, Initial residual = 0.893436, Final residual = 0.000331829, No Iterations 1000
+DICPCG:  Solving for p, Initial residual = 0.994466, Final residual = 0.045961, No Iterations 199
+time step continuity errors : sum local = 1.21655, global = -4.56114e-17, cumulative = -1.09184e-16
+DICPCG:  Solving for p, Initial residual = 0.743839, Final residual = 8.80677e-07, No Iterations 340
+time step continuity errors : sum local = 3.10086e-05, global = 7.29074e-17, cumulative = -3.6277e-17
+ExecutionTime = 15.37 s  ClockTime = 15 s
+
+Time = 0.035
+
+Courant Number mean: 288.965 max: 1278.56
+smoothSolver:  Solving for Ux, Initial residual = 0.770366, Final residual = 5.74655e-05, No Iterations 1000
+smoothSolver:  Solving for Uy, Initial residual = 0.767427, Final residual = 2.24818e-05, No Iterations 1000
+DICPCG:  Solving for p, Initial residual = 0.987536, Final residual = 0.0443512, No Iterations 233
+time step continuity errors : sum local = 2.13718, global = 4.07682e-16, cumulative = 3.71405e-16
+DICPCG:  Solving for p, Initial residual = 0.752006, Final residual = 9.48715e-07, No Iterations 341
+time step continuity errors : sum local = 5.9549e-05, global = 8.61462e-17, cumulative = 4.57551e-16
+ExecutionTime = 18.41 s  ClockTime = 18 s
+
+Time = 0.04
+
+Courant Number mean: 770.577 max: 2284.7
+[stack trace]
+=============
+#1  Foam::sigFpe::sigHandler(int) in ~/OpenFOAM/OpenFOAM-v2606/platforms/linux64GccDPInt32Opt/lib/libOpenFOAM.so
+#2  ? in /lib/x86_64-linux-gnu/libc.so.6
+#3  Foam::symGaussSeidelSmoother::smooth(Foam::word const&, Foam::Field<double>&, Foam::lduMatrix const&, Foam::Field<double> const&, Foam::FieldField<Foam::Field, double> const&, Foam::UPtrList<Foam::lduInterfaceField const> const&, unsigned char, int) in ~/OpenFOAM/OpenFOAM-v2606/platforms/linux64GccDPInt32Opt/lib/libOpenFOAM.so
+#4  Foam::symGaussSeidelSmoother::smooth(Foam::Field<double>&, Foam::Field<double> const&, unsigned char, int) const in ~/OpenFOAM/OpenFOAM-v2606/platforms/linux64GccDPInt32Opt/lib/libOpenFOAM.so
+#5  Foam::smoothSolver::solve(Foam::Field<double>&, Foam::Field<double> const&, unsigned char) const in ~/OpenFOAM/OpenFOAM-v2606/platforms/linux64GccDPInt32Opt/lib/libOpenFOAM.so
+#6  Foam::fvMatrix<Foam::Vector<double>>::solveSegregated(Foam::dictionary const&) in ~/OpenFOAM/OpenFOAM-v2606/platforms/linux64GccDPInt32Opt/lib/libfiniteVolume.so
+#7  Foam::fvMatrix<Foam::Vector<double>>::solveSegregatedOrCoupled(Foam::dictionary const&) in ~/OpenFOAM/OpenFOAM-v2606/platforms/linux64GccDPInt32Opt/lib/libfiniteVolume.so
+#8  Foam::fvMesh::solve(Foam::fvMatrix<Foam::Vector<double>>&, Foam::dictionary const&) const in ~/OpenFOAM/OpenFOAM-v2606/platforms/linux64GccDPInt32Opt/lib/libfiniteVolume.so
+#9  ? in ~/OpenFOAM/OpenFOAM-v2606/platforms/linux64GccDPInt32Opt/bin/icoFoam
+#10  ? in ~/OpenFOAM/OpenFOAM-v2606/platforms/linux64GccDPInt32Opt/bin/icoFoam
+#11  ? in /lib/x86_64-linux-gnu/libc.so.6
+#12  __libc_start_main in /lib/x86_64-linux-gnu/libc.so.6
+#13  ? in ~/OpenFOAM/OpenFOAM-v2606/platforms/linux64GccDPInt32Opt/bin/icoFoam
+=============

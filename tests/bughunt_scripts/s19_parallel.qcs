@@ -1,0 +1,35 @@
+open $SB/ws/cavity
+click nav:run
+wait-until page Run
+click dict:system/controlDict:endTime
+enter 0.2
+click np-in
+enter 2
+key S ctrl
+wait 10
+click run-go
+wait-until job finished timeout 120
+wait 20
+shell ls > $OUT/ls1.txt
+dump $OUT/a.txt
+click dict:system/controlDict:endTime
+enter 0.4
+key S ctrl
+click np-in
+enter 3
+wait 10
+click label:Continue from the latest time
+wait 5
+click run-go
+wait 30
+dump $OUT/b.txt
+screenshot $OUT/b.png
+wait-until not job running timeout 120
+wait 20
+dump $OUT/c.txt
+screenshot $OUT/c.png
+shell ls > $OUT/ls2.txt
+click top-clean
+wait 20
+dump $OUT/clean.txt
+screenshot $OUT/clean.png

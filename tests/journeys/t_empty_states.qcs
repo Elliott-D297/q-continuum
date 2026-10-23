@@ -1,0 +1,43 @@
+# 2.3 empty states offer the next action as a button (F-33)
+assert page Cases
+# no case open: the classic sidebar offers Cases and New case (LCARS has both in its top bar)
+theme 1
+wait 3
+click side-new
+wait-until page New case
+theme 0
+wait 3
+click nav:cases
+wait-until page Cases
+# a search that matches nothing: one click shows everything again
+click cases-search
+type zzzz-no-such-case
+wait 5
+assert text No cases match
+click cases-clear
+wait 5
+assert text cavity
+# Studies without a case: open one
+click nav:studies
+wait-until page Studies
+click st-open-case
+wait-until page Cases
+# Coupling with nothing chosen: start from a preCICE tutorial (preCICE is installed here)
+click nav:coupling
+wait-until page Coupling
+click cpl-empty-new
+wait-until modal any timeout 5
+key ESCAPE
+wait 5
+# a case with no mesh: the Run page's empty chart runs it
+open $SB/ws/cavity
+wait 10
+click nav:run
+wait-until page Run
+screenshot $OUT/empty_run.png
+click chart-run
+wait-until job running timeout 30
+wait-until not job running timeout 120
+assert job finished
+assert not widget chart-run
+budget p95 16.7 max 100

@@ -1,0 +1,13 @@
+# F-04, F-24: the Courant check works before meshing, from blockMeshDict, and states its working in numbers
+open $SB/ws/cavity
+click nav:run
+wait-until page Run
+wait-until text Co ≈ 1.0 timeout 5
+wheel 0 text:Co ≈ 1.0
+wait 60
+screenshot $OUT/courant_tip.png
+click dict:system/controlDict:deltaT
+enter 0.5
+key S ctrl
+wait 220
+assert text Co ≈ 100

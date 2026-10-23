@@ -1,0 +1,46 @@
+# ROADMAP 5.1 AWAY MISSION: the cavity packed for aerofly (Slurm, v2412): staged without results, a batch script with
+# the app's steps (srun for the solver), checked with the local v2412 (mesh + -dry-run), packed, commands to copy.
+# Then the package is unpacked and its script run here, with a stand-in srun that starts mpirun, to prove it runs.
+#settings: away_export=$SB/export
+#settings: away_host=aerofly
+#settings: away_user=tester
+#settings: away_dir=~/cases
+open $SB/ws/cavity
+click nav:run
+wait-until page Run
+click run-away
+wait-until modal any timeout 5
+assert text Packs the case for aerofly
+click aw-np
+key A ctrl
+type 2
+click aw-time
+key A ctrl
+type 01:00:00
+click aw-go
+wait-until job running timeout 10
+wait-until job finished timeout 180
+wait 10
+assert text v2412 check passed
+assert text Ready:
+assert widget aw-c1
+screenshot $OUT/away.png
+click aw-c2
+wait 3
+assert clipboard ssh tester@aerofly 'cd ~/cases && tar xzf cavity-
+assert clipboard && sbatch aerofly.slurm'
+key ESCAPE
+wait 3
+# the package: no results, the script with srun and the time limit; then run it here as Slurm would
+shell mkdir -p $SB/cluster && cd $SB/cluster && tar xzf $SB/export/cavity-*.tar.gz && cd cavity-* && cp aerofly.slurm $SB/cluster/script.txt && ls > $SB/cluster/files.txt
+assert log $SB/cluster/script.txt #SBATCH --ntasks=2
+assert log $SB/cluster/script.txt #SBATCH --time=01:00:00
+assert log $SB/cluster/script.txt srun icoFoam -parallel
+assert log $SB/cluster/script.txt load OpenFOAM v2412 here
+assert not log $SB/cluster/files.txt processor
+assert not log $SB/cluster/files.txt log.
+shell mkdir -p $SB/cluster/bin && printf '#!/bin/bash\nexec mpirun --oversubscribe -np $SLURM_NTASKS "$@"\n' > $SB/cluster/bin/srun && chmod +x $SB/cluster/bin/srun && cd $SB/cluster/cavity-* && (. /usr/lib/openfoam/openfoam2412/etc/bashrc; PATH=$SB/cluster/bin:$PATH SLURM_NTASKS=2 SLURM_SUBMIT_DIR=$PWD bash aerofly.slurm > slurm-test.out 2>&1); cp slurm-test.out $SB/cluster/out.txt; cp log.icoFoam $SB/cluster/log.txt
+assert log $SB/cluster/out.txt done
+assert log $SB/cluster/log.txt nProcs : 2
+assert log $SB/cluster/log.txt End
+assert log $SB/cluster/log.txt Build  : _b8cf4d35-20260127 OPENFOAM=2412

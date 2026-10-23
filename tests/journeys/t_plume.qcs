@@ -1,0 +1,48 @@
+# ROADMAP 4.4 the impinging-plume starter: New case > Plume on a surface, the numbers worked out live from the nozzle
+# exit state (a, Ue, p0, NPR, Mach disk, mesh, time step), a refused input, the case written and run with real
+# rhoCentralFoam (end time cut short for the test), and the continuum check at 100 Pa ambient.
+click nav:new case
+wait-until page New case
+click starter-plume
+wait-until modal any timeout 5
+assert text Ue = Me·a = 3 × 353.1 = 1059.2 m/s
+assert text NPR = p0/pa = 1837
+assert text = 0.574 m, beyond the
+assert text Mesh: 50 × (10 + 36) = 2300 cells
+screenshot $OUT/plume_form.png
+dump $OUT/form.txt
+click pl-f#0
+key A ctrl
+type 0.5
+wait 3
+assert text The exit Mach number must be 1 or more
+assert not enabled pl-go
+click pl-f#0
+key A ctrl
+type 3
+wait 3
+click pl-name
+key A ctrl
+type plumeTest
+click pl-go
+wait-until page Overview timeout 10
+assert file README.plume
+assert log system/controlDict application     rhoCentralFoam;
+assert log 0/U uniform (1059.2 0 0)
+click nav:run
+wait-until page Run
+wait 10
+assert text Slip flow at the
+click dict:system/controlDict:endTime
+enter 2e-05
+wait 3
+key S ctrl
+wait 5
+click run-go
+wait 10
+click? m-pc-go
+wait-until job running timeout 30
+wait-until job finished timeout 300
+assert log log.rhoCentralFoam End
+assert file postProcessing/platePressure/0/surfaceFieldValue.dat
+screenshot $OUT/plume_run.png

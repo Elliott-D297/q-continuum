@@ -1,0 +1,7 @@
+P actions make_etude
+P memory_limit 2048
+P time_limit 900
+P mpi_nbcpu 1
+F comm /home/user/heatBench/aster/A.comm D 1
+F mmed /home/user/heatBench/aster/A.med D 20
+F mess /home/user/heatBench/aster/A.mess R 6

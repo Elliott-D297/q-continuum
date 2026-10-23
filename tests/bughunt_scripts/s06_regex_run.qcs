@@ -1,0 +1,16 @@
+open $SB/ws/cavityRx
+click nav:run
+wait-until page Run
+wait 10
+click dict:system/controlDict:endTime
+enter 0.05
+key S ctrl
+wait 5
+click run-go
+wait 60
+dump $OUT/run1.txt
+screenshot $OUT/run1.png
+wait-until job finished timeout 90
+wait 20
+dump $OUT/run2.txt
+screenshot $OUT/run2.png

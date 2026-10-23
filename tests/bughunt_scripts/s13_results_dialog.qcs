@@ -1,0 +1,28 @@
+open $SB/ws/cavity
+click nav:run
+wait-until page Run
+click dict:system/controlDict:endTime
+enter 0.1
+key S ctrl
+wait 5
+click run-go
+wait-until job finished timeout 60
+wait 10
+click run-go
+wait-until modal any timeout 10
+dump $OUT/a.txt
+screenshot $OUT/a.png
+click text:Continue
+wait 30
+dump $OUT/b.txt
+screenshot $OUT/b.png
+wait 60
+key ESCAPE
+click dict:system/controlDict:endTime
+enter 0.05
+key S ctrl
+wait 10
+click run-go
+wait-until modal any timeout 10
+dump $OUT/c.txt
+screenshot $OUT/c.png

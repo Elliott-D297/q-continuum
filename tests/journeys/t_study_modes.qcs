@@ -1,0 +1,88 @@
+# Studies, Basic and Advanced. Basic lists this case's usual settings in words (pitzDaily: time step, viscosity, the inlet
+# velocity, the turbulence model with the fields it has, the mesh) and makes a mesh-refinement study (the copies' blocks
+# scaled, their old mesh gone). Advanced pairs two settings value by value instead of every combination.
+open $SB/ws/pitzDaily
+click nav:studies
+wait-until page Studies
+wait 10
+measure
+click st-new
+wait-until modal any timeout 5
+wait 5
+assert text Basic
+assert text What to vary
+screenshot $OUT/basic_open.png
+click st-knob#0
+wait 5
+assert text Time step
+assert text Velocity on inlet
+assert text Turbulence model
+assert text Mesh refinement
+key ESCAPE
+wait 3
+choose st-knob#0 Mesh refinement   (now ×1)
+wait 5
+assert text cells now
+assert text Makes 3 cases
+click st-queue
+wait 2
+screenshot $OUT/basic_refine.png
+click st-go
+wait-until page Studies timeout 20
+wait 10
+assert file $SB/ws/pitzDaily_mesh-2/system/blockMeshDict
+assert not file $SB/ws/pitzDaily_mesh-2/constant/polyMesh
+shell ! cmp -s $SB/ws/pitzDaily/system/blockMeshDict $SB/ws/pitzDaily_mesh-2/system/blockMeshDict && cmp -s $SB/ws/pitzDaily/system/blockMeshDict $SB/ws/pitzDaily_mesh-1/system/blockMeshDict && touch $OUT/refined-ok
+assert file $OUT/refined-ok
+shell grep -q '|Mesh refinement$' $SB/ws/*.qcstudy && touch $OUT/label-ok
+assert file $OUT/label-ok
+assert text Mesh refinement
+# Advanced: two settings, paired
+open $SB/ws/pitzDaily
+click nav:studies
+wait-until page Studies
+wait 10
+click st-new
+wait-until modal any timeout 5
+wait 3
+click st-mode#1
+wait 3
+click st-name
+key A ctrl
+type paired
+choose st-file#0 system/controlDict
+wait 3
+click st-key#0
+key A ctrl
+type deltaT
+wait 3
+click st-vals#0
+key A ctrl
+type 0.5, 1
+click st-two
+wait 3
+choose st-file#1 system/controlDict
+wait 3
+click st-key#1
+key A ctrl
+type endTime
+wait 3
+click st-vals#1
+key A ctrl
+type 100, 200
+wait 3
+assert text Makes 4 cases
+click st-combine#1
+wait 3
+assert text Makes 2 cases
+click st-queue
+screenshot $OUT/advanced_pair.png
+click st-go
+wait-until page Studies timeout 20
+wait 5
+assert file $SB/ws/pitzDaily_deltaT-0.5_endTime-100/system/controlDict
+assert file $SB/ws/pitzDaily_deltaT-1_endTime-200/system/controlDict
+assert not file $SB/ws/pitzDaily_deltaT-0.5_endTime-200
+shell grep -q '^endTime *200;' $SB/ws/pitzDaily_deltaT-1_endTime-200/system/controlDict && touch $OUT/pair-ok
+assert file $OUT/pair-ok
+budget p95 16.7 max 120

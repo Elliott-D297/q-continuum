@@ -1,0 +1,12 @@
+# CMakeLists.txt -- a DEME project written by Q-Continuum. DEME_DIR: the folder holding DEMEConfig.cmake.
+cmake_minimum_required(VERSION 3.20)
+project(demeProject LANGUAGES CXX CUDA)
+set(CMAKE_CXX_STANDARD 17)
+if(NOT CMAKE_BUILD_TYPE)
+  set(CMAKE_BUILD_TYPE Release)
+endif()
+find_package(CUDAToolkit REQUIRED)
+find_package(DEME REQUIRED PATHS ${DEME_DIR} NO_DEFAULT_PATH)
+add_executable(@DRIVER@ src/@DRIVER@.cpp)
+target_include_directories(@DRIVER@ PRIVATE src ${DEME_INCLUDE_DIRS})
+target_link_libraries(@DRIVER@ PRIVATE ${DEME_LIBRARIES})

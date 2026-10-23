@@ -1,0 +1,71 @@
+# Bug hunt H-02, H-12: study values are checked before any copy is made (duplicates, a word for a number), a failure
+# leaves nothing half made, and whole-entry vector values aren't wrapped in the template a second time.
+open $SB/ws/cavity
+budget p95 16.7 max 100
+click nav:studies
+wait-until page Studies
+wait 10
+click st-new
+wait-until modal any timeout 5
+wait 3
+click st-mode#1
+wait 3
+click st-name
+key A ctrl
+type dup
+choose st-file#0 system/controlDict
+wait 3
+click st-key#0
+key A ctrl
+type deltaT
+wait 3
+click st-vals#0
+key A ctrl
+type 0.005, 0.005, abc
+wait 5
+click st-go
+wait 10
+assert text 0.005 is in the list twice
+assert not file $SB/ws/cavity_deltaT-0.005
+click st-vals#0
+key A ctrl
+type 0.0025, abc
+wait 5
+click st-go
+wait 10
+assert text deltaT = abc won't do
+assert not file $SB/ws/cavity_deltaT-0.0025
+assert not file $SB/ws/dup.qcstudy
+click st-vals#0
+key A ctrl
+type 0.0025, 1e-3
+wait 5
+click st-go
+wait-until page Studies timeout 20
+wait 10
+assert file $SB/ws/cavity_deltaT-0.0025/system/controlDict
+assert log $SB/ws/cavity_deltaT-1e-3/system/controlDict deltaT          1e-3;
+# a vector: the values are whole entries
+click st-new
+wait-until modal any timeout 5
+wait 3
+click st-mode#1
+wait 3
+click st-name
+key A ctrl
+type vec
+choose st-file#0 0/U
+wait 3
+click st-key#0
+key A ctrl
+type boundaryField/movingWall/value
+wait 3
+click st-vals#0
+key A ctrl
+type uniform (1 0 0), uniform (2 0 0)
+wait 5
+click st-go
+wait-until page Studies timeout 20
+wait 10
+assert log $SB/ws/cavity_value-uniform__2_0_0_/0/U value           uniform (2 0 0);
+assert not log $SB/ws/cavity_value-uniform__2_0_0_/0/U uniform (1 0 uniform

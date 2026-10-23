@@ -1,0 +1,18 @@
+open $SB/ws/roCav
+wait 10
+dump $OUT/ov.txt
+click nav:run
+wait-until page Run
+click dict:system/controlDict:deltaT
+enter 0.002
+key S ctrl
+wait 10
+dump $OUT/save.txt
+screenshot $OUT/save.png
+click run-go
+wait 30
+dump $OUT/run.txt
+screenshot $OUT/run.png
+wait 200
+dump $OUT/run2.txt
+screenshot $OUT/run2.png

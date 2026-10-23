@@ -1,0 +1,12 @@
+steps 4
+time 0.0002
+deltaT 0
+ended 0
+fatal 1
+converged 0
+courant n=4 last=0.1863
+interfaceCourant n=0
+fatalMsg A solver process was killed (SIGKILL) at t = 0.0002 after 4 time steps, without an OpenFOAM error. When nobody stopped it, this is Linux's out-of-memory killer: the case needs more memory than is free. Use fewer processes or a coarser mesh, or close other programs (on WSL, memory= in .wslconfig sets the limit).
+series "Ux" n=4 first=1 last=0.03502
+series "p" n=4 first=1 last=0.6739
+series "Uy" n=3 first=0.3618 last=0.0959

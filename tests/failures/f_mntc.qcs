@@ -1,0 +1,18 @@
+# 1.10 a case on the Windows drive (/mnt/c through 9p: slow metadata, no Unix permissions): it opens, runs and the
+# frame budget holds. The harness puts the case in a throw-away folder in Windows Temp.
+open $QC_MNTC/cavity
+# Budget here is p95 only: 9p stats cost 1-2 ms each (cached 0.5 s now; p95 64 -> ~20 ms). Known stalls left on /mnt/c,
+# all file reading on the UI thread: first Run page ~0.2 s, run start ~0.25 s, run end ~0.45 s (ROADMAP: log/scan worker).
+budget p95 30
+click nav:run
+wait-until page Run
+click run-go
+wait-until job running timeout 30
+wait-until not job running timeout 300
+assert job finished
+assert file 0.5/U
+click nav:files
+wait-until page Files
+wait 20
+click nav:overview
+wait 20

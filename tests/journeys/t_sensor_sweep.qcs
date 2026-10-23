@@ -1,0 +1,37 @@
+# 3.1 SENSOR SWEEP: mistakes found from the dictionaries before a run, each with where it is and a safe fix:
+# on the Run page's "Before you run" panel, and in the dialog that asks before a run with problems.
+open $SB/ws/cavity
+click nav:run
+wait-until page Run
+wait 10
+assert text all clear
+# a missing scheme: listed, fixed from the panel
+shell sed -i '/div(phi,U)/d' system/fvSchemes
+wait 200
+assert text No div(phi,U) in system/fvSchemes
+screenshot $OUT/sweep_panel.png
+click sweep-fix#0
+wait 5
+assert toast Add div(phi,U) Gauss linear: saved system/fvSchemes
+assert log system/fvSchemes div(phi,U)      Gauss linear;
+wait 150
+assert not text No div(phi,U)
+# the pressure in Pa for an incompressible solver: Run asks first, the dialog fixes it
+shell sed -i 's/^dimensions .*/dimensions      [1 -1 -2 0 0 0 0];/' 0/p
+wait 200
+click run-go
+wait-until modal precheck timeout 10
+assert text p is in Pa; icoFoam works in m²/s²
+screenshot $OUT/sweep_dialog.png
+click m-pc-fix#0
+wait 5
+assert log 0/p dimensions      [0 2 -2 0 0 0 0];
+click m-pc-go
+wait-until job running timeout 30
+wait-until not job running timeout 120
+assert job finished
+# nothing written before the end: a warning with the fix
+shell sed -i 's/^writeInterval .*/writeInterval   1000;/' system/controlDict
+wait 200
+assert text Nothing would be written
+budget p95 16.7 max 100

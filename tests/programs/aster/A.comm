@@ -1,0 +1,10 @@
+exec(open('/home/user/heatBench/aster/common_head.py').read())
+bc = AFFE_CHAR_CINE(MODELE=model, THER_IMPO=_F(GROUP_NO=('LEFT', 'RIGHT'), TEMP=300.0))
+T0 = CREA_CHAMP(TYPE_CHAM='NOEU_TEMP_R', OPERATION='AFFE', MAILLAGE=mesh, AFFE=_F(TOUT='OUI', NOM_CMP='TEMP', VALE=300.))
+_xyz = mesh.getCoordinates().getValues()
+T0.setValues([300. + 100.*math.sin(math.pi*_xyz[3*i]/0.1) for i in range(len(_xyz)//3)])
+times = DEFI_LIST_REEL(DEBUT=0., INTERVALLE=_F(JUSQU_A=250., PAS=1.))
+res = THER_LINEAIRE(MODELE=model, CHAM_MATER=chmat, EXCIT=_F(CHARGE=bc), ETAT_INIT=_F(CHAM_NO=T0),
+                    INCREMENT=_F(LIST_INST=times), PARM_THETA=1.0)
+dump(res, 250., '/home/user/heatBench/aster/../results/code_aster_A.csv')
+FIN()

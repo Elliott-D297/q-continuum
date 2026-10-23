@@ -1,0 +1,60 @@
+# Bug hunt H-01 / H-07: typed values that would break a dictionary or the case are refused with the reason, in the
+# Run page fields, the Boundaries drawer and the Ctrl+K command bar; the files keep their values.
+open $SB/ws/cavity
+click nav:run
+wait-until page Run
+wait 5
+click dict:system/controlDict:endTime
+enter abc
+wait 5
+assert toast endTime not changed: endTime takes a number
+click dict:system/controlDict:deltaT
+enter -0.005
+wait 5
+assert toast deltaT must be above 0
+click dict:system/controlDict:writeInterval
+enter 1e999
+wait 5
+assert toast beyond what a double can hold
+assert dirty 0
+click nav:boundaries
+wait-until page Boundary
+click bc-patch#0
+wait 5
+click dict:0/U:boundaryField/movingWall/value
+enter uniform (1 0)
+wait 5
+assert toast A vector has 3 components
+assert dirty 0
+# the command bar: a ';' can't smuggle in a second entry, nor a brace end the dictionary
+key K ctrl
+wait-until modal palette timeout 5
+type deltaT = 0.001; startTime 5
+wait 5
+assert text would end the entry there
+key ENTER
+wait 5
+key ESCAPE
+wait 3
+key K ctrl
+wait-until modal palette timeout 5
+type writeInterval = }
+wait 5
+key ENTER
+wait 5
+assert toast Braces belong to dictionaries
+key ESCAPE
+wait 3
+assert dirty 0
+# a good value still goes in
+key K ctrl
+wait-until modal palette timeout 5
+type deltaT = 0.0025
+wait 5
+key ENTER
+wait 5
+key S ctrl
+wait 5
+assert log system/controlDict deltaT          0.0025;
+assert log system/controlDict endTime         0.5;
+assert log system/controlDict writeInterval   20;

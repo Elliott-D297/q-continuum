@@ -1,0 +1,10 @@
+steps 8
+time 0.0195177
+deltaT 0.00435461
+ended 1
+fatal 0
+converged 0
+courant n=8 last=0.1825
+interfaceCourant n=8 last=0.18
+series "p_rgh" n=8 first=1 last=0.02094
+series "alpha.water" n=7 first=0.0002904 last=0.001328

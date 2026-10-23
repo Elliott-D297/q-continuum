@@ -1,0 +1,54 @@
+open $SB/ws/cavity
+click nav:studies
+wait-until page Studies
+wait 10
+click st-new
+wait-until modal any timeout 5
+wait 3
+click st-mode#1
+wait 3
+click st-name
+key A ctrl
+type dup
+choose st-file#0 system/controlDict
+wait 3
+click st-key#0
+key A ctrl
+type deltaT
+wait 3
+click st-vals#0
+key A ctrl
+type 0.005, 0.005, abc, , 1e-3
+wait 5
+dump $OUT/a.txt
+screenshot $OUT/a.png
+click st-go
+wait 60
+dump $OUT/b.txt
+screenshot $OUT/b.png
+shell ls $SB/ws > $OUT/ws.txt
+shell grep -H deltaT $SB/ws/*/system/controlDict > $OUT/dts.txt
+shell cat $SB/ws/*.qcstudy > $OUT/study.txt
+click st-new
+wait-until modal any timeout 5
+click st-mode#1
+wait 3
+click st-name
+key A ctrl
+type vec
+choose st-file#0 0/U
+wait 3
+click st-key#0
+key A ctrl
+type boundaryField/movingWall/value
+wait 3
+click st-vals#0
+key A ctrl
+type uniform (1 0 0), uniform (2 0 0)
+wait 5
+dump $OUT/c.txt
+screenshot $OUT/c.png
+click st-go
+wait 60
+shell ls $SB/ws > $OUT/ws2.txt
+shell grep -H -A1 "movingWall" $SB/ws/*/0/U > $OUT/us.txt

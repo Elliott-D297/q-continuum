@@ -1,0 +1,33 @@
+# 3.3 RED ALERT: a solver whose Courant number grows step after step (a stand-in Allrun writes the log, 0.05 s a step)
+# raises a yellow then a red alert in numbers, with the klaxon; off the Run page it says so; Halve Δt writes and saves
+# controlDict at once; Continue hides it until it gets worse; Stop ends the run.
+open $SB/ws/cavity
+shell printf '%s\n' '#!/bin/bash' 'exec > log.icoFoam 2>&1' 'echo "Starting time loop"' 'co=0.5' 'for i in $(seq 1 80); do' '  echo; echo "Time = $(echo "$i*0.005" | bc -l)"; echo' '  echo "Courant Number mean: 0.1 max: $co"' '  echo "smoothSolver:  Solving for Ux, Initial residual = 0.001, Final residual = 1e-08, No Iterations 4"' '  echo "ExecutionTime = 0.$i s  ClockTime = 0 s"' '  co=$(echo "$co*1.15" | bc -l); sleep 0.05' 'done' 'sleep 300' > Allrun
+shell chmod +x Allrun
+key F5
+wait 30
+click nav:run
+wait-until page Run
+click run-mode#1
+wait 5
+click run-go
+wait-until job running timeout 30
+click nav:mesh
+wait-until toast the run is diverging in cavity: see the Run page timeout 30
+assert log $OUT/sounds.txt alert
+click nav:run
+wait-until page Run
+wait 5
+assert text Red alert: the run is diverging
+assert text Courant max
+screenshot $OUT/red_alert.png
+click ra-halve
+wait 5
+assert toast deltaT 0.005 -> 0.0025, saved
+assert log system/controlDict deltaT          0.0025;
+click ra-continue
+wait 10
+assert not widget ra-continue
+# hidden after Continue: stop it from the registry, as Ctrl+K would
+action run.stop
+wait-until job stopped timeout 15

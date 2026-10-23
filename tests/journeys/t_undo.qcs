@@ -1,0 +1,47 @@
+# 2.8 undo / redo for dictionary edits (F-32): Ctrl+Z and Ctrl+Y across the app's pages, back to the saved state,
+# and a step refused when the file changed outside the app since.
+open $SB/ws/cavity
+click nav:run
+wait-until page Run
+click dict:system/controlDict:deltaT
+enter 0.002
+wait 5
+click dict:system/controlDict:endTime
+enter 0.8
+wait 5
+assert enabled top-undo
+key Z ctrl
+wait 5
+assert toast Undone: endTime 0.8 in system/controlDict
+assert text 0.5
+key Z ctrl
+wait 5
+assert toast Undone: deltaT 0.002 in
+assert toast as saved on disk
+assert not enabled top-undo
+assert dirty 0
+key Y ctrl
+wait 5
+assert toast Redone: deltaT 0.002 in
+assert enabled top-redo
+key S ctrl
+wait 5
+assert log system/controlDict deltaT          0.002;
+# undo after saving: the file is edited again, waiting for Save
+key Z ctrl
+wait 5
+assert toast (not saved yet)
+assert dirty 1
+key Y ctrl
+wait 5
+# a file changed outside since: the step isn't applied over it
+shell sed -i 's/^deltaT .*/deltaT          0.004;/' system/controlDict
+wait 120
+key Z ctrl
+wait 5
+assert toast Can't undo
+assert log system/controlDict deltaT          0.004;
+# the summary follows the outside change too
+assert text 0.004
+screenshot $OUT/undo.png
+budget p95 16.7 max 100

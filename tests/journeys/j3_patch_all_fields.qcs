@@ -1,0 +1,67 @@
+# J3: change the BC on one patch across every field that needs it. Target: pick the patch once and see all fields.
+# ROADMAP 3.6 patch inspector: click the patch name, every field's condition on it in one drawer (U, p first),
+# role presets (Wall / Inlet / Outlet) set every field at once, values edited in place; then a real simpleFoam run.
+open $SB/ws/pitzDaily
+click nav:mesh
+click mesh-gen
+wait-until job finished timeout 60
+click nav:boundary conditions
+wait-until page Boundary
+screenshot $OUT/j3_bc.png
+measure
+budget p95 16.7 max 100
+# the outlet: every field on one screen, U and p first, the model's unused fields folded away
+click bc-patch#1
+wait 10
+assert text Every field on this patch
+assert widget bc-type#0
+assert widget pi-unused
+screenshot $OUT/j3_inspector.png
+# one click makes the outlet a wall in every field
+click pi-role#0
+wait 5
+assert toast set for a wall
+key S ctrl
+wait 5
+assert log 0/U noSlip
+assert log 0/k kqRWallFunction
+assert log 0/epsilon epsilonWallFunction
+assert log 0/nut nutkWallFunction
+screenshot $OUT/j3_wall.png
+# and back to an outlet: p fixed at its starting value, backflow-safe inletOutlet on U and the turbulence fields
+click pi-role#2
+wait 5
+assert toast set for an outlet
+key S ctrl
+wait 5
+assert log 0/U inletOutlet
+assert log 0/p fixedValue
+assert log 0/k inletOutlet
+assert log 0/nut calculated
+# the inlet: change its velocity in place, without leaving the drawer
+click bc-patch#0
+wait 10
+click dict:0/U:boundaryField/inlet/value
+enter uniform (5 0 0)
+wait 5
+key S ctrl
+wait 5
+assert log 0/U uniform (5 0 0)
+screenshot $OUT/j3_inlet.png
+# the edited case still runs: 50 simpleFoam iterations with real OpenFOAM
+click nav:run
+wait-until page Run
+click dict:system/controlDict:endTime
+enter 50
+wait 5
+key S ctrl
+wait 5
+click run-go
+# 50 iterations write nothing at pitzDaily's writeInterval 100: Run asks (bug hunt H-08), and goes on when told
+wait-until modal precheck timeout 10
+assert text Nothing would be written
+click m-pc-go
+wait-until job running timeout 20
+wait-until job finished timeout 180
+assert log log.simpleFoam End
+screenshot $OUT/j3_done.png

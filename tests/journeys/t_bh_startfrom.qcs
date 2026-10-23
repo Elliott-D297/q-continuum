@@ -1,0 +1,28 @@
+# Bug hunt H-16: a resumed (continued) run sets startFrom latestTime for itself only; the case's own startFrom is back
+# when it pauses, stops or ends. Real icoFoam.
+open $SB/ws/cavity
+click nav:run
+wait-until page Run
+click dict:system/controlDict:endTime
+enter 20
+click dict:system/controlDict:writeInterval
+enter 200
+key S ctrl
+wait 5
+click run-go
+wait-until job running timeout 20
+wait-until log log.icoFoam Time = 1.5 timeout 60
+click run-pause
+wait-until job idle timeout 40
+wait 10
+assert log system/controlDict startFrom       startTime;
+click run-resume
+wait-until job running timeout 20
+wait 10
+assert log system/controlDict startFrom       latestTime;
+wait-until log log.icoFoam Time = 3 timeout 60
+click top-stop
+wait-until job idle timeout 30
+wait 10
+assert log system/controlDict startFrom       startTime;
+assert not file .qc-startfrom

@@ -1,0 +1,39 @@
+# clang-tidy for tests/static_analysis.sh: bug finders only. Turned off, with the reason:
+#  easily-swappable-parameters, narrowing-conversions  style; pixel maths mixes float and int on purpose
+#  reserved-identifier, assignment-in-if-condition,
+#  assignment-in-selection-statement, branch-clone,
+#  switch-missing-default-case, macro-parentheses       style of this code base
+#  multi-level-implicit-pointer-conversion            const char ** to void * in qsort/memcpy
+#  unchecked-string-to-number-conversion              atof/atoi on dictionary text: 0 for junk is the wanted fallback
+#  signed-bitwise                                     raylib's flag enums are int
+#  suspicious-string-compare                          the !strcmp(a, b) idiom
+#  suspicious-realloc-usage, unix.Malloc NULL paths   WSL2 overcommits: malloc/realloc do not return NULL (see tests/cppcheck.supp)
+#  float-loop-counter (both)                          chart tick loops over float axis values, bounded by the range
+#  implicit-widening-of-multiplication-result         int pixel products far below 2^31
+#  optin.performance.Padding                          struct layout follows meaning, not size
+#  DeprecatedOrUnsafeBufferHandling                   asks for memcpy_s, which glibc does not have
+#  security.ArrayBound (tainted index)                flags every fread/ftell result as untrusted; ASan + fuzzing cover the parsers
+Checks: >
+  -*,
+  bugprone-*,
+  clang-analyzer-*,
+  -bugprone-easily-swappable-parameters,
+  -bugprone-narrowing-conversions,
+  -bugprone-reserved-identifier,
+  -bugprone-assignment-in-if-condition,
+  -bugprone-assignment-in-selection-statement,
+  -bugprone-branch-clone,
+  -bugprone-switch-missing-default-case,
+  -bugprone-macro-parentheses,
+  -bugprone-multi-level-implicit-pointer-conversion,
+  -bugprone-unchecked-string-to-number-conversion,
+  -bugprone-signed-bitwise,
+  -bugprone-suspicious-string-compare,
+  -bugprone-suspicious-realloc-usage,
+  -bugprone-float-loop-counter,
+  -clang-analyzer-security.FloatLoopCounter,
+  -bugprone-implicit-widening-of-multiplication-result,
+  -clang-analyzer-optin.performance.Padding,
+  -clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling,
+  -clang-analyzer-security.ArrayBound
+HeaderFilterRegex: 'src/.*'

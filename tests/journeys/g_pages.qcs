@@ -1,0 +1,37 @@
+# Golden screenshots: every case page of a fresh cavity copy, in the theme set by QC_THEME. Compared by tests/golden.sh.
+open $SB/ws/cavity
+wait-until page Overview
+wait 30
+screenshot $OUT/shots/overview.png
+click nav:mesh
+wait-until page Mesh
+wait 30
+screenshot $OUT/shots/mesh.png
+click nav:boundary conditions
+wait-until page Boundary
+wait 30
+screenshot $OUT/shots/boundary.png
+click nav:physics
+wait-until page Physics
+wait 30
+screenshot $OUT/shots/physics.png
+click nav:numerics
+wait-until page Numerics
+wait 30
+screenshot $OUT/shots/numerics.png
+click nav:run
+wait-until page Run
+wait 30
+screenshot $OUT/shots/run.png
+click nav:files
+wait-until page Files
+wait 30
+screenshot $OUT/shots/files.png
+click nav:settings
+wait-until page Settings
+wait 30
+screenshot $OUT/shots/settings.png
+click nav:cases
+wait-until page Cases
+wait 30
+screenshot $OUT/shots/cases.png

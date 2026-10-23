@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Q-Continuum
+GenericName=OpenFOAM case manager
+Comment=Set up, run and monitor OpenFOAM cases
+Exec=@CMAKE_INSTALL_FULL_BINDIR@/q-continuum %F
+Icon=q-continuum
+Terminal=false
+Categories=Science;Physics;Engineering;
+Keywords=OpenFOAM;CFD;simulation;

@@ -1,0 +1,13 @@
+# build output (install.sh and cmake put everything here)
+build*/
+deps/
+cmake-configure.log
+
+# OpenFOAM writes these when foamDictionary/codeStream run inside the source tree
+dynamicCode/
+
+# Windows download markers and editor junk
+*:Zone.Identifier
+*.swp
+*~
+.vscode/

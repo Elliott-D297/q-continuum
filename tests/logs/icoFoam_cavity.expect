@@ -1,0 +1,11 @@
+steps 100
+time 0.5
+deltaT 0
+ended 1
+fatal 0
+converged 0
+courant n=100 last=0.8521
+interfaceCourant n=0
+series "Ux" n=100 first=1 last=2.309e-07
+series "p" n=100 first=1 last=8.638e-07
+series "Uy" n=99 first=0.2608 last=5.068e-07

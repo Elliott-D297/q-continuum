@@ -1,0 +1,66 @@
+open $SB/ws/cavity
+wait 5
+key K ctrl
+wait-until modal palette timeout 5
+type endTime = abc
+wait 5
+dump $OUT/p1.txt
+key ENTER
+wait 5
+dump $OUT/p1b.txt
+key ESCAPE
+wait 3
+key K ctrl
+wait-until modal palette timeout 5
+type deltaT = 0.001; startTime 5
+wait 5
+dump $OUT/p2.txt
+key ENTER
+wait 5
+key ESCAPE
+wait 3
+key K ctrl
+wait-until modal palette timeout 5
+type type = fixedValue
+wait 5
+dump $OUT/p3.txt
+screenshot $OUT/p3.png
+key ESCAPE
+wait 3
+key K ctrl
+wait-until modal palette timeout 5
+type boundaryField/movingWall/value = uniform (2 0 0)
+wait 5
+dump $OUT/p4.txt
+key ENTER
+wait 5
+key ESCAPE
+wait 3
+key K ctrl
+wait-until modal palette timeout 5
+type nu = 0.02
+wait 5
+dump $OUT/p5.txt
+key ENTER
+wait 5
+key ESCAPE
+wait 3
+key K ctrl
+wait-until modal palette timeout 5
+type writeInterval = }
+wait 5
+dump $OUT/p6.txt
+key ENTER
+wait 5
+key ESCAPE
+key K ctrl
+wait-until modal palette timeout 5
+type endTime =
+wait 5
+dump $OUT/p7.txt
+key ENTER
+wait 5
+key ESCAPE
+key S ctrl
+wait 10
+dump $OUT/final.txt

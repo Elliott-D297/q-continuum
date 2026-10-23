@@ -1,0 +1,59 @@
+/*---------------------------------------------------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     | Version:  2606                                  |
+|   \\  /    A nd           | Website:  www.openfoam.com                      |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+Build  : 481094fd-20260618 OPENFOAM=2606 version=v2606
+Arch   : "LSB;label=32;scalar=64"
+Exec   : icoFoam
+Date   : Oct 20 2026
+Time   : 08:25:13
+Host   : qc-host
+PID    : 1045035
+I/O    : uncollated
+Case   : /home/user/OpenFOAM/run/case
+nProcs : 1
+trapFpe: Floating point exception trapping enabled (FOAM_SIGFPE).
+memory pool : not available
+fileModificationChecking : Monitoring run-time modified files using timeStampMaster (fileModificationSkew 5, maxFileModificationPolls 20)
+
+--> FOAM Warning : allowSystemOperations : Allowing user-supplied system call operations.
+                   This can be a security risk if running untrusted cases
+                   through e.g. 'coded' on-the-fly-compilation functionality.
+
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+Create time
+
+Create mesh for time = 0
+
+
+PISO: Operating solver in PISO mode
+
+Reading transportProperties
+
+
+
+--> FOAM FATAL IO ERROR: (openfoam-2606)
+The dimensions [0 2 -2 0 0 0 0] provided do not match the expected dimensions [0 2 -1 0 0 0 0]
+
+
+file: constant/transportProperties/nu at line 17.
+
+    From void Foam::dimensioned<Type>::initialize(Foam::Istream&, bool) [with Type = double]
+    in file /home/user/OpenFOAM/OpenFOAM-v2606/src/OpenFOAM/lnInclude/dimensionedType.C at line 58.
+
+FOAM aborting
+
+[stack trace]
+=============
+#1  Foam::error::simpleExit(int, bool) in ~/OpenFOAM/OpenFOAM-v2606/platforms/linux64GccDPInt32Opt/lib/libOpenFOAM.so
+#2  Foam::dimensioned<double>::initialize(Foam::Istream&, bool) in ~/OpenFOAM/OpenFOAM-v2606/platforms/linux64GccDPInt32Opt/bin/icoFoam
+#3  Foam::dimensioned<double>::dimensioned(Foam::word const&, Foam::dimensionSet const&, Foam::dictionary const&) in ~/OpenFOAM/OpenFOAM-v2606/platforms/linux64GccDPInt32Opt/bin/icoFoam
+#4  ? in ~/OpenFOAM/OpenFOAM-v2606/platforms/linux64GccDPInt32Opt/bin/icoFoam
+#5  ? in /lib/x86_64-linux-gnu/libc.so.6
+#6  __libc_start_main in /lib/x86_64-linux-gnu/libc.so.6
+#7  ? in ~/OpenFOAM/OpenFOAM-v2606/platforms/linux64GccDPInt32Opt/bin/icoFoam
+=============
+timeout: the monitored command dumped core

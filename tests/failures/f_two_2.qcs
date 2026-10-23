@@ -1,0 +1,10 @@
+# 1.10 two instances, B: the same case shows A's run as running and offers Stop, not a second Run
+open $SB/ws/cavity
+click nav:run
+wait-until page Run
+wait-until job running timeout 15
+assert not widget run-go
+assert text Stop run
+screenshot $OUT/b.png
+dump $OUT/b.txt
+shell touch $SB/b-done

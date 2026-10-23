@@ -1,0 +1,15 @@
+# Bug hunt H-06: Generate mesh on a CHT tutorial (flat 0.orig) gives every region its fields, as the tutorial's Allrun.pre
+# does: 0.orig to 0, split, fluid fields out of the solids, changeDictionary per region. Real OpenFOAM.
+open $SB/ws/multiRegionHeater
+click nav:mesh
+wait-until page Mesh
+click mesh-gen
+wait-until job running timeout 20
+wait-until job finished timeout 300
+assert file 0/heater/T
+assert file 0/bottomWater/U
+assert not file 0/heater/U
+assert not log log.changeDictionary does not exist
+click nav:boundaries
+wait-until page Boundary
+assert not text No field files were found

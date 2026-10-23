@@ -1,0 +1,17 @@
+# 1.10 no OpenFOAM installed (QC_TEST_FOAM_ROOTS=""): the app starts, says what's missing and how to get it, opens a
+# case read-only-ish (pages work), and Run refuses with the reason instead of failing in a shell.
+wait 20
+dump $OUT/start.txt
+screenshot $OUT/start.png
+open $SB/ws/cavity
+wait 10
+click nav:run
+wait-until page Run
+click run-go
+wait 20
+assert not job running
+assert not file log.blockMesh
+assert toast OpenFOAM was not found
+assert text Set up OpenFOAM
+dump $OUT/run.txt
+screenshot $OUT/run.png

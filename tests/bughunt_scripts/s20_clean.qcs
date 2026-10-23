@@ -1,0 +1,23 @@
+open $SB/ws/cavity
+click nav:run
+wait-until page Run
+click dict:system/controlDict:endTime
+enter 0.1
+key S ctrl
+wait 5
+click run-go
+wait-until job finished timeout 120
+wait 20
+click top-clean
+wait-until modal any timeout 5
+click text:CLEAN
+wait 30
+dump $OUT/a.txt
+screenshot $OUT/a.png
+shell ls -a > $OUT/ls.txt
+click nav:history
+wait 20
+click text:DELETED RESULTS (1)
+wait 20
+dump $OUT/hist.txt
+screenshot $OUT/hist.png

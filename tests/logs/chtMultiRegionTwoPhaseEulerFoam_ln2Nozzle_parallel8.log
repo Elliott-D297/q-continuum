@@ -1,0 +1,574 @@
+/*---------------------------------------------------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     | Version:  2606                                  |
+|   \\  /    A nd           | Website:  www.openfoam.com                      |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+Build  : 481094fd-20260618 OPENFOAM=2606 version=v2606
+Arch   : "LSB;label=32;scalar=64"
+Exec   : chtMultiRegionTwoPhaseEulerFoam -parallel
+Date   : Oct 08 2026
+Time   : 08:03:00
+Host   : qc-host
+PID    : 1361
+I/O    : uncollated
+Case   : /home/user/OpenFOAM/ln2Nozzle
+nProcs : 8
+Hosts  :
+(
+    (qc-host 8)
+)
+Pstream initialized with:
+    node communication : off [type=host] (8 ranks, 1 nodes)
+    topology controls  : none
+    consensus exchange : 0 (tuning: 0)
+    exchange algorithm : 0
+    commsType          : nonBlocking
+    polling iterations : 0
+trapFpe: Floating point exception trapping enabled (FOAM_SIGFPE).
+memory pool : not available
+fileModificationChecking : Monitoring run-time modified files using timeStampMaster (fileModificationSkew 5, maxFileModificationPolls 20)
+
+--> FOAM Warning : allowSystemOperations : Allowing user-supplied system call operations.
+                   This can be a security risk if running untrusted cases
+                   through e.g. 'coded' on-the-fly-compilation functionality.
+
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+Create time
+
+Overriding DebugSwitches according to controlDict
+    compressible::alphatWallBoilingWallFunction 0;
+
+    compressible::turbulentTemperatureTwoPhaseRadCoupledMixed 0;
+
+Overriding OptimisationSwitches according to controlDict
+    writeNowSignal  10;
+
+sigWriteNow : Enabling writing upon signal 10
+Create fluid mesh for region nitrogen for time = 0.7476348941
+
+Create solid mesh for region nozzle for time = 0.7476348941
+
+*** Reading fluid mesh thermophysical properties for region nitrogen
+
+
+PIMPLE: no residual control data found. Calculations will employ 3 corrector loops
+
+    Adding to phaseSystemFluid
+
+Selecting twoPhaseSystem thermalPhaseChangeTwoPhaseSystem
+Selecting phaseModel for gas: purePhaseModel
+Selecting diameterModel for phase gas: isothermal
+Selecting thermodynamics package 
+{
+    type            heRhoThermo;
+    mixture         pureMixture;
+    transport       const;
+    thermo          hConst;
+    equationOfState perfectGas;
+    specie          specie;
+    energy          sensibleEnthalpy;
+}
+
+Reading face flux field phi.gas
+Selecting turbulence model type RAS
+Selecting RAS turbulence model mixtureKEpsilon
+Selecting partitioningModel: Lavieville
+RAS
+{
+    RASModel        mixtureKEpsilon;
+    turbulence      on;
+    printCoeffs     on;
+    Cmu             0.09;
+    C1              1.44;
+    C2              1.92;
+    C3              1.92;
+    Cp              0.25;
+    sigmak          1;
+    sigmaEps        1.3;
+}
+
+Selecting phaseModel for liquid: purePhaseModel
+Selecting diameterModel for phase liquid: constant
+Selecting thermodynamics package 
+{
+    type            heRhoThermo;
+    mixture         pureMixture;
+    transport       const;
+    thermo          hConst;
+    equationOfState rhoConst;
+    specie          specie;
+    energy          sensibleEnthalpy;
+}
+
+Reading face flux field phi.liquid
+Selecting turbulence model type RAS
+Selecting RAS turbulence model mixtureKEpsilon
+Selecting partitioningModel: Lavieville
+Selecting partitioningModel: Lavieville
+Selecting nucleationSiteModel: LemmertChawla
+Selecting departureDiameterModel: TolubinskiKostanchuk
+Selecting departureFrequencyModel: Cole
+Selecting LeidenfrostModel: Spiegler
+Selecting CHFModel: Zuber
+Selecting CHFSubCoolModel: Tatsumoto
+Selecting MHFModel: Jeschar
+Selecting TDNBModel: Schroeder
+Selecting filmBoilingModel: Bromley
+RAS
+{
+    RASModel        mixtureKEpsilon;
+    turbulence      on;
+    printCoeffs     on;
+    Cmu             0.09;
+    C1              1.44;
+    C2              1.92;
+    C3              1.92;
+    Cp              0.25;
+    sigmak          1;
+    sigmaEps        1.3;
+}
+
+No MRF models present
+
+Selecting default blending method: linear
+Selecting heatTransfer blending method: linear
+Selecting massTransfer blending method: linear
+Selecting surfaceTensionModel for (gas and liquid): constant
+Selecting aspectRatioModel for (gas in liquid): constant
+Selecting aspectRatioModel for (liquid in gas): constant
+Selecting dragModel for (gas in liquid): IshiiZuber
+Selecting swarmCorrection for (gas in liquid): none
+Selecting dragModel for (liquid in gas): IshiiZuber
+Selecting swarmCorrection for (liquid in gas): none
+Selecting virtualMassModel for (gas in liquid): constantCoefficient
+Selecting virtualMassModel for (liquid in gas): constantCoefficient
+Selecting turbulentDispersionModel for (gas in liquid): Burns
+Selecting heatTransferModel for (gas in liquid): spherical
+Selecting heatTransferModel for (liquid in gas): RanzMarshall
+Selecting heatTransferModel for (gas in liquid): RanzMarshall
+Selecting heatTransferModel for (liquid in gas): spherical
+Selecting saturationModel: function1
+    Adding hRefFluid
+
+    Adding ghRef
+
+    Adding p_rghFluid
+
+    Correcting p_rghFluid
+
+    Correcting initialMassFluid
+
+    Setting reference
+
+*** Reading solid mesh thermophysical properties for region nozzle
+
+    Adding to thermos
+
+Selecting thermodynamics package 
+{
+    type            heSolidThermo;
+    mixture         pureMixture;
+    transport       polynomial;
+    thermo          hPolynomial;
+    equationOfState rhoConst;
+    specie          specie;
+    energy          sensibleEnthalpy;
+}
+
+    Adding to radiations
+
+Selecting radiationModel none
+    Adding fvOptions
+
+Courant Number max: 0.30002829
+Region: nozzle Diffusion Number mean: 0.0051802638 max: 0.058206005
+Selecting heat-flux model: wall
+wallHeatFlux heatIntoFluid:
+    processing (1) wall patches:
+        nozzle_to_nitrogen
+
+surfaceFieldValue wallT:
+    operation     = areaAverage
+
+
+surfaceFieldValue wallTmax:
+    operation     = max
+
+
+Courant Number max: 0.30002829
+Region: nozzle Diffusion Number mean: 0.0051802638 max: 0.058206005
+deltaT = 1.0575296e-05
+Time = 0.7476454694
+
+
+Solving for fluid region nitrogen
+Creating finite-volume options from "constant/fvOptions"
+
+Selecting finite volume options type limitTemperature
+    Source: limitTLiquid
+    State: active
+    - selecting all cells
+    - selected 139776 cell(s) with volume 2.4064631e-05
+Selecting finite volume options type limitTemperature
+    Source: limitTGas
+    State: active
+    - selecting all cells
+    - selected 139776 cell(s) with volume 2.4064631e-05
+MULES: Solving for alpha.gas
+MULES: Solving for alpha.gas
+MULES: Solving for alpha.gas
+alpha.gas volume fraction = 0.0093388903  Min(alpha1) = 3.481547e-06  Max(alpha1) = 0.19089819
+Constructing face momentum equations
+Tf.gasAndLiquid: min = 80.004196, mean = 81.738879, max = 83.8301
+iDmdt.gasAndLiquid: min = -734.07707, mean = -18.753027, max = 126.92553, integral = -0.00048862906
+wDmdt.gasAndLiquid: min = 0, mean = 18.127067, max = 407.05179, integral = 0.00053009892
+DILUPBiCGStab:  Solving for h.gas, Initial residual = 3.365082e-06, Final residual = 3.6858009e-10, No Iterations 1
+limitTemperature=limitTGas, Type=Lower, LimitedCells=0, CellsPercent=0, Tmin=63.251, UnlimitedTmin=80.004222
+limitTemperature=limitTGas, Type=Upper, LimitedCells=0, CellsPercent=0, Tmax=350, UnlimitedTmax=84.118513
+DILUPBiCGStab:  Solving for h.liquid, Initial residual = 0.032284844, Final residual = 3.3345342e-07, No Iterations 1
+limitTemperature=limitTLiquid, Type=Lower, LimitedCells=0, CellsPercent=0, Tmin=63.251, UnlimitedTmin=74.782987
+limitTemperature=limitTLiquid, Type=Upper, LimitedCells=0, CellsPercent=0, Tmax=350, UnlimitedTmax=86.493845
+Tf.gasAndLiquid: min = 80.004197, mean = 81.738907, max = 83.8301
+iDmdt.gasAndLiquid: min = -715.34425, mean = -18.425758, max = 129.27338, integral = -0.00048163056
+wDmdt.gasAndLiquid: min = 0, mean = 0.39743462, max = 411.07717, integral = 1.8199347e-05
+DILUPBiCGStab:  Solving for h.gas, Initial residual = 0.0026937037, Final residual = 1.7978578e-08, No Iterations 1
+limitTemperature=limitTGas, Type=Lower, LimitedCells=0, CellsPercent=0, Tmin=63.251, UnlimitedTmin=80.004225
+limitTemperature=limitTGas, Type=Upper, LimitedCells=0, CellsPercent=0, Tmax=350, UnlimitedTmax=84.118501
+DILUPBiCGStab:  Solving for h.liquid, Initial residual = 0.032064336, Final residual = 3.2544087e-07, No Iterations 1
+limitTemperature=limitTLiquid, Type=Lower, LimitedCells=0, CellsPercent=0, Tmin=63.251, UnlimitedTmin=75.047715
+limitTemperature=limitTLiquid, Type=Upper, LimitedCells=0, CellsPercent=0, Tmax=350, UnlimitedTmax=86.686782
+Tf.gasAndLiquid: min = 80.004197, mean = 81.738909, max = 83.8301
+iDmdt.gasAndLiquid: min = -721.09076, mean = -18.525237, max = 130.17775, integral = -0.0004837012
+wDmdt.gasAndLiquid: min = 0, mean = 19.055976, max = 1234.463, integral = 0.00057530096
+DILUPBiCGStab:  Solving for h.gas, Initial residual = 0.0026192949, Final residual = 1.7614444e-08, No Iterations 1
+limitTemperature=limitTGas, Type=Lower, LimitedCells=0, CellsPercent=0, Tmin=63.251, UnlimitedTmin=80.004226
+limitTemperature=limitTGas, Type=Upper, LimitedCells=0, CellsPercent=0, Tmax=350, UnlimitedTmax=84.101061
+DILUPBiCGStab:  Solving for h.liquid, Initial residual = 0.00097812199, Final residual = 1.4388646e-08, No Iterations 1
+limitTemperature=limitTLiquid, Type=Lower, LimitedCells=0, CellsPercent=0, Tmin=63.251, UnlimitedTmin=74.813152
+limitTemperature=limitTLiquid, Type=Upper, LimitedCells=0, CellsPercent=0, Tmax=350, UnlimitedTmax=86.639556
+Tf.gasAndLiquid: min = 80.004197, mean = 81.738909, max = 83.8301
+iDmdt.gasAndLiquid: min = -725.42962, mean = -18.592786, max = 130.77217, integral = -0.00048504498
+wDmdt.gasAndLiquid: min = 0, mean = 19.146092, max = 1231.8946, integral = 0.00057686051
+DILUPBiCGStab:  Solving for h.gas, Initial residual = 1.8367302e-05, Final residual = 2.7413808e-10, No Iterations 1
+limitTemperature=limitTGas, Type=Lower, LimitedCells=0, CellsPercent=0, Tmin=63.251, UnlimitedTmin=80.004226
+limitTemperature=limitTGas, Type=Upper, LimitedCells=0, CellsPercent=0, Tmax=350, UnlimitedTmax=84.118397
+DILUPBiCGStab:  Solving for h.liquid, Initial residual = 5.668093e-06, Final residual = 9.2777885e-11, No Iterations 1
+limitTemperature=limitTLiquid, Type=Lower, LimitedCells=0, CellsPercent=0, Tmin=63.251, UnlimitedTmin=74.78318
+limitTemperature=limitTLiquid, Type=Upper, LimitedCells=0, CellsPercent=0, Tmax=350, UnlimitedTmax=86.638579
+GAMG:  Solving for p_rgh, Initial residual = 0.0042389941, Final residual = 2.959869e-05, No Iterations 4
+GAMG:  Solving for p_rgh, Initial residual = 0.00025249324, Final residual = 7.4369077e-08, No Iterations 7
+DILUPBiCGStab:  Solving for epsilonm, Initial residual = 0.0076485187, Final residual = 1.087603e-07, No Iterations 1
+DILUPBiCGStab:  Solving for km, Initial residual = 0.00086665755, Final residual = 1.4436196e-08, No Iterations 1
+
+Solving for solid region nozzle
+DICPCG:  Solving for h, Initial residual = 0.014877729, Final residual = 5.7866643e-10, No Iterations 2
+Min/max T:83.825456 257.02143
+ExecutionTime = 3.8 s  ClockTime = 4 s
+
+wallHeatFlux heatIntoFluid execute:
+    min/max/integ(nozzle_to_nitrogen) = -13982968, -14142.635, -2458.5262
+Courant Number max: 0.30003586
+Region: nozzle Diffusion Number mean: 0.0051802638 max: 0.058206006
+deltaT = 1.0575296e-05
+Time = 0.7476560447
+
+
+Solving for fluid region nitrogen
+MULES: Solving for alpha.gas
+MULES: Solving for alpha.gas
+MULES: Solving for alpha.gas
+alpha.gas volume fraction = 0.0093388872  Min(alpha1) = 3.481547e-06  Max(alpha1) = 0.19089819
+Constructing face momentum equations
+Tf.gasAndLiquid: min = 80.0042, mean = 81.739658, max = 83.830186
+iDmdt.gasAndLiquid: min = -728.69109, mean = -18.644692, max = 129.57885, integral = -0.00048616174
+wDmdt.gasAndLiquid: min = 0, mean = 19.129034, max = 1243.4853, integral = 0.00057580602
+DILUPBiCGStab:  Solving for h.gas, Initial residual = 0.00020620897, Final residual = 6.9576963e-10, No Iterations 1
+limitTemperature=limitTGas, Type=Lower, LimitedCells=0, CellsPercent=0, Tmin=63.251, UnlimitedTmin=80.004226
+limitTemperature=limitTGas, Type=Upper, LimitedCells=0, CellsPercent=0, Tmax=350, UnlimitedTmax=84.118493
+DILUPBiCGStab:  Solving for h.liquid, Initial residual = 0.001027326, Final residual = 4.3894041e-09, No Iterations 1
+limitTemperature=limitTLiquid, Type=Lower, LimitedCells=0, CellsPercent=0, Tmin=63.251, UnlimitedTmin=74.783005
+limitTemperature=limitTLiquid, Type=Upper, LimitedCells=0, CellsPercent=0, Tmax=350, UnlimitedTmax=86.638571
+Tf.gasAndLiquid: min = 80.004201, mean = 81.739678, max = 83.830186
+iDmdt.gasAndLiquid: min = -730.76695, mean = -18.677101, max = 129.85177, integral = -0.00048682931
+wDmdt.gasAndLiquid: min = 0, mean = 19.133116, max = 1244.3831, integral = 0.00057601551
+DILUPBiCGStab:  Solving for h.gas, Initial residual = 3.4459198e-07, Final residual = 8.9509029e-12, No Iterations 1
+limitTemperature=limitTGas, Type=Lower, LimitedCells=0, CellsPercent=0, Tmin=63.251, UnlimitedTmin=80.004229
+limitTemperature=limitTGas, Type=Upper, LimitedCells=0, CellsPercent=0, Tmax=350, UnlimitedTmax=84.116987
+DILUPBiCGStab:  Solving for h.liquid, Initial residual = 7.2001237e-07, Final residual = 1.416227e-12, No Iterations 1
+limitTemperature=limitTLiquid, Type=Lower, LimitedCells=0, CellsPercent=0, Tmin=63.251, UnlimitedTmin=74.793421
+limitTemperature=limitTLiquid, Type=Upper, LimitedCells=0, CellsPercent=0, Tmax=350, UnlimitedTmax=86.729666
+Tf.gasAndLiquid: min = 80.004201, mean = 81.739679, max = 83.830186
+iDmdt.gasAndLiquid: min = -732.22003, mean = -18.699787, max = 130.04275, integral = -0.0004872967
+wDmdt.gasAndLiquid: min = 0, mean = 19.259629, max = 1244.3826, integral = 0.00058274332
+DILUPBiCGStab:  Solving for h.gas, Initial residual = 1.9185827e-06, Final residual = 1.4119311e-12, No Iterations 1
+limitTemperature=limitTGas, Type=Lower, LimitedCells=0, CellsPercent=0, Tmin=63.251, UnlimitedTmin=80.004229
+limitTemperature=limitTGas, Type=Upper, LimitedCells=0, CellsPercent=0, Tmax=350, UnlimitedTmax=84.116989
+DILUPBiCGStab:  Solving for h.liquid, Initial residual = 5.7477122e-06, Final residual = 9.089246e-13, No Iterations 1
+limitTemperature=limitTLiquid, Type=Lower, LimitedCells=0, CellsPercent=0, Tmin=63.251, UnlimitedTmin=74.793421
+limitTemperature=limitTLiquid, Type=Upper, LimitedCells=0, CellsPercent=0, Tmax=350, UnlimitedTmax=86.729664
+Tf.gasAndLiquid: min = 80.004201, mean = 81.73968, max = 83.830186
+iDmdt.gasAndLiquid: min = -733.23718, mean = -18.715687, max = 130.17649, integral = -0.00048762503
+wDmdt.gasAndLiquid: min = 0, mean = 19.331352, max = 2076.8623, integral = 0.0005871346
+DILUPBiCGStab:  Solving for h.gas, Initial residual = 2.1154275e-06, Final residual = 6.4697738e-13, No Iterations 1
+limitTemperature=limitTGas, Type=Lower, LimitedCells=0, CellsPercent=0, Tmin=63.251, UnlimitedTmin=80.004229
+limitTemperature=limitTGas, Type=Upper, LimitedCells=0, CellsPercent=0, Tmax=350, UnlimitedTmax=84.11699
+DILUPBiCGStab:  Solving for h.liquid, Initial residual = 2.2340312e-05, Final residual = 2.0172517e-12, No Iterations 1
+limitTemperature=limitTLiquid, Type=Lower, LimitedCells=0, CellsPercent=0, Tmin=63.251, UnlimitedTmin=74.793421
+limitTemperature=limitTLiquid, Type=Upper, LimitedCells=0, CellsPercent=0, Tmax=350, UnlimitedTmax=86.729666
+GAMG:  Solving for p_rgh, Initial residual = 0.006139133, Final residual = 3.5607173e-05, No Iterations 3
+GAMG:  Solving for p_rgh, Initial residual = 0.00029571555, Final residual = 9.5998882e-08, No Iterations 8
+DILUPBiCGStab:  Solving for epsilonm, Initial residual = 0.0089390241, Final residual = 7.9996021e-08, No Iterations 1
+DILUPBiCGStab:  Solving for km, Initial residual = 0.00085415199, Final residual = 6.4066274e-09, No Iterations 1
+
+Solving for solid region nozzle
+DICPCG:  Solving for h, Initial residual = 0.015047365, Final residual = 5.6484038e-10, No Iterations 2
+Min/max T:84.523553 257.02086
+ExecutionTime = 5.7 s  ClockTime = 6 s
+
+wallHeatFlux heatIntoFluid execute:
+    min/max/integ(nozzle_to_nitrogen) = -13537651, -14143.48, -2009.0139
+Courant Number max: 0.30004365
+Region: nozzle Diffusion Number mean: 0.0051802643 max: 0.058206005
+deltaT = 1.0575296e-05
+Time = 0.74766662
+
+
+Solving for fluid region nitrogen
+MULES: Solving for alpha.gas
+MULES: Solving for alpha.gas
+MULES: Solving for alpha.gas
+alpha.gas volume fraction = 0.009338914  Min(alpha1) = 3.4814644e-06  Max(alpha1) = 0.19089819
+Constructing face momentum equations
+Tf.gasAndLiquid: min = 80.004201, mean = 81.741032, max = 83.83007
+iDmdt.gasAndLiquid: min = -733.88333, mean = -18.730403, max = 130.11355, integral = -0.00048800741
+wDmdt.gasAndLiquid: min = 0, mean = 19.365952, max = 1244.2336, integral = 0.00058897853
+DILUPBiCGStab:  Solving for h.gas, Initial residual = 0.00021304893, Final residual = 9.2852342e-10, No Iterations 1
+limitTemperature=limitTGas, Type=Lower, LimitedCells=0, CellsPercent=0, Tmin=63.251, UnlimitedTmin=80.004229
+limitTemperature=limitTGas, Type=Upper, LimitedCells=0, CellsPercent=0, Tmax=350, UnlimitedTmax=84.116991
+DILUPBiCGStab:  Solving for h.liquid, Initial residual = 0.00093984383, Final residual = 4.2887206e-09, No Iterations 1
+limitTemperature=limitTLiquid, Type=Lower, LimitedCells=0, CellsPercent=0, Tmin=63.251, UnlimitedTmin=74.793421
+limitTemperature=limitTLiquid, Type=Upper, LimitedCells=0, CellsPercent=0, Tmax=350, UnlimitedTmax=86.729668
+Tf.gasAndLiquid: min = 80.004201, mean = 81.741051, max = 83.83007
+iDmdt.gasAndLiquid: min = -734.13414, mean = -18.736927, max = 131.19524, integral = -0.00048817055
+wDmdt.gasAndLiquid: min = 0, mean = 19.421603, max = 2153.0199, integral = 0.00059066095
+DILUPBiCGStab:  Solving for h.gas, Initial residual = 1.0707428e-05, Final residual = 7.6270672e-12, No Iterations 1
+limitTemperature=limitTGas, Type=Lower, LimitedCells=0, CellsPercent=0, Tmin=63.251, UnlimitedTmin=80.004229
+limitTemperature=limitTGas, Type=Upper, LimitedCells=0, CellsPercent=0, Tmax=350, UnlimitedTmax=84.116435
+DILUPBiCGStab:  Solving for h.liquid, Initial residual = 9.472761e-05, Final residual = 5.4834073e-11, No Iterations 1
+limitTemperature=limitTLiquid, Type=Lower, LimitedCells=0, CellsPercent=0, Tmin=63.251, UnlimitedTmin=74.803519
+limitTemperature=limitTLiquid, Type=Upper, LimitedCells=0, CellsPercent=0, Tmax=350, UnlimitedTmax=86.818514
+Tf.gasAndLiquid: min = 80.004201, mean = 81.741053, max = 83.83007
+iDmdt.gasAndLiquid: min = -734.30969, mean = -18.74181, max = 131.9523, integral = -0.00048830102
+wDmdt.gasAndLiquid: min = 0, mean = 19.257492, max = 1245.417, integral = 0.00058291476
+DILUPBiCGStab:  Solving for h.gas, Initial residual = 1.2689675e-05, Final residual = 1.9180878e-12, No Iterations 1
+limitTemperature=limitTGas, Type=Lower, LimitedCells=0, CellsPercent=0, Tmin=63.251, UnlimitedTmin=80.004229
+limitTemperature=limitTGas, Type=Upper, LimitedCells=0, CellsPercent=0, Tmax=350, UnlimitedTmax=84.116434
+DILUPBiCGStab:  Solving for h.liquid, Initial residual = 7.163296e-05, Final residual = 3.5680399e-11, No Iterations 1
+limitTemperature=limitTLiquid, Type=Lower, LimitedCells=0, CellsPercent=0, Tmin=63.251, UnlimitedTmin=74.803519
+limitTemperature=limitTLiquid, Type=Upper, LimitedCells=0, CellsPercent=0, Tmax=350, UnlimitedTmax=86.818507
+Tf.gasAndLiquid: min = 80.004201, mean = 81.741053, max = 83.83007
+iDmdt.gasAndLiquid: min = -734.43258, mean = -18.745459, max = 132.47801, integral = -0.00048840442
+wDmdt.gasAndLiquid: min = 0, mean = 19.093818, max = 1974.715, integral = 0.00057436438
+DILUPBiCGStab:  Solving for h.gas, Initial residual = 9.4551713e-06, Final residual = 1.7454503e-12, No Iterations 1
+limitTemperature=limitTGas, Type=Lower, LimitedCells=0, CellsPercent=0, Tmin=63.251, UnlimitedTmin=80.004229
+limitTemperature=limitTGas, Type=Upper, LimitedCells=0, CellsPercent=0, Tmax=350, UnlimitedTmax=84.116435
+DILUPBiCGStab:  Solving for h.liquid, Initial residual = 9.6923036e-05, Final residual = 2.0539462e-10, No Iterations 1
+limitTemperature=limitTLiquid, Type=Lower, LimitedCells=0, CellsPercent=0, Tmin=63.251, UnlimitedTmin=74.803519
+limitTemperature=limitTLiquid, Type=Upper, LimitedCells=0, CellsPercent=0, Tmax=350, UnlimitedTmax=86.818189
+GAMG:  Solving for p_rgh, Initial residual = 0.0073823243, Final residual = 5.2535927e-05, No Iterations 3
+GAMG:  Solving for p_rgh, Initial residual = 0.00029373618, Final residual = 4.9625607e-08, No Iterations 9
+DILUPBiCGStab:  Solving for epsilonm, Initial residual = 0.010895499, Final residual = 9.899931e-08, No Iterations 1
+DILUPBiCGStab:  Solving for km, Initial residual = 0.00082740914, Final residual = 6.2103414e-09, No Iterations 1
+
+Solving for solid region nozzle
+DICPCG:  Solving for h, Initial residual = 0.0012135671, Final residual = 4.7812876e-10, No Iterations 2
+Min/max T:248.15774 257.02029
+ExecutionTime = 8.4 s  ClockTime = 9 s
+
+wallHeatFlux heatIntoFluid execute:
+    min/max/integ(nozzle_to_nitrogen) = -36456.404, -14145.018, -84.526549
+Courant Number max: 0.30005106
+Region: nozzle Diffusion Number mean: 0.0051802642 max: 0.058206005
+deltaT = 1.0575296e-05
+Time = 0.7476771953
+
+
+Solving for fluid region nitrogen
+MULES: Solving for alpha.gas
+MULES: Solving for alpha.gas
+MULES: Solving for alpha.gas
+alpha.gas volume fraction = 0.0093389721  Min(alpha1) = 3.4813134e-06  Max(alpha1) = 0.19089819
+Constructing face momentum equations
+Tf.gasAndLiquid: min = 80.004201, mean = 81.742752, max = 83.830043
+iDmdt.gasAndLiquid: min = -734.65435, mean = -18.752531, max = 133.11462, integral = -0.00048864363
+wDmdt.gasAndLiquid: min = 0, mean = 18.00101, max = 407.057, integral = 0.0005243832
+DILUPBiCGStab:  Solving for h.gas, Initial residual = 0.00020087623, Final residual = 1.246016e-09, No Iterations 1
+limitTemperature=limitTGas, Type=Lower, LimitedCells=0, CellsPercent=0, Tmin=63.251, UnlimitedTmin=80.004229
+limitTemperature=limitTGas, Type=Upper, LimitedCells=0, CellsPercent=0, Tmax=350, UnlimitedTmax=84.116435
+DILUPBiCGStab:  Solving for h.liquid, Initial residual = 0.00056943337, Final residual = 4.2128581e-09, No Iterations 1
+limitTemperature=limitTLiquid, Type=Lower, LimitedCells=0, CellsPercent=0, Tmin=63.251, UnlimitedTmin=74.803519
+limitTemperature=limitTLiquid, Type=Upper, LimitedCells=0, CellsPercent=0, Tmax=350, UnlimitedTmax=86.799994
+Tf.gasAndLiquid: min = 80.004201, mean = 81.742774, max = 83.830043
+iDmdt.gasAndLiquid: min = -734.61314, mean = -18.755493, max = 133.24145, integral = -0.00048879196
+wDmdt.gasAndLiquid: min = 0, mean = 18.119282, max = 407.05587, integral = 0.00052970935
+DILUPBiCGStab:  Solving for h.gas, Initial residual = 2.4129521e-05, Final residual = 4.2264952e-11, No Iterations 1
+limitTemperature=limitTGas, Type=Lower, LimitedCells=0, CellsPercent=0, Tmin=63.251, UnlimitedTmin=80.004229
+limitTemperature=limitTGas, Type=Upper, LimitedCells=0, CellsPercent=0, Tmax=350, UnlimitedTmax=84.11698
+DILUPBiCGStab:  Solving for h.liquid, Initial residual = 6.1642034e-06, Final residual = 1.4180916e-11, No Iterations 1
+limitTemperature=limitTLiquid, Type=Lower, LimitedCells=0, CellsPercent=0, Tmin=63.251, UnlimitedTmin=74.81334
+limitTemperature=limitTLiquid, Type=Upper, LimitedCells=0, CellsPercent=0, Tmax=350, UnlimitedTmax=86.779013
+Tf.gasAndLiquid: min = 80.004201, mean = 81.742775, max = 83.830043
+iDmdt.gasAndLiquid: min = -734.58428, mean = -18.75753, max = 133.42854, integral = -0.00048889411
+wDmdt.gasAndLiquid: min = 0, mean = 18.119367, max = 407.05587, integral = 0.00052971312
+DILUPBiCGStab:  Solving for h.gas, Initial residual = 4.79421e-08, Final residual = 3.3715476e-13, No Iterations 1
+limitTemperature=limitTGas, Type=Lower, LimitedCells=0, CellsPercent=0, Tmin=63.251, UnlimitedTmin=80.004229
+limitTemperature=limitTGas, Type=Upper, LimitedCells=0, CellsPercent=0, Tmax=350, UnlimitedTmax=84.116979
+DILUPBiCGStab:  Solving for h.liquid, Initial residual = 6.8190771e-09, Final residual = 2.1117565e-14, No Iterations 1
+limitTemperature=limitTLiquid, Type=Lower, LimitedCells=0, CellsPercent=0, Tmin=63.251, UnlimitedTmin=74.81334
+limitTemperature=limitTLiquid, Type=Upper, LimitedCells=0, CellsPercent=0, Tmax=350, UnlimitedTmax=86.78244
+Tf.gasAndLiquid: min = 80.004201, mean = 81.742776, max = 83.830043
+iDmdt.gasAndLiquid: min = -734.56408, mean = -18.758955, max = 133.5596, integral = -0.00048896561
+wDmdt.gasAndLiquid: min = 0, mean = 18.119367, max = 407.05587, integral = 0.00052971312
+DILUPBiCGStab:  Solving for h.gas, Initial residual = 2.2170034e-08, Final residual = 5.2533858e-14, No Iterations 1
+limitTemperature=limitTGas, Type=Lower, LimitedCells=0, CellsPercent=0, Tmin=63.251, UnlimitedTmin=80.004229
+limitTemperature=limitTGas, Type=Upper, LimitedCells=0, CellsPercent=0, Tmax=350, UnlimitedTmax=84.116979
+DILUPBiCGStab:  Solving for h.liquid, Initial residual = 1.6773627e-10, Final residual = 4.3057444e-15, No Iterations 1
+limitTemperature=limitTLiquid, Type=Lower, LimitedCells=0, CellsPercent=0, Tmin=63.251, UnlimitedTmin=74.81334
+limitTemperature=limitTLiquid, Type=Upper, LimitedCells=0, CellsPercent=0, Tmax=350, UnlimitedTmax=86.782443
+GAMG:  Solving for p_rgh, Initial residual = 0.0090959861, Final residual = 4.7983835e-05, No Iterations 4
+GAMG:  Solving for p_rgh, Initial residual = 0.0002969318, Final residual = 8.2621984e-08, No Iterations 7
+DILUPBiCGStab:  Solving for epsilonm, Initial residual = 0.012842842, Final residual = 1.1786046e-07, No Iterations 1
+DILUPBiCGStab:  Solving for km, Initial residual = 0.00080588387, Final residual = 6.1040003e-09, No Iterations 1
+
+Solving for solid region nozzle
+DICPCG:  Solving for h, Initial residual = 0.0012126505, Final residual = 4.7761209e-10, No Iterations 2
+Min/max T:248.4767 257.01972
+ExecutionTime = 11.02 s  ClockTime = 11 s
+
+wallHeatFlux heatIntoFluid execute:
+    min/max/integ(nozzle_to_nitrogen) = -15390.064, -14093.428, -82.315201
+Courant Number max: 0.30005797
+Region: nozzle Diffusion Number mean: 0.0051802642 max: 0.058206005
+deltaT = 1.0575296e-05
+Time = 0.7476877706
+
+
+Solving for fluid region nitrogen
+MULES: Solving for alpha.gas
+MULES: Solving for alpha.gas
+MULES: Solving for alpha.gas
+alpha.gas volume fraction = 0.0093390416  Min(alpha1) = 3.4813083e-06  Max(alpha1) = 0.19089819
+Constructing face momentum equations
+Tf.gasAndLiquid: min = 80.004201, mean = 81.743999, max = 83.830074
+iDmdt.gasAndLiquid: min = -734.64321, mean = -18.760163, max = 136.04331, integral = -0.00048899184
+wDmdt.gasAndLiquid: min = 0, mean = 18.119624, max = 407.05674, integral = 0.00052971935
+DILUPBiCGStab:  Solving for h.gas, Initial residual = 0.00019682417, Final residual = 1.274702e-09, No Iterations 1
+limitTemperature=limitTGas, Type=Lower, LimitedCells=0, CellsPercent=0, Tmin=63.251, UnlimitedTmin=80.004229
+limitTemperature=limitTGas, Type=Upper, LimitedCells=0, CellsPercent=0, Tmax=350, UnlimitedTmax=84.116979
+DILUPBiCGStab:  Solving for h.liquid, Initial residual = 0.00057177669, Final residual = 4.3049262e-09, No Iterations 1
+limitTemperature=limitTLiquid, Type=Lower, LimitedCells=0, CellsPercent=0, Tmin=63.251, UnlimitedTmin=74.81334
+limitTemperature=limitTLiquid, Type=Upper, LimitedCells=0, CellsPercent=0, Tmax=350, UnlimitedTmax=86.782443
+Tf.gasAndLiquid: min = 80.004201, mean = 81.744022, max = 83.830074
+iDmdt.gasAndLiquid: min = -734.50683, mean = -18.759024, max = 137.52723, integral = -0.00048899065
+wDmdt.gasAndLiquid: min = 0, mean = 18.119678, max = 407.05561, integral = 0.00052972293
+DILUPBiCGStab:  Solving for h.gas, Initial residual = 9.8950712e-08, Final residual = 5.2859308e-12, No Iterations 1
+limitTemperature=limitTGas, Type=Lower, LimitedCells=0, CellsPercent=0, Tmin=63.251, UnlimitedTmin=80.00423
+limitTemperature=limitTGas, Type=Upper, LimitedCells=0, CellsPercent=0, Tmax=350, UnlimitedTmax=84.117782
+DILUPBiCGStab:  Solving for h.liquid, Initial residual = 8.1355377e-08, Final residual = 1.2106952e-12, No Iterations 1
+limitTemperature=limitTLiquid, Type=Lower, LimitedCells=0, CellsPercent=0, Tmin=63.251, UnlimitedTmin=74.822921
+limitTemperature=limitTLiquid, Type=Upper, LimitedCells=0, CellsPercent=0, Tmax=350, UnlimitedTmax=86.765617
+Tf.gasAndLiquid: min = 80.004201, mean = 81.744023, max = 83.830074
+iDmdt.gasAndLiquid: min = -734.41135, mean = -18.758226, max = 138.56599, integral = -0.00048898982
+wDmdt.gasAndLiquid: min = 0, mean = 18.119678, max = 407.05561, integral = 0.00052972293
+DILUPBiCGStab:  Solving for h.gas, Initial residual = 4.3644004e-08, Final residual = 2.8261825e-13, No Iterations 1
+limitTemperature=limitTGas, Type=Lower, LimitedCells=0, CellsPercent=0, Tmin=63.251, UnlimitedTmin=80.00423
+limitTemperature=limitTGas, Type=Upper, LimitedCells=0, CellsPercent=0, Tmax=350, UnlimitedTmax=84.117782
+DILUPBiCGStab:  Solving for h.liquid, Initial residual = 2.2913589e-10, Final residual = 6.8264424e-15, No Iterations 1
+limitTemperature=limitTLiquid, Type=Lower, LimitedCells=0, CellsPercent=0, Tmin=63.251, UnlimitedTmin=74.822921
+limitTemperature=limitTLiquid, Type=Upper, LimitedCells=0, CellsPercent=0, Tmax=350, UnlimitedTmax=86.76562
+Tf.gasAndLiquid: min = 80.004201, mean = 81.744024, max = 83.830074
+iDmdt.gasAndLiquid: min = -734.34451, mean = -18.757668, max = 139.29309, integral = -0.00048898923
+wDmdt.gasAndLiquid: min = 0, mean = 18.119678, max = 407.05561, integral = 0.00052972293
+DILUPBiCGStab:  Solving for h.gas, Initial residual = 2.8495512e-08, Final residual = 6.1009301e-14, No Iterations 1
+limitTemperature=limitTGas, Type=Lower, LimitedCells=0, CellsPercent=0, Tmin=63.251, UnlimitedTmin=80.00423
+limitTemperature=limitTGas, Type=Upper, LimitedCells=0, CellsPercent=0, Tmax=350, UnlimitedTmax=84.117782
+DILUPBiCGStab:  Solving for h.liquid, Initial residual = 1.4678048e-10, Final residual = 4.4617396e-15, No Iterations 1
+limitTemperature=limitTLiquid, Type=Lower, LimitedCells=0, CellsPercent=0, Tmin=63.251, UnlimitedTmin=74.822921
+limitTemperature=limitTLiquid, Type=Upper, LimitedCells=0, CellsPercent=0, Tmax=350, UnlimitedTmax=86.76562
+GAMG:  Solving for p_rgh, Initial residual = 0.007688551, Final residual = 4.096749e-05, No Iterations 3
+GAMG:  Solving for p_rgh, Initial residual = 0.00034496657, Final residual = 9.106457e-08, No Iterations 8
+DILUPBiCGStab:  Solving for epsilonm, Initial residual = 0.014775515, Final residual = 1.3658211e-07, No Iterations 1
+DILUPBiCGStab:  Solving for km, Initial residual = 0.00078601024, Final residual = 6.0052722e-09, No Iterations 1
+
+Solving for solid region nozzle
+DICPCG:  Solving for h, Initial residual = 0.0011984472, Final residual = 4.7736011e-10, No Iterations 2
+Min/max T:248.5515 257.01915
+ExecutionTime = 12.93 s  ClockTime = 13 s
+
+wallHeatFlux heatIntoFluid execute:
+    min/max/integ(nozzle_to_nitrogen) = -15389.946, -14092.78, -82.317158
+Courant Number max: 0.30006435
+Region: nozzle Diffusion Number mean: 0.0051802641 max: 0.058206005
+deltaT = 1.0575296e-05
+Time = 0.7476983459
+
+
+Solving for fluid region nitrogen
+MULES: Solving for alpha.gas
+MULES: Solving for alpha.gas
+MULES: Solving for alpha.gas
+alpha.gas volume fraction = 0.0093391381  Min(alpha1) = 3.4813278e-06  Max(alpha1) = 0.19089819
+Constructing face momentum equations
+Tf.gasAndLiquid: min = 80.004202, mean = 81.744597, max = 83.830133
+iDmdt.gasAndLiquid: min = -734.39961, mean = -18.757224, max = 140.81125, integral = -0.00048895695
+wDmdt.gasAndLiquid: min = 0, mean = 18.120165, max = 407.05685, integral = 0.00052973961
+DILUPBiCGStab:  Solving for h.gas, Initial residual = 0.00019455215, Final residual = 1.1665426e-09, No Iterations 1
+limitTemperature=limitTGas, Type=Lower, LimitedCells=0, CellsPercent=0, Tmin=63.251, UnlimitedTmin=80.00423
+limitTemperature=limitTGas, Type=Upper, LimitedCells=0, CellsPercent=0, Tmax=350, UnlimitedTmax=84.117782
+DILUPBiCGStab:  Solving for h.liquid, Initial residual = 0.00057319316, Final residual = 4.3487254e-09, No Iterations 1
+limitTemperature=limitTLiquid, Type=Lower, LimitedCells=0, CellsPercent=0, Tmin=63.251, UnlimitedTmin=74.822921
+limitTemperature=limitTLiquid, Type=Upper, LimitedCells=0, CellsPercent=0, Tmax=350, UnlimitedTmax=86.76562
+Tf.gasAndLiquid: min = 80.004202, mean = 81.744617, max = 83.830133
+iDmdt.gasAndLiquid: min = -734.2506, mean = -18.754971, max = 141.60659, integral = -0.0004889161
+wDmdt.gasAndLiquid: min = 0, mean = 18.120216, max = 407.05572, integral = 0.00052974306
+DILUPBiCGStab:  Solving for h.gas, Initial residual = 1.0033678e-07, Final residual = 4.9824823e-12, No Iterations 1
+limitTemperature=limitTGas, Type=Lower, LimitedCells=0, CellsPercent=0, Tmin=63.251, UnlimitedTmin=80.004231
+limitTemperature=limitTGas, Type=Upper, LimitedCells=0, CellsPercent=0, Tmax=350, UnlimitedTmax=84.118519
+DILUPBiCGStab:  Solving for h.liquid, Initial residual = 8.0159081e-08, Final residual = 1.2031381e-12, No Iterations 1
+limitTemperature=limitTLiquid, Type=Lower, LimitedCells=0, CellsPercent=0, Tmin=63.251, UnlimitedTmin=74.83229
+limitTemperature=limitTLiquid, Type=Upper, LimitedCells=0, CellsPercent=0, Tmax=350, UnlimitedTmax=86.749151
+Tf.gasAndLiquid: min = 80.004202, mean = 81.744619, max = 83.830133
+iDmdt.gasAndLiquid: min = -734.14629, mean = -18.753394, max = 142.16335, integral = -0.0004888875
+wDmdt.gasAndLiquid: min = 0, mean = 18.120216, max = 407.05572, integral = 0.00052974306
+DILUPBiCGStab:  Solving for h.gas, Initial residual = 3.7723829e-08, Final residual = 2.7491139e-13, No Iterations 1
+limitTemperature=limitTGas, Type=Lower, LimitedCells=0, CellsPercent=0, Tmin=63.251, UnlimitedTmin=80.004231
+limitTemperature=limitTGas, Type=Upper, LimitedCells=0, CellsPercent=0, Tmax=350, UnlimitedTmax=84.118519
+DILUPBiCGStab:  Solving for h.liquid, Initial residual = 2.0616126e-10, Final residual = 6.4244327e-15, No Iterations 1
+limitTemperature=limitTLiquid, Type=Lower, LimitedCells=0, CellsPercent=0, Tmin=63.251, UnlimitedTmin=74.83229
+limitTemperature=limitTLiquid, Type=Upper, LimitedCells=0, CellsPercent=0, Tmax=350, UnlimitedTmax=86.749153
+Tf.gasAndLiquid: min = 80.004202, mean = 81.74462, max = 83.830133
+iDmdt.gasAndLiquid: min = -734.07327, mean = -18.75229, max = 142.55307, integral = -0.00048886748
+wDmdt.gasAndLiquid: min = 0, mean = 18.120216, max = 407.05572, integral = 0.00052974306
+DILUPBiCGStab:  Solving for h.gas, Initial residual = 2.4489906e-08, Final residual = 7.764973e-14, No Iterations 1
+limitTemperature=limitTGas, Type=Lower, LimitedCells=0, CellsPercent=0, Tmin=63.251, UnlimitedTmin=80.004231
+limitTemperature=limitTGas, Type=Upper, LimitedCells=0, CellsPercent=0, Tmax=350, UnlimitedTmax=84.118519
+DILUPBiCGStab:  Solving for h.liquid, Initial residual = 1.3250932e-10, Final residual = 4.2760005e-15, No Iterations 1
+limitTemperature=limitTLiquid, Type=Lower, LimitedCells=0, CellsPercent=0, Tmin=63.251, UnlimitedTmin=74.83229
+limitTemperature=limitTLiquid, Type=Upper, LimitedCells=0, CellsPercent=0, Tmax=350, UnlimitedTmax=86.749153
+GAMG:  Solving for p_rgh, Initial residual = 0.0072791398, Final residual = 4.5904571e-05, No Iterations 3
+GAMG:  Solving for p_rgh, Initial residual = 0.00035145923, Final residual = 4.8814223e-08, No Iterations 9
+DILUPBiCGStab:  Solving for epsilonm, Initial residual = 0.016695781, Final residual = 1.5520015e-07, No Iterations 1
+DILUPBiCGStab:  Solving for km, Initial residual = 0.00076717626, Final residual = 5.8779483e-09, No Iterations 1
+
+Solving for solid region nozzle
+DICPCG:  Solving for h, Initial residual = 0.0011846286, Final residual = 4.7702782e-10, No Iterations 2
+Min/max T:248.62463 257.01858
+ExecutionTime = 14.81 s  ClockTime = 15 s
+
+wallHeatFlux heatIntoFluid execute:
+    min/max/integ(nozzle_to_nitrogen) = -15389.849, -14094.63, -82.319181
+Courant Number max: 0.30007021
+Region: nozzle Diffusion Number mean: 0.0051802641 max: 0.058206005
+deltaT = 1.0575296e-05

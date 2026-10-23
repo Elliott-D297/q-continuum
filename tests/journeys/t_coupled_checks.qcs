@@ -1,0 +1,17 @@
+# Coupled runs that can't start say why before running, with the fix: a participant folder whose Python modules are
+# missing (FEniCS) is switched to one that can start (needs ccx_preCICE installed), and a tutorial whose meshes were
+# never downloaded offers download-meshes.sh (not clicked here: it needs the network).
+shell printf 'dir.Fluid=fluid-openfoam\ndir.Solid=solid-fenics\n' > coupled/elastic-tube-3d/.q-continuum-coupling.ini
+coupling $SB/ws/coupled/elastic-tube-3d
+budget p95 16.7 max 100
+wait-until text Python can't import timeout 10
+screenshot $OUT/fenics.png
+click text:Use solid-calculix
+wait 10
+assert not text Python can't import
+assert log $SB/ws/coupled/elastic-tube-3d/.q-continuum-coupling.ini dir.Solid=solid-calculix
+coupling $SB/ws/coupled/heat-exchanger
+wait 20
+assert text download-meshes.sh
+assert text Download meshes
+screenshot $OUT/meshes.png

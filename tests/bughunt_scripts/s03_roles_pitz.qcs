@@ -1,0 +1,28 @@
+open $SB/ws/pitzDaily
+click nav:boundaries
+wait-until page Boundary
+wait 5
+dump $OUT/bc.txt
+click bc-patch#0
+wait 5
+click pi-role#0
+wait 5
+key S ctrl
+wait 10
+shell cp -a . $OUT/afterWallInlet
+click bc-patch#1
+wait 5
+click pi-role#1
+wait 5
+key S ctrl
+wait 10
+shell cp -a . $OUT/afterInletOutlet
+click bc-patch#2
+wait 5
+click pi-role#2
+wait 5
+key S ctrl
+wait 10
+shell cp -a . $OUT/afterOutletUpper
+screenshot $OUT/final.png
+dump $OUT/final.txt

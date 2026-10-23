@@ -1,0 +1,598 @@
+setting '--memory' value to 1843.20 MB (keyword RESERVE_MEMOIRE)
+copying '/home/user/heatBench/aster/A.med' to 'fort.20'...
+Ouverture en écriture du fichier ./vola.1
+
+<INFO> Démarrage de l'exécution.
+
+                  -- CODE_ASTER -- VERSION : DÉVELOPPEMENT STABILISÉE (testing) --                  
+                               Version 17.4.0 modifiée le 22/12/2025                                
+                               révision 50ebc13c70ee - branche 'HEAD'                               
+                                   Copyright EDF R&D 1991 - 2026                                    
+                                                                                                    
+                              Exécution du : Fri Oct  2 06:48:13 2026                               
+                             Nom de la machine : qc-host                             
+                                        Architecture : 64bit                                        
+                                    Type de processeur : x86_64                                     
+       Système d'exploitation : Linux-6.18.33.2-microsoft-standard-WSL2-x86_64-with-glibc2.36       
+                                  Langue des messages : fr (UTF-8)                                  
+                                     Version de Python : 3.11.2                                     
+                                     Version de NumPy : 1.24.2                                      
+                                     Parallélisme MPI : inactif                                     
+                                    Parallélisme OpenMP : actif                                     
+                              Nombre de processus OpenMP utilisés : 1                               
+                               Version de la librairie HDF5 : 1.10.3                                
+                                Version de la librairie MED : 4.2.0                                 
+                               Version de la librairie MFront : 4.2.0                               
+                              Version de la librairie MUMPS : 5.6.2.2c                              
+                                  Librairie PETSc : non disponible                                  
+                               Version de la librairie SCOTCH : 7.0.4                               
+
+starting the execution...
+
+ ╔════════════════════════════════════════════════════════════════════════════════════════════════╗
+ ║ <I> <SUPERVIS_22>                                                                              ║
+ ║                                                                                                ║
+ ║ Les mots-clés CODE et DEBUG dans DEBUT/POURSUITE sont réservés aux cas-tests.                  ║
+ ║ De même pour l'option, "--test" de CA.init().                                                  ║
+ ║ Il ne faut pas les utiliser dans les études car ils modifient certaines valeurs par            ║
+ ║ défaut des commandes DEBUT/POURSUITE qui ont des conséquences sur le comportement              ║
+ ║ en cas d'erreur ou sur les performances.                                                       ║
+ ╚════════════════════════════════════════════════════════════════════════════════════════════════╝
+
+Valeur initiale du temps CPU maximum =   2700 secondes
+  Valeur du temps CPU maximum passé aux commandes =   2690 secondes
+  Réserve CPU prévue = 10 secondes
+
+Ouverture en écriture du fichier ./glob.1
+
+Ouverture en écriture du fichier ./vola.1
+
+Ouverture en lecture du fichier
+/opt/salome-meca/2025/V2025.1.0_scibian_univ/tools/Code_aster_stable-1740/lib64/aster/elem.1
+
+Nom de la base                          :  ELEMBASE
+     Créée avec la version                   :  17.04.00
+     Nombre d'enregistrements utilisés       :  46
+     Nombre d'enregistrements maximum        :  512
+     Nombre d'enregistrements par fichier    :  512
+     Longueur d'enregistrement (octets)      :  819200
+     Nombre d'identificateurs utilisés       :  123
+     Taille maximum du répertoire            :  300
+     Pourcentage d'utilisation du répertoire :  41 %
+
+Ouverture en lecture du fichier
+/opt/salome-meca/2025/V2025.1.0_scibian_univ/tools/Code_aster_stable-1740/lib64/aster/elem.1
+
+Nom de la base                          :  ELEMBASE
+     Nombre d'enregistrements utilisés       :  46
+     Nombre d'enregistrements maximum        :  512
+     Nombre d'enregistrements par fichier    :  512
+     Longueur d'enregistrement (octets)      :  819200
+     Nombre total d'accès en lecture         :  64
+     Volume des accès en lecture             :         50.00 Mo.
+     Nombre total d'accès en écriture        :  0
+     Volume des accès en écriture            :          0.00 Mo.
+     Nombre d'identificateurs utilisés       :  123
+     Taille maximum du répertoire            :  300
+     Pourcentage d'utilisation du répertoire :  41 %
+
+Relecture des catalogues des éléments faite.
+
+Fin de lecture (durée  0.081405  s.) 
+
+                      Mémoire limite pour l'allocation dynamique : 2355.26 Mo                       
+                         ajouté à l'initialisation du processus : 564.68 Mo                         
+                               Limite cible du processus : 2919.94 Mo                               
+                         Taille limite des fichiers d'échange : 2048.00 Go                          
+# Mémoire (Mo) :   564.68 /   556.56 /   207.61 /   183.67 (VmPeak / VmSize / Optimum / Minimum)
+# Fin commande #0001   user+syst:        0.05s (syst:        0.25s, elaps:        0.29s)
+# ----------------------------------------------------------------------------------------------
+
+.. _stg1_txt5
+# ----------------------------------------------------------------------------------------------
+# Commande #0002 de <string>, ligne 5
+LIRE_MAILLAGE(FORMAT='MED',
+              INFO=1,
+              INFO_MED=0,
+              PARTITIONNEUR='SANS',
+              UNITE=20,
+              VERI_MAIL=_F(APLAT=0.001,
+                           VERIF='OUI'))
+
+Nom MED du maillage : A
+
+
+------------ MAILLAGE 00000001 - IMPRESSIONS NIVEAU  1 ------------
+
+
+NOMBRE DE NOEUDS                         102
+
+NOMBRE DE MAILLES                         50
+                              QUAD4                  50
+
+NOMBRE DE GROUPES DE NOEUDS                4
+
+--------------------------------------------------------------------------------
+
+Vérification du maillage.
+
+# Résultat commande #0002 (LIRE_MAILLAGE): '<00000001>' de type <Mesh>
+# Mémoire (Mo) :   564.68 /   557.28 /   207.61 /   183.67 (VmPeak / VmSize / Optimum / Minimum)
+# Fin commande #0002   user+syst:        0.01s (syst:        0.00s, elaps:        0.03s)
+# ----------------------------------------------------------------------------------------------
+
+.. _stg1_txt6
+# ----------------------------------------------------------------------------------------------
+# Commande #0003 de <string>, ligne 6
+AFFE_MODELE(AFFE=_F(MODELISATION='PLAN',
+                    PHENOMENE='THERMIQUE',
+                    TOUT='OUI'),
+            DISTRIBUTION=_F(METHODE='SOUS_DOMAINE',
+                            PARTITIONNEUR='METIS'),
+            INFO=1,
+            MAILLAGE='<00000001>',
+            VERI_FORMULATION_IFS='OUI',
+            VERI_JACOBIEN='OUI',
+            VERI_NORM_IFS='OUI',
+            VERI_PLAN='OUI')
+
+Sur les 50 mailles du maillage 00000001, on a demandé l'affectation de 50, on a pu en affecter 50.
+Modélisation     Formulation      Type maille  Élément fini     Nombre
+PLAN             _                QUAD4        THPLQU4          50
+#2      Calculs elementaires et assemblages               CPU (USER+SYST/SYST/ELAPS):      0.00      0.00      0.01
+# Résultat commande #0003 (AFFE_MODELE): '<00000002>' de type <Model>
+# Mémoire (Mo) :   686.01 /   686.01 /   207.61 /   196.85 (VmPeak / VmSize / Optimum / Minimum)
+# Fin commande #0003   user+syst:        0.00s (syst:        0.01s, elaps:        0.03s)
+# ----------------------------------------------------------------------------------------------
+
+.. _stg1_txt7
+# ----------------------------------------------------------------------------------------------
+# Commande #0004 de <string>, ligne 7
+DEFI_MATERIAU(INFO=1,
+              THER=_F(LAMBDA=16.2,
+                      RHO_CP=4000000.0))
+
+# Résultat commande #0004 (DEFI_MATERIAU): '<00000003>' de type <Material>
+# Mémoire (Mo) :   686.58 /   686.58 /   207.61 /   196.85 (VmPeak / VmSize / Optimum / Minimum)
+# Fin commande #0004   user+syst:        0.05s (syst:        0.00s, elaps:        0.04s)
+# ----------------------------------------------------------------------------------------------
+
+.. _stg1_txt8
+# ----------------------------------------------------------------------------------------------
+# Commande #0005 de <string>, ligne 8
+AFFE_MATERIAU(AFFE=_F(MATER='<00000003>',
+                      TOUT='OUI'),
+              INFO=1,
+              MAILLAGE='<00000001>')
+
+# Résultat commande #0005 (AFFE_MATERIAU): '<00000004>' de type <MaterialField>
+# Mémoire (Mo) :   686.58 /   686.58 /   207.61 /   196.85 (VmPeak / VmSize / Optimum / Minimum)
+# Fin commande #0005   user+syst:        0.05s (syst:        0.00s, elaps:        0.04s)
+# ----------------------------------------------------------------------------------------------
+
+.. _stg1_txt2
+# ----------------------------------------------------------------------------------------------
+# Commande #0006 de /home/user/heatBench/aster/A.comm, ligne 2
+bc = AFFE_CHAR_CINE(INFO=1,
+                    MODELE='<00000002>',
+                    SYNTAXE='NON',
+                    THER_IMPO=_F(GROUP_NO=('LEFT', 'RIGHT'),
+                                 TEMP=300.0))
+
+# Résultat commande #0006 (AFFE_CHAR_CINE): bc ('<00000005>') de type <ThermalDirichletBC>
+# Mémoire (Mo) :   686.58 /   686.58 /   207.61 /   196.85 (VmPeak / VmSize / Optimum / Minimum)
+# Fin commande #0006   user+syst:        0.00s (syst:        0.00s, elaps:        0.01s)
+# ----------------------------------------------------------------------------------------------
+
+.. _stg1_txt3
+# ----------------------------------------------------------------------------------------------
+# Commande #0007 de /home/user/heatBench/aster/A.comm, ligne 3
+T0 = CREA_CHAMP(AFFE=_F(NOM_CMP='TEMP',
+                        TOUT='OUI',
+                        VALE=300.0),
+                INFO=1,
+                MAILLAGE='<00000001>',
+                OPERATION='AFFE',
+                TYPE_CHAM='NOEU_TEMP_R')
+
+# Résultat commande #0007 (CREA_CHAMP): T0 ('<00000006>') de type <FieldOnNodesReal>
+# Mémoire (Mo) :   686.58 /   686.58 /   207.61 /   196.85 (VmPeak / VmSize / Optimum / Minimum)
+# Fin commande #0007   user+syst:        0.01s (syst:        0.00s, elaps:        0.01s)
+# ----------------------------------------------------------------------------------------------
+
+.. _stg1_txt6
+# ----------------------------------------------------------------------------------------------
+# Commande #0008 de /home/user/heatBench/aster/A.comm, ligne 6
+times = DEFI_LIST_REEL(DEBUT=0.0,
+                       INFO=1,
+                       INTERVALLE=_F(JUSQU_A=250.0,
+                                     PAS=1.0))
+
+# Résultat commande #0008 (DEFI_LIST_REEL): times ('<00000007>') de type <ListOfFloats>
+# Mémoire (Mo) :   686.58 /   686.58 /   207.61 /   196.85 (VmPeak / VmSize / Optimum / Minimum)
+# Fin commande #0008   user+syst:        0.00s (syst:        0.00s, elaps:        0.00s)
+# ----------------------------------------------------------------------------------------------
+
+.. _stg1_txt7
+# ----------------------------------------------------------------------------------------------
+# Commande #0009 de /home/user/heatBench/aster/A.comm, ligne 7
+res = THER_LINEAIRE(ARCHIVAGE=_F(CHAM_EXCLU=('RESI_NOEU', 'RESI_RELA_NOEU'),
+                                 PAS_ARCH=1),
+                    CHAM_MATER='<00000004>',
+                    ETAT_INIT=_F(CHAM_NO=T0),
+                    EXCIT=_F(CHARGE=bc,
+                             TYPE_CHARGE='FIXE_CSTE'),
+                    INCREMENT=_F(LIST_INST=times),
+                    MODELE='<00000002>',
+                    SCHEMA_TEMPS=_F(SCHEMA='THETA',
+                                    THETA=1.0),
+                    SOLVEUR=_F(ACCELERATION='AUTO',
+                               ELIM_LAGR='LAGR2',
+                               GESTION_MEMOIRE='AUTO',
+                               LOW_RANK_SEUIL=0.0,
+                               MATR_DISTRIBUEE='NON',
+                               METHODE='MUMPS',
+                               NB_RHS=1,
+                               NPREC=8,
+                               PCENT_PIVOT=35,
+                               POSTTRAITEMENTS='AUTO',
+                               PRETRAITEMENTS='AUTO',
+                               REDUCTION_MPI=0,
+                               RENUM='AUTO',
+                               RESI_RELA=1e-06,
+                               STOP_SINGULIER='OUI',
+                               TYPE_RESOL='AUTO'),
+                    TYPE_CALCUL='TRAN')
+
+Le système linéaire à résoudre a 102 degrés de liberté:
+   - 102 sont des degrés de liberté physiques
+     (ils sont portés par 102 noeuds du maillage)
+   - 0 sont les couples de paramètres de Lagrange associés
+     aux 0 relations linéaires dualisées.
+La matrice est de taille 102 équations.
+  Elle contient 353 termes non nuls si elle est symétrique et 604 termes non nuls si elle n'est pas
+symétrique.
+  Soit un taux de remplissage de   5.805 %.
+Champ stocké <TEMP> à l'instant  0.000000000000e+00 pour le numéro d'ordre 0
+Champ stocké <TEMP> à l'instant  1.000000000000e+00 pour le numéro d'ordre 1
+Champ stocké <TEMP> à l'instant  2.000000000000e+00 pour le numéro d'ordre 2
+Champ stocké <TEMP> à l'instant  3.000000000000e+00 pour le numéro d'ordre 3
+Champ stocké <TEMP> à l'instant  4.000000000000e+00 pour le numéro d'ordre 4
+Champ stocké <TEMP> à l'instant  5.000000000000e+00 pour le numéro d'ordre 5
+Champ stocké <TEMP> à l'instant  6.000000000000e+00 pour le numéro d'ordre 6
+Champ stocké <TEMP> à l'instant  7.000000000000e+00 pour le numéro d'ordre 7
+Champ stocké <TEMP> à l'instant  8.000000000000e+00 pour le numéro d'ordre 8
+Champ stocké <TEMP> à l'instant  9.000000000000e+00 pour le numéro d'ordre 9
+Champ stocké <TEMP> à l'instant  1.000000000000e+01 pour le numéro d'ordre 10
+Champ stocké <TEMP> à l'instant  1.100000000000e+01 pour le numéro d'ordre 11
+Champ stocké <TEMP> à l'instant  1.200000000000e+01 pour le numéro d'ordre 12
+Champ stocké <TEMP> à l'instant  1.300000000000e+01 pour le numéro d'ordre 13
+Champ stocké <TEMP> à l'instant  1.400000000000e+01 pour le numéro d'ordre 14
+Champ stocké <TEMP> à l'instant  1.500000000000e+01 pour le numéro d'ordre 15
+Champ stocké <TEMP> à l'instant  1.600000000000e+01 pour le numéro d'ordre 16
+Champ stocké <TEMP> à l'instant  1.700000000000e+01 pour le numéro d'ordre 17
+Champ stocké <TEMP> à l'instant  1.800000000000e+01 pour le numéro d'ordre 18
+Champ stocké <TEMP> à l'instant  1.900000000000e+01 pour le numéro d'ordre 19
+Champ stocké <TEMP> à l'instant  2.000000000000e+01 pour le numéro d'ordre 20
+Champ stocké <TEMP> à l'instant  2.100000000000e+01 pour le numéro d'ordre 21
+Champ stocké <TEMP> à l'instant  2.200000000000e+01 pour le numéro d'ordre 22
+Champ stocké <TEMP> à l'instant  2.300000000000e+01 pour le numéro d'ordre 23
+Champ stocké <TEMP> à l'instant  2.400000000000e+01 pour le numéro d'ordre 24
+Champ stocké <TEMP> à l'instant  2.500000000000e+01 pour le numéro d'ordre 25
+Champ stocké <TEMP> à l'instant  2.600000000000e+01 pour le numéro d'ordre 26
+Champ stocké <TEMP> à l'instant  2.700000000000e+01 pour le numéro d'ordre 27
+Champ stocké <TEMP> à l'instant  2.800000000000e+01 pour le numéro d'ordre 28
+Champ stocké <TEMP> à l'instant  2.900000000000e+01 pour le numéro d'ordre 29
+Champ stocké <TEMP> à l'instant  3.000000000000e+01 pour le numéro d'ordre 30
+Champ stocké <TEMP> à l'instant  3.100000000000e+01 pour le numéro d'ordre 31
+Champ stocké <TEMP> à l'instant  3.200000000000e+01 pour le numéro d'ordre 32
+Champ stocké <TEMP> à l'instant  3.300000000000e+01 pour le numéro d'ordre 33
+Champ stocké <TEMP> à l'instant  3.400000000000e+01 pour le numéro d'ordre 34
+Champ stocké <TEMP> à l'instant  3.500000000000e+01 pour le numéro d'ordre 35
+Champ stocké <TEMP> à l'instant  3.600000000000e+01 pour le numéro d'ordre 36
+Champ stocké <TEMP> à l'instant  3.700000000000e+01 pour le numéro d'ordre 37
+Champ stocké <TEMP> à l'instant  3.800000000000e+01 pour le numéro d'ordre 38
+Champ stocké <TEMP> à l'instant  3.900000000000e+01 pour le numéro d'ordre 39
+Champ stocké <TEMP> à l'instant  4.000000000000e+01 pour le numéro d'ordre 40
+Champ stocké <TEMP> à l'instant  4.100000000000e+01 pour le numéro d'ordre 41
+Champ stocké <TEMP> à l'instant  4.200000000000e+01 pour le numéro d'ordre 42
+Champ stocké <TEMP> à l'instant  4.300000000000e+01 pour le numéro d'ordre 43
+Champ stocké <TEMP> à l'instant  4.400000000000e+01 pour le numéro d'ordre 44
+Champ stocké <TEMP> à l'instant  4.500000000000e+01 pour le numéro d'ordre 45
+Champ stocké <TEMP> à l'instant  4.600000000000e+01 pour le numéro d'ordre 46
+Champ stocké <TEMP> à l'instant  4.700000000000e+01 pour le numéro d'ordre 47
+Champ stocké <TEMP> à l'instant  4.800000000000e+01 pour le numéro d'ordre 48
+Champ stocké <TEMP> à l'instant  4.900000000000e+01 pour le numéro d'ordre 49
+Champ stocké <TEMP> à l'instant  5.000000000000e+01 pour le numéro d'ordre 50
+Champ stocké <TEMP> à l'instant  5.100000000000e+01 pour le numéro d'ordre 51
+Champ stocké <TEMP> à l'instant  5.200000000000e+01 pour le numéro d'ordre 52
+Champ stocké <TEMP> à l'instant  5.300000000000e+01 pour le numéro d'ordre 53
+Champ stocké <TEMP> à l'instant  5.400000000000e+01 pour le numéro d'ordre 54
+Champ stocké <TEMP> à l'instant  5.500000000000e+01 pour le numéro d'ordre 55
+Champ stocké <TEMP> à l'instant  5.600000000000e+01 pour le numéro d'ordre 56
+Champ stocké <TEMP> à l'instant  5.700000000000e+01 pour le numéro d'ordre 57
+Champ stocké <TEMP> à l'instant  5.800000000000e+01 pour le numéro d'ordre 58
+Champ stocké <TEMP> à l'instant  5.900000000000e+01 pour le numéro d'ordre 59
+Champ stocké <TEMP> à l'instant  6.000000000000e+01 pour le numéro d'ordre 60
+Champ stocké <TEMP> à l'instant  6.100000000000e+01 pour le numéro d'ordre 61
+Champ stocké <TEMP> à l'instant  6.200000000000e+01 pour le numéro d'ordre 62
+Champ stocké <TEMP> à l'instant  6.300000000000e+01 pour le numéro d'ordre 63
+Champ stocké <TEMP> à l'instant  6.400000000000e+01 pour le numéro d'ordre 64
+Champ stocké <TEMP> à l'instant  6.500000000000e+01 pour le numéro d'ordre 65
+Champ stocké <TEMP> à l'instant  6.600000000000e+01 pour le numéro d'ordre 66
+Champ stocké <TEMP> à l'instant  6.700000000000e+01 pour le numéro d'ordre 67
+Champ stocké <TEMP> à l'instant  6.800000000000e+01 pour le numéro d'ordre 68
+Champ stocké <TEMP> à l'instant  6.900000000000e+01 pour le numéro d'ordre 69
+Champ stocké <TEMP> à l'instant  7.000000000000e+01 pour le numéro d'ordre 70
+Champ stocké <TEMP> à l'instant  7.100000000000e+01 pour le numéro d'ordre 71
+Champ stocké <TEMP> à l'instant  7.200000000000e+01 pour le numéro d'ordre 72
+Champ stocké <TEMP> à l'instant  7.300000000000e+01 pour le numéro d'ordre 73
+Champ stocké <TEMP> à l'instant  7.400000000000e+01 pour le numéro d'ordre 74
+Champ stocké <TEMP> à l'instant  7.500000000000e+01 pour le numéro d'ordre 75
+Champ stocké <TEMP> à l'instant  7.600000000000e+01 pour le numéro d'ordre 76
+Champ stocké <TEMP> à l'instant  7.700000000000e+01 pour le numéro d'ordre 77
+Champ stocké <TEMP> à l'instant  7.800000000000e+01 pour le numéro d'ordre 78
+Champ stocké <TEMP> à l'instant  7.900000000000e+01 pour le numéro d'ordre 79
+Champ stocké <TEMP> à l'instant  8.000000000000e+01 pour le numéro d'ordre 80
+Champ stocké <TEMP> à l'instant  8.100000000000e+01 pour le numéro d'ordre 81
+Champ stocké <TEMP> à l'instant  8.200000000000e+01 pour le numéro d'ordre 82
+Champ stocké <TEMP> à l'instant  8.300000000000e+01 pour le numéro d'ordre 83
+Champ stocké <TEMP> à l'instant  8.400000000000e+01 pour le numéro d'ordre 84
+Champ stocké <TEMP> à l'instant  8.500000000000e+01 pour le numéro d'ordre 85
+Champ stocké <TEMP> à l'instant  8.600000000000e+01 pour le numéro d'ordre 86
+Champ stocké <TEMP> à l'instant  8.700000000000e+01 pour le numéro d'ordre 87
+Champ stocké <TEMP> à l'instant  8.800000000000e+01 pour le numéro d'ordre 88
+Champ stocké <TEMP> à l'instant  8.900000000000e+01 pour le numéro d'ordre 89
+Champ stocké <TEMP> à l'instant  9.000000000000e+01 pour le numéro d'ordre 90
+Champ stocké <TEMP> à l'instant  9.100000000000e+01 pour le numéro d'ordre 91
+Champ stocké <TEMP> à l'instant  9.200000000000e+01 pour le numéro d'ordre 92
+Champ stocké <TEMP> à l'instant  9.300000000000e+01 pour le numéro d'ordre 93
+Champ stocké <TEMP> à l'instant  9.400000000000e+01 pour le numéro d'ordre 94
+Champ stocké <TEMP> à l'instant  9.500000000000e+01 pour le numéro d'ordre 95
+Champ stocké <TEMP> à l'instant  9.600000000000e+01 pour le numéro d'ordre 96
+Champ stocké <TEMP> à l'instant  9.700000000000e+01 pour le numéro d'ordre 97
+Champ stocké <TEMP> à l'instant  9.800000000000e+01 pour le numéro d'ordre 98
+Champ stocké <TEMP> à l'instant  9.900000000000e+01 pour le numéro d'ordre 99
+Champ stocké <TEMP> à l'instant  1.000000000000e+02 pour le numéro d'ordre 100
+Champ stocké <TEMP> à l'instant  1.010000000000e+02 pour le numéro d'ordre 101
+Champ stocké <TEMP> à l'instant  1.020000000000e+02 pour le numéro d'ordre 102
+Champ stocké <TEMP> à l'instant  1.030000000000e+02 pour le numéro d'ordre 103
+Champ stocké <TEMP> à l'instant  1.040000000000e+02 pour le numéro d'ordre 104
+Champ stocké <TEMP> à l'instant  1.050000000000e+02 pour le numéro d'ordre 105
+Champ stocké <TEMP> à l'instant  1.060000000000e+02 pour le numéro d'ordre 106
+Champ stocké <TEMP> à l'instant  1.070000000000e+02 pour le numéro d'ordre 107
+Champ stocké <TEMP> à l'instant  1.080000000000e+02 pour le numéro d'ordre 108
+Champ stocké <TEMP> à l'instant  1.090000000000e+02 pour le numéro d'ordre 109
+Champ stocké <TEMP> à l'instant  1.100000000000e+02 pour le numéro d'ordre 110
+Champ stocké <TEMP> à l'instant  1.110000000000e+02 pour le numéro d'ordre 111
+Champ stocké <TEMP> à l'instant  1.120000000000e+02 pour le numéro d'ordre 112
+Champ stocké <TEMP> à l'instant  1.130000000000e+02 pour le numéro d'ordre 113
+Champ stocké <TEMP> à l'instant  1.140000000000e+02 pour le numéro d'ordre 114
+Champ stocké <TEMP> à l'instant  1.150000000000e+02 pour le numéro d'ordre 115
+Champ stocké <TEMP> à l'instant  1.160000000000e+02 pour le numéro d'ordre 116
+Champ stocké <TEMP> à l'instant  1.170000000000e+02 pour le numéro d'ordre 117
+Champ stocké <TEMP> à l'instant  1.180000000000e+02 pour le numéro d'ordre 118
+Champ stocké <TEMP> à l'instant  1.190000000000e+02 pour le numéro d'ordre 119
+Champ stocké <TEMP> à l'instant  1.200000000000e+02 pour le numéro d'ordre 120
+Champ stocké <TEMP> à l'instant  1.210000000000e+02 pour le numéro d'ordre 121
+Champ stocké <TEMP> à l'instant  1.220000000000e+02 pour le numéro d'ordre 122
+Champ stocké <TEMP> à l'instant  1.230000000000e+02 pour le numéro d'ordre 123
+Champ stocké <TEMP> à l'instant  1.240000000000e+02 pour le numéro d'ordre 124
+Champ stocké <TEMP> à l'instant  1.250000000000e+02 pour le numéro d'ordre 125
+Champ stocké <TEMP> à l'instant  1.260000000000e+02 pour le numéro d'ordre 126
+Champ stocké <TEMP> à l'instant  1.270000000000e+02 pour le numéro d'ordre 127
+Champ stocké <TEMP> à l'instant  1.280000000000e+02 pour le numéro d'ordre 128
+Champ stocké <TEMP> à l'instant  1.290000000000e+02 pour le numéro d'ordre 129
+Champ stocké <TEMP> à l'instant  1.300000000000e+02 pour le numéro d'ordre 130
+Champ stocké <TEMP> à l'instant  1.310000000000e+02 pour le numéro d'ordre 131
+Champ stocké <TEMP> à l'instant  1.320000000000e+02 pour le numéro d'ordre 132
+Champ stocké <TEMP> à l'instant  1.330000000000e+02 pour le numéro d'ordre 133
+Champ stocké <TEMP> à l'instant  1.340000000000e+02 pour le numéro d'ordre 134
+Champ stocké <TEMP> à l'instant  1.350000000000e+02 pour le numéro d'ordre 135
+Champ stocké <TEMP> à l'instant  1.360000000000e+02 pour le numéro d'ordre 136
+Champ stocké <TEMP> à l'instant  1.370000000000e+02 pour le numéro d'ordre 137
+Champ stocké <TEMP> à l'instant  1.380000000000e+02 pour le numéro d'ordre 138
+Champ stocké <TEMP> à l'instant  1.390000000000e+02 pour le numéro d'ordre 139
+Champ stocké <TEMP> à l'instant  1.400000000000e+02 pour le numéro d'ordre 140
+Champ stocké <TEMP> à l'instant  1.410000000000e+02 pour le numéro d'ordre 141
+Champ stocké <TEMP> à l'instant  1.420000000000e+02 pour le numéro d'ordre 142
+Champ stocké <TEMP> à l'instant  1.430000000000e+02 pour le numéro d'ordre 143
+Champ stocké <TEMP> à l'instant  1.440000000000e+02 pour le numéro d'ordre 144
+Champ stocké <TEMP> à l'instant  1.450000000000e+02 pour le numéro d'ordre 145
+Champ stocké <TEMP> à l'instant  1.460000000000e+02 pour le numéro d'ordre 146
+Champ stocké <TEMP> à l'instant  1.470000000000e+02 pour le numéro d'ordre 147
+Champ stocké <TEMP> à l'instant  1.480000000000e+02 pour le numéro d'ordre 148
+Champ stocké <TEMP> à l'instant  1.490000000000e+02 pour le numéro d'ordre 149
+Champ stocké <TEMP> à l'instant  1.500000000000e+02 pour le numéro d'ordre 150
+Champ stocké <TEMP> à l'instant  1.510000000000e+02 pour le numéro d'ordre 151
+Champ stocké <TEMP> à l'instant  1.520000000000e+02 pour le numéro d'ordre 152
+Champ stocké <TEMP> à l'instant  1.530000000000e+02 pour le numéro d'ordre 153
+Champ stocké <TEMP> à l'instant  1.540000000000e+02 pour le numéro d'ordre 154
+Champ stocké <TEMP> à l'instant  1.550000000000e+02 pour le numéro d'ordre 155
+Champ stocké <TEMP> à l'instant  1.560000000000e+02 pour le numéro d'ordre 156
+Champ stocké <TEMP> à l'instant  1.570000000000e+02 pour le numéro d'ordre 157
+Champ stocké <TEMP> à l'instant  1.580000000000e+02 pour le numéro d'ordre 158
+Champ stocké <TEMP> à l'instant  1.590000000000e+02 pour le numéro d'ordre 159
+Champ stocké <TEMP> à l'instant  1.600000000000e+02 pour le numéro d'ordre 160
+Champ stocké <TEMP> à l'instant  1.610000000000e+02 pour le numéro d'ordre 161
+Champ stocké <TEMP> à l'instant  1.620000000000e+02 pour le numéro d'ordre 162
+Champ stocké <TEMP> à l'instant  1.630000000000e+02 pour le numéro d'ordre 163
+Champ stocké <TEMP> à l'instant  1.640000000000e+02 pour le numéro d'ordre 164
+Champ stocké <TEMP> à l'instant  1.650000000000e+02 pour le numéro d'ordre 165
+Champ stocké <TEMP> à l'instant  1.660000000000e+02 pour le numéro d'ordre 166
+Champ stocké <TEMP> à l'instant  1.670000000000e+02 pour le numéro d'ordre 167
+Champ stocké <TEMP> à l'instant  1.680000000000e+02 pour le numéro d'ordre 168
+Champ stocké <TEMP> à l'instant  1.690000000000e+02 pour le numéro d'ordre 169
+Champ stocké <TEMP> à l'instant  1.700000000000e+02 pour le numéro d'ordre 170
+Champ stocké <TEMP> à l'instant  1.710000000000e+02 pour le numéro d'ordre 171
+Champ stocké <TEMP> à l'instant  1.720000000000e+02 pour le numéro d'ordre 172
+Champ stocké <TEMP> à l'instant  1.730000000000e+02 pour le numéro d'ordre 173
+Champ stocké <TEMP> à l'instant  1.740000000000e+02 pour le numéro d'ordre 174
+Champ stocké <TEMP> à l'instant  1.750000000000e+02 pour le numéro d'ordre 175
+Champ stocké <TEMP> à l'instant  1.760000000000e+02 pour le numéro d'ordre 176
+Champ stocké <TEMP> à l'instant  1.770000000000e+02 pour le numéro d'ordre 177
+Champ stocké <TEMP> à l'instant  1.780000000000e+02 pour le numéro d'ordre 178
+Champ stocké <TEMP> à l'instant  1.790000000000e+02 pour le numéro d'ordre 179
+Champ stocké <TEMP> à l'instant  1.800000000000e+02 pour le numéro d'ordre 180
+Champ stocké <TEMP> à l'instant  1.810000000000e+02 pour le numéro d'ordre 181
+Champ stocké <TEMP> à l'instant  1.820000000000e+02 pour le numéro d'ordre 182
+Champ stocké <TEMP> à l'instant  1.830000000000e+02 pour le numéro d'ordre 183
+Champ stocké <TEMP> à l'instant  1.840000000000e+02 pour le numéro d'ordre 184
+Champ stocké <TEMP> à l'instant  1.850000000000e+02 pour le numéro d'ordre 185
+Champ stocké <TEMP> à l'instant  1.860000000000e+02 pour le numéro d'ordre 186
+Champ stocké <TEMP> à l'instant  1.870000000000e+02 pour le numéro d'ordre 187
+Champ stocké <TEMP> à l'instant  1.880000000000e+02 pour le numéro d'ordre 188
+Champ stocké <TEMP> à l'instant  1.890000000000e+02 pour le numéro d'ordre 189
+Champ stocké <TEMP> à l'instant  1.900000000000e+02 pour le numéro d'ordre 190
+Champ stocké <TEMP> à l'instant  1.910000000000e+02 pour le numéro d'ordre 191
+Champ stocké <TEMP> à l'instant  1.920000000000e+02 pour le numéro d'ordre 192
+Champ stocké <TEMP> à l'instant  1.930000000000e+02 pour le numéro d'ordre 193
+Champ stocké <TEMP> à l'instant  1.940000000000e+02 pour le numéro d'ordre 194
+Champ stocké <TEMP> à l'instant  1.950000000000e+02 pour le numéro d'ordre 195
+Champ stocké <TEMP> à l'instant  1.960000000000e+02 pour le numéro d'ordre 196
+Champ stocké <TEMP> à l'instant  1.970000000000e+02 pour le numéro d'ordre 197
+Champ stocké <TEMP> à l'instant  1.980000000000e+02 pour le numéro d'ordre 198
+Champ stocké <TEMP> à l'instant  1.990000000000e+02 pour le numéro d'ordre 199
+Champ stocké <TEMP> à l'instant  2.000000000000e+02 pour le numéro d'ordre 200
+Champ stocké <TEMP> à l'instant  2.010000000000e+02 pour le numéro d'ordre 201
+Champ stocké <TEMP> à l'instant  2.020000000000e+02 pour le numéro d'ordre 202
+Champ stocké <TEMP> à l'instant  2.030000000000e+02 pour le numéro d'ordre 203
+Champ stocké <TEMP> à l'instant  2.040000000000e+02 pour le numéro d'ordre 204
+Champ stocké <TEMP> à l'instant  2.050000000000e+02 pour le numéro d'ordre 205
+Champ stocké <TEMP> à l'instant  2.060000000000e+02 pour le numéro d'ordre 206
+Champ stocké <TEMP> à l'instant  2.070000000000e+02 pour le numéro d'ordre 207
+Champ stocké <TEMP> à l'instant  2.080000000000e+02 pour le numéro d'ordre 208
+Champ stocké <TEMP> à l'instant  2.090000000000e+02 pour le numéro d'ordre 209
+Champ stocké <TEMP> à l'instant  2.100000000000e+02 pour le numéro d'ordre 210
+Champ stocké <TEMP> à l'instant  2.110000000000e+02 pour le numéro d'ordre 211
+Champ stocké <TEMP> à l'instant  2.120000000000e+02 pour le numéro d'ordre 212
+Champ stocké <TEMP> à l'instant  2.130000000000e+02 pour le numéro d'ordre 213
+Champ stocké <TEMP> à l'instant  2.140000000000e+02 pour le numéro d'ordre 214
+Champ stocké <TEMP> à l'instant  2.150000000000e+02 pour le numéro d'ordre 215
+Champ stocké <TEMP> à l'instant  2.160000000000e+02 pour le numéro d'ordre 216
+Champ stocké <TEMP> à l'instant  2.170000000000e+02 pour le numéro d'ordre 217
+Champ stocké <TEMP> à l'instant  2.180000000000e+02 pour le numéro d'ordre 218
+Champ stocké <TEMP> à l'instant  2.190000000000e+02 pour le numéro d'ordre 219
+Champ stocké <TEMP> à l'instant  2.200000000000e+02 pour le numéro d'ordre 220
+Champ stocké <TEMP> à l'instant  2.210000000000e+02 pour le numéro d'ordre 221
+Champ stocké <TEMP> à l'instant  2.220000000000e+02 pour le numéro d'ordre 222
+Champ stocké <TEMP> à l'instant  2.230000000000e+02 pour le numéro d'ordre 223
+Champ stocké <TEMP> à l'instant  2.240000000000e+02 pour le numéro d'ordre 224
+Champ stocké <TEMP> à l'instant  2.250000000000e+02 pour le numéro d'ordre 225
+Champ stocké <TEMP> à l'instant  2.260000000000e+02 pour le numéro d'ordre 226
+Champ stocké <TEMP> à l'instant  2.270000000000e+02 pour le numéro d'ordre 227
+Champ stocké <TEMP> à l'instant  2.280000000000e+02 pour le numéro d'ordre 228
+Champ stocké <TEMP> à l'instant  2.290000000000e+02 pour le numéro d'ordre 229
+Champ stocké <TEMP> à l'instant  2.300000000000e+02 pour le numéro d'ordre 230
+Champ stocké <TEMP> à l'instant  2.310000000000e+02 pour le numéro d'ordre 231
+Champ stocké <TEMP> à l'instant  2.320000000000e+02 pour le numéro d'ordre 232
+Champ stocké <TEMP> à l'instant  2.330000000000e+02 pour le numéro d'ordre 233
+Champ stocké <TEMP> à l'instant  2.340000000000e+02 pour le numéro d'ordre 234
+Champ stocké <TEMP> à l'instant  2.350000000000e+02 pour le numéro d'ordre 235
+Champ stocké <TEMP> à l'instant  2.360000000000e+02 pour le numéro d'ordre 236
+Champ stocké <TEMP> à l'instant  2.370000000000e+02 pour le numéro d'ordre 237
+Champ stocké <TEMP> à l'instant  2.380000000000e+02 pour le numéro d'ordre 238
+Champ stocké <TEMP> à l'instant  2.390000000000e+02 pour le numéro d'ordre 239
+Champ stocké <TEMP> à l'instant  2.400000000000e+02 pour le numéro d'ordre 240
+Champ stocké <TEMP> à l'instant  2.410000000000e+02 pour le numéro d'ordre 241
+Champ stocké <TEMP> à l'instant  2.420000000000e+02 pour le numéro d'ordre 242
+Champ stocké <TEMP> à l'instant  2.430000000000e+02 pour le numéro d'ordre 243
+Champ stocké <TEMP> à l'instant  2.440000000000e+02 pour le numéro d'ordre 244
+Champ stocké <TEMP> à l'instant  2.450000000000e+02 pour le numéro d'ordre 245
+Champ stocké <TEMP> à l'instant  2.460000000000e+02 pour le numéro d'ordre 246
+Champ stocké <TEMP> à l'instant  2.470000000000e+02 pour le numéro d'ordre 247
+Champ stocké <TEMP> à l'instant  2.480000000000e+02 pour le numéro d'ordre 248
+Champ stocké <TEMP> à l'instant  2.490000000000e+02 pour le numéro d'ordre 249
+Champ stocké <TEMP> à l'instant  2.500000000000e+02 pour le numéro d'ordre 250
+# Résultat commande #0009 (THER_LINEAIRE): res ('<00000008>') de type <ThermalResult>
+# Mémoire (Mo) :   696.42 /   693.80 /   207.61 /   206.55 (VmPeak / VmSize / Optimum / Minimum)
+# Fin commande #0009   user+syst:        1.91s (syst:        0.28s, elaps:        2.07s)
+# ----------------------------------------------------------------------------------------------
+WROTE /home/user/heatBench/aster/../results/code_aster_A.csv 102
+
+.. _stg1_txt76
+# ----------------------------------------------------------------------------------------------
+# Commande #0010 de /opt/salome-meca/2025/V2025.1
+0_scibian_univ/tools/Code_aster_stable-1740/lib64/aster/code_aster/CodeCommands/fin.py, ligne 76
+FIN(INFO_RESU='NON',
+    RETASSAGE='NON')
+
+No database in results, objects not saved on processor #0
+
+ ╔════════════════════════════════════════════════════════════════════════════════════════════════╗
+ ║ <I> <CATAMESS_89>                                                                              ║
+ ║                                                                                                ║
+ ║ Liste des alarmes émises lors de l'exécution du calcul.                                        ║
+ ║                                                                                                ║
+ ║     Les alarmes que vous avez choisies d'ignorer sont précédées de (*).                        ║
+ ║     Nombre d'occurrences pour chacune des alarmes :                                            ║
+ ║            aucune alarme                                                                       ║
+ ╚════════════════════════════════════════════════════════════════════════════════════════════════╝
+
+<I> <FIN> ARRET NORMAL DANS "FIN" PAR APPEL A "JEFINI".
+  
+ <I> <FIN> MEMOIRE JEVEUX MINIMALE REQUISE POUR L'EXECUTION :                     206.55 Mo
+ <I> <FIN> MEMOIRE JEVEUX OPTIMALE REQUISE POUR L'EXECUTION :                     207.61 Mo
+ <I> <FIN> MAXIMUM DE MEMOIRE UTILISEE PAR LE PROCESSUS LORS DE L'EXECUTION :     696.42 Mo
+  
+ <I>       FERMETURE DES BASES EFFECTUEE
+  
+   STATISTIQUES CONCERNANT L'ALLOCATION DYNAMIQUE :
+     TAILLE CUMULEE MAXIMUM            :                  208  Mo.
+     TAILLE CUMULEE LIBEREE            :                   43  Mo.
+     NOMBRE TOTAL D'ALLOCATIONS        :               231603
+     NOMBRE TOTAL DE LIBERATIONS       :               230620
+     APPELS AU MECANISME DE LIBERATION :                    5
+     TAILLE MEMOIRE CUMULEE RECUPEREE  :                  138  Mo.
+     VOLUME DES LECTURES               :                    0  Mo.
+     VOLUME DES ECRITURES              :                   36  Mo.
+  
+   MEMOIRE JEVEUX MINIMALE REQUISE POUR L'EXECUTION :     206.55 Mo
+     - IMPOSE DE NOMBREUX ACCES DISQUE
+     - RALENTIT LA VITESSE D'EXECUTION
+   MEMOIRE JEVEUX OPTIMALE REQUISE POUR L'EXECUTION :     207.61 Mo
+     - LIMITE LES ACCES DISQUE
+     - AMELIORE LA VITESSE D'EXECUTION
+   MAXIMUM DE MEMOIRE UTILISEE PAR LE PROCESSUS     :     696.42 Mo
+     - COMPREND LA MEMOIRE CONSOMMEE PAR  JEVEUX, 
+       LE SUPERVISEUR PYTHON, LES LIBRAIRIES EXTERNES
+  
+ <I>       FIN D'EXECUTION LE : VE-02-OCTO-2026 06:48:15
+INFO './glob.1' deleted
+Deleting './glob.2': No such file or directory
+INFO './vola.1' deleted
+Deleting './vola.2': No such file or directory
+
+ ********************************************************************************
+ * COMMAND                  :       USER :     SYSTEM :   USER+SYS :    ELAPSED *
+ ********************************************************************************
+ * DEBUT                    :       0.05 :       0.25 :       0.30 :       0.29 *
+ * LIRE_MAILLAGE            :       0.01 :       0.00 :       0.01 :       0.03 *
+ * AFFE_MODELE              :       0.00 :       0.01 :       0.01 :       0.03 *
+ * DEFI_MATERIAU            :       0.05 :       0.00 :       0.05 :       0.04 *
+ * AFFE_MATERIAU            :       0.05 :       0.00 :       0.05 :       0.04 *
+ * AFFE_CHAR_CINE           :       0.00 :       0.00 :       0.00 :       0.01 *
+ * CREA_CHAMP               :       0.01 :       0.00 :       0.01 :       0.01 *
+ * DEFI_LIST_REEL           :       0.00 :       0.00 :       0.00 :       0.00 *
+ * THER_LINEAIRE            :       1.91 :       0.28 :       2.19 :       2.07 *
+ * FIN                      :       0.06 :       0.00 :       0.06 :       0.05 *
+ *  . check syntax          :       0.01 :       0.00 :       0.01 :       0.01 *
+ *  . fortran               :       0.09 :       0.25 :       0.34 :       0.37 *
+ *  . cleanup               :       0.15 :       0.00 :       0.15 :       0.14 *
+ ********************************************************************************
+ * TOTAL_JOB                :       2.19 :       0.55 :       2.74 :       2.69 *
+ ********************************************************************************
+
+# Mémoire (Mo) :   696.42 /   693.80 /   207.61 /   206.55 (VmPeak / VmSize / Optimum / Minimum)
+# Fin commande #0010   user+syst:        0.06s (syst:        0.00s, elaps:        0.05s)
+# ----------------------------------------------------------------------------------------------
+
+EXECUTION_CODE_ASTER_EXIT_69265=0
+
+
+
+------------------------------------------------------------
+--- DIAGNOSTIC JOB : OK
+------------------------------------------------------------
+
+Q-Continuum: exit 0

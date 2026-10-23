@@ -1,0 +1,36 @@
+# The residuals chart expands to the whole page like the log: its Expand button, Esc back, Ctrl+Shift+L, and Restore;
+# expanding one of chart and log puts the other back.
+open $SB/ws/cavity
+click nav:run
+wait-until page Run
+wait 5
+click run-go
+wait-until job running timeout 20
+wait-until not job running timeout 120
+assert job finished
+wait 10
+measure
+click chart-max
+wait 5
+assert text cavity  ·  residuals
+assert text Restore
+screenshot $OUT/chart_max.png
+key ESCAPE
+wait 5
+assert not text cavity  ·  residuals
+key L ctrl shift
+wait 5
+assert text cavity  ·  residuals
+action log.expand
+wait 5
+assert not text cavity  ·  residuals
+assert text cavity  ·  logs
+action chart.expand
+wait 5
+assert text cavity  ·  residuals
+assert not text cavity  ·  logs
+click chart-max
+wait 5
+assert not text cavity  ·  residuals
+assert widget log-max
+budget p95 16.7 max 120

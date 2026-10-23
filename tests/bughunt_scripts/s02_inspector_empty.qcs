@@ -1,0 +1,24 @@
+open $SB/ws/cavity
+click nav:boundaries
+wait-until page Boundary
+wait 5
+click bc-patch#2
+wait 10
+dump $OUT/insp_empty.txt
+screenshot $OUT/insp_empty.png
+click pi-role#0
+wait 5
+dump $OUT/after_wall.txt
+screenshot $OUT/after_wall.png
+key S ctrl
+wait 10
+key ESCAPE
+wait 5
+click bc-patch#0
+wait 5
+click pi-role#1
+wait 5
+dump $OUT/after_inlet.txt
+key S ctrl
+wait 10
+screenshot $OUT/after_inlet.png

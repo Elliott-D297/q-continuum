@@ -1,0 +1,243 @@
+/*---------------------------------------------------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     | Version:  2606                                  |
+|   \\  /    A nd           | Website:  www.openfoam.com                      |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+Build  : 481094fd-20260618 OPENFOAM=2606 version=v2606
+Arch   : "LSB;label=32;scalar=64"
+Exec   : pimpleFoam -parallel
+Date   : Oct 14 2026
+Time   : 22:57:09
+Host   : qc-host
+PID    : 21529
+I/O    : uncollated
+Case   : /home/user/OpenFOAM/droneProp
+nProcs : 8
+Hosts  :
+(
+    (qc-host 8)
+)
+Pstream initialized with:
+    node communication : off [type=host] (8 ranks, 1 nodes)
+    topology controls  : none
+    consensus exchange : 0 (tuning: 0)
+    exchange algorithm : 0
+    commsType          : nonBlocking
+    polling iterations : 0
+trapFpe: Floating point exception trapping enabled (FOAM_SIGFPE).
+memory pool : not available
+fileModificationChecking : Monitoring run-time modified files using timeStampMaster (fileModificationSkew 5, maxFileModificationPolls 20)
+
+--> FOAM Warning : allowSystemOperations : Allowing user-supplied system call operations.
+                   This can be a security risk if running untrusted cases
+                   through e.g. 'coded' on-the-fly-compilation functionality.
+
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+Create time
+
+Create mesh for time = 0
+
+Selecting dynamicFvMesh dynamicMotionSolverFvMesh
+Selecting motion solver: solidBody
+Applying motion to cellZone: rotor
+Selecting solid-body motion function rotatingMotion
+
+PIMPLE: no residual control data found. Calculations will employ 3 corrector loops
+
+Reading field p
+
+Reading field U
+
+Reading/calculating face flux field phi
+
+AMI: Creating AMI for source:AMI1 and target:AMI2
+AMI: Patch source faces: 12928
+AMI: Patch target faces: 12872
+AMI: distributed
+AMI: Patch source sum(weights) min:0.999445 max:1.15349 average:1.00354
+AMI: Patch target sum(weights) min:0.98585 max:1.09744 average:1.0016
+Selecting incompressible transport model Newtonian
+Selecting turbulence model type RAS
+Selecting RAS turbulence model kOmegaSST
+Selecting patchDistMethod meshWave
+RAS
+{
+    RASModel        kOmegaSST;
+    turbulence      on;
+    printCoeffs     on;
+    alphaK1         0.85;
+    alphaK2         1;
+    alphaOmega1     0.5;
+    alphaOmega2     0.856;
+    gamma1          0.555556;
+    gamma2          0.44;
+    beta1           0.075;
+    beta2           0.0828;
+    betaStar        0.09;
+    a1              0.31;
+    b1              1;
+    c1              10;
+    F3              false;
+    decayControl    false;
+    kInf            0;
+    omegaInf        0;
+}
+
+No MRF models present
+
+No finite volume options present
+Constructing face velocity Uf
+
+Courant Number mean: 0 max: 0
+Courant Number mean: 0 max: 0
+
+Starting time loop
+
+Sampled surface:
+    axialPlane -> ensight
+        sampledCuttingPlane: axialPlane : plane:(0 1 0) (0 0 0) offsets:(0)
+    diskPlane -> ensight
+        sampledCuttingPlane: diskPlane : plane:(0 0 1) (0 0 -0.012) offsets:(0)
+    prop -> ensight
+        sampledPatch: prop : patches:(blade1 blade2 hub)
+    isoQ -> ensight
+        isoSurface: isoQ : isoMethod:default regularise:full snap:1 field:Q value:(2e+06)
+
+forces forces:
+    rho: rhoInf
+    Freestream density (rhoInf) set to 1.2
+    Not including porosity effects
+
+Courant Number mean: 0 max: 0
+deltaT = 2.4e-06
+Time = 2.4e-06
+
+PIMPLE: iteration 1
+AMI: Creating AMI for source:AMI1 and target:AMI2
+AMI: Patch source faces: 12928
+AMI: Patch target faces: 12872
+AMI: distributed
+AMI: Patch source sum(weights) min:0.999399 max:1.17293 average:1.00362
+AMI: Patch target sum(weights) min:0.985949 max:1.09734 average:1.00167
+smoothSolver:  Solving for Ux, Initial residual = 1, Final residual = 7.45605e-07, No Iterations 1
+smoothSolver:  Solving for Uy, Initial residual = 1, Final residual = 6.11327e-07, No Iterations 1
+smoothSolver:  Solving for Uz, Initial residual = 1, Final residual = 7.56566e-07, No Iterations 1
+GAMG:  Solving for p, Initial residual = 1, Final residual = 7.49111e-07, No Iterations 18
+time step continuity errors : sum local = 1.77865e-13, global = 9.78213e-16, cumulative = 9.78213e-16
+PIMPLE: iteration 2
+smoothSolver:  Solving for Ux, Initial residual = 0.00141357, Final residual = 3.08499e-06, No Iterations 1
+smoothSolver:  Solving for Uy, Initial residual = 0.00341475, Final residual = 8.03589e-06, No Iterations 1
+smoothSolver:  Solving for Uz, Initial residual = 5.23604e-05, Final residual = 1.23019e-07, No Iterations 1
+GAMG:  Solving for p, Initial residual = 0.0928788, Final residual = 7.75514e-07, No Iterations 9
+time step continuity errors : sum local = 1.35428e-12, global = 2.12743e-14, cumulative = 2.22525e-14
+PIMPLE: iteration 3
+smoothSolver:  Solving for Ux, Initial residual = 0.000345494, Final residual = 8.91247e-07, No Iterations 1
+smoothSolver:  Solving for Uy, Initial residual = 0.000534292, Final residual = 4.32136e-09, No Iterations 2
+smoothSolver:  Solving for Uz, Initial residual = 7.26339e-06, Final residual = 1.90689e-08, No Iterations 1
+GAMG:  Solving for p, Initial residual = 0.0111788, Final residual = 7.51321e-07, No Iterations 7
+time step continuity errors : sum local = 1.39189e-12, global = -1.97049e-13, cumulative = -1.74796e-13
+smoothSolver:  Solving for omega, Initial residual = 9.52805e-06, Final residual = 1.65814e-08, No Iterations 1
+smoothSolver:  Solving for k, Initial residual = 1, Final residual = 5.23418e-09, No Iterations 3
+ExecutionTime = 13.7 s  ClockTime = 12 s
+
+forces forces write:
+    Sum of forces
+        Total    : (0.000532564 -0.000545264 275.591)
+        Pressure : (0.000532497 -0.000545432 275.593)
+        Viscous  : (6.65819e-08 1.68271e-07 -0.00167621)
+    Sum of moments
+        Total    : (3.12221e-07 7.83048e-05 -6.08627)
+        Pressure : (3.11985e-07 7.8309e-05 -6.08476)
+        Viscous  : (2.35785e-10 -4.19332e-09 -0.00151292)
+    writing force and moment files.
+
+Courant Number mean: 0.000159776 max: 0.567088
+deltaT = 2.87931e-06
+Time = 5.2793087e-06
+
+PIMPLE: iteration 1
+AMI: Creating AMI for source:AMI1 and target:AMI2
+AMI: Patch source faces: 12928
+AMI: Patch target faces: 12872
+AMI: distributed
+AMI: Patch source sum(weights) min:0.996873 max:1.19162 average:1.00386
+AMI: Patch target sum(weights) min:0.986858 max:1.11112 average:1.00186
+smoothSolver:  Solving for Ux, Initial residual = 0.374283, Final residual = 0.000147584, No Iterations 1
+smoothSolver:  Solving for Uy, Initial residual = 0.374544, Final residual = 0.000305245, No Iterations 1
+smoothSolver:  Solving for Uz, Initial residual = 0.00829221, Final residual = 6.9248e-06, No Iterations 1
+GAMG:  Solving for p, Initial residual = 0.160641, Final residual = 7.49713e-07, No Iterations 15
+time step continuity errors : sum local = 1.82994e-12, global = 6.07212e-13, cumulative = 4.32416e-13
+PIMPLE: iteration 2
+smoothSolver:  Solving for Ux, Initial residual = 0.0107509, Final residual = 2.79122e-05, No Iterations 1
+smoothSolver:  Solving for Uy, Initial residual = 0.0194898, Final residual = 5.74356e-05, No Iterations 1
+smoothSolver:  Solving for Uz, Initial residual = 0.000244974, Final residual = 7.61603e-07, No Iterations 1
+GAMG:  Solving for p, Initial residual = 0.424812, Final residual = 7.95066e-07, No Iterations 14
+time step continuity errors : sum local = 4.93944e-13, global = 1.26204e-14, cumulative = 4.45036e-13
+PIMPLE: iteration 3
+smoothSolver:  Solving for Ux, Initial residual = 0.00110369, Final residual = 1.55833e-08, No Iterations 2
+smoothSolver:  Solving for Uy, Initial residual = 0.00173119, Final residual = 2.70715e-08, No Iterations 2
+smoothSolver:  Solving for Uz, Initial residual = 2.79819e-05, Final residual = 1.04152e-07, No Iterations 1
+GAMG:  Solving for p, Initial residual = 0.125874, Final residual = 7.0335e-07, No Iterations 12
+time step continuity errors : sum local = 1.86261e-13, global = 3.18911e-14, cumulative = 4.76927e-13
+smoothSolver:  Solving for omega, Initial residual = 1.04614e-05, Final residual = 2.65433e-08, No Iterations 1
+smoothSolver:  Solving for k, Initial residual = 0.00377313, Final residual = 8.85684e-09, No Iterations 2
+ExecutionTime = 25.07 s  ClockTime = 22 s
+
+forces forces write:
+    Sum of forces
+        Total    : (0.000188388 -0.000130319 3.91553)
+        Pressure : (0.000188368 -0.00013049 3.91753)
+        Viscous  : (1.92145e-08 1.71262e-07 -0.00199982)
+    Sum of moments
+        Total    : (-1.44661e-07 3.93002e-05 -0.0871364)
+        Pressure : (-1.45491e-07 3.93064e-05 -0.0856378)
+        Viscous  : (8.29406e-10 -6.17158e-09 -0.00149859)
+    writing force and moment files.
+
+Courant Number mean: 0.000191699 max: 0.630547
+deltaT = 3.45517e-06
+Time = 8.7344791e-06
+
+PIMPLE: iteration 1
+AMI: Creating AMI for source:AMI1 and target:AMI2
+AMI: Patch source faces: 12928
+AMI: Patch target faces: 12872
+AMI: distributed
+AMI: Patch source sum(weights) min:0.982827 max:1.20923 average:1.0042
+AMI: Patch target sum(weights) min:0.989264 max:1.15374 average:1.00214
+smoothSolver:  Solving for Ux, Initial residual = 0.0057209, Final residual = 1.00097e-05, No Iterations 1
+smoothSolver:  Solving for Uy, Initial residual = 0.00649029, Final residual = 1.53599e-05, No Iterations 1
+smoothSolver:  Solving for Uz, Initial residual = 0.000100598, Final residual = 3.23908e-07, No Iterations 1
+GAMG:  Solving for p, Initial residual = 0.31202, Final residual = 4.44591e-07, No Iterations 13
+time step continuity errors : sum local = 1.42592e-13, global = -4.92485e-14, cumulative = 4.27679e-13
+PIMPLE: iteration 2
+smoothSolver:  Solving for Ux, Initial residual = 0.000291988, Final residual = 1.28463e-06, No Iterations 1
+smoothSolver:  Solving for Uy, Initial residual = 0.000375105, Final residual = 1.67482e-06, No Iterations 1
+smoothSolver:  Solving for Uz, Initial residual = 5.48433e-06, Final residual = 2.51091e-08, No Iterations 1
+GAMG:  Solving for p, Initial residual = 0.0542478, Final residual = 5.91588e-07, No Iterations 11
+time step continuity errors : sum local = 1.26455e-13, global = 4.18936e-14, cumulative = 4.69572e-13
+PIMPLE: iteration 3
+smoothSolver:  Solving for Ux, Initial residual = 5.37091e-05, Final residual = 2.51946e-07, No Iterations 1
+smoothSolver:  Solving for Uy, Initial residual = 6.68104e-05, Final residual = 3.05062e-07, No Iterations 1
+smoothSolver:  Solving for Uz, Initial residual = 9.54474e-07, Final residual = 9.54474e-07, No Iterations 0
+GAMG:  Solving for p, Initial residual = 0.0106531, Final residual = 9.54352e-07, No Iterations 8
+time step continuity errors : sum local = 2.08957e-13, global = -1.88372e-14, cumulative = 4.50735e-13
+smoothSolver:  Solving for omega, Initial residual = 1.15197e-05, Final residual = 4.188e-08, No Iterations 1
+smoothSolver:  Solving for k, Initial residual = 0.00204519, Final residual = 9.37476e-09, No Iterations 2
+ExecutionTime = 35.61 s  ClockTime = 35 s
+
+forces forces write:
+    Sum of forces
+        Total    : (-0.000149809 -0.000234148 3.95394)
+        Pressure : (-0.000149813 -0.000234309 3.95621)
+        Viscous  : (3.88819e-09 1.6158e-07 -0.00227188)
+    Sum of moments
+        Total    : (3.65786e-07 -4.3237e-05 -0.0758144)
+        Pressure : (3.64988e-07 -4.323e-05 -0.0743331)
+        Viscous  : (7.98188e-10 -7.0248e-09 -0.00148132)
+    writing force and moment files.
+
+Courant Number mean: 0.000230066 max: 0.67398
+deltaT = 4.1462e-06

@@ -1,0 +1,41 @@
+open $SB/ws/cavity
+click nav:run
+wait-until page Run
+click dict:system/controlDict:endTime
+enter 20
+click dict:system/controlDict:writeInterval
+enter 200
+key S ctrl
+wait 5
+click run-go
+wait 2
+click run-pause
+wait 2
+dump $OUT/a.txt
+screenshot $OUT/a.png
+wait-until job idle timeout 30
+wait 10
+dump $OUT/b.txt
+screenshot $OUT/b.png
+shell cp system/controlDict $OUT/cd_b.txt
+click run-resume
+wait 3
+click run-pause
+wait-until job idle timeout 40
+wait 10
+dump $OUT/c.txt
+screenshot $OUT/c.png
+shell cp system/controlDict $OUT/cd_c.txt
+shell ls > $OUT/ls_c.txt
+click run-resume
+wait-until job running timeout 20
+wait-until log log.icoFoam Time = 3 timeout 60
+click top-stop
+wait 3
+dump $OUT/d.txt
+wait-until job idle timeout 30
+wait 10
+dump $OUT/e.txt
+screenshot $OUT/e.png
+shell cp system/controlDict $OUT/cd_e.txt
+shell ls > $OUT/ls_e.txt

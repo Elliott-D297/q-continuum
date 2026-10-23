@@ -1,0 +1,14 @@
+steps 6
+time 0.747698
+deltaT 1.05753e-05
+ended 0
+fatal 0
+converged 0
+courant n=7 last=0.3001
+interfaceCourant n=0
+series "h.gas (nitrogen)" n=6 first=3.365e-06 last=0.0001946
+series "h.liquid (nitrogen)" n=6 first=0.03228 last=0.0005732
+series "p_rgh (nitrogen)" n=6 first=0.004239 last=0.007279
+series "epsilonm (nitrogen)" n=6 first=0.007649 last=0.0167
+series "km (nitrogen)" n=6 first=0.0008667 last=0.0007672
+series "h (nozzle)" n=6 first=0.01488 last=0.001185

@@ -1,0 +1,27 @@
+open $SB/ws/cavity
+click nav:run
+wait-until page Run
+wait 5
+click dict:system/controlDict:endTime
+enter abc
+wait 5
+click dict:system/controlDict:deltaT
+enter -0.005
+wait 5
+click dict:system/controlDict:writeInterval
+enter 1e999
+wait 5
+dump $OUT/run.txt
+screenshot $OUT/run.png
+click nav:boundaries
+wait-until page Boundary
+click bc-patch#0
+wait 5
+click dict:0/U:boundaryField/movingWall/value
+enter uniform (1 0)
+wait 5
+dump $OUT/bc.txt
+screenshot $OUT/bc.png
+key S ctrl
+wait 10
+dump $OUT/aftersave.txt

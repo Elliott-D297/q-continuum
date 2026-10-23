@@ -1,0 +1,18 @@
+open $SB/ws/cavity
+click nav:run
+wait-until page Run
+wait 30
+dump $OUT/a.txt
+click dict:system/controlDict:deltaT
+enter 0.001
+wait 300
+dump $OUT/b.txt
+key S ctrl
+wait 300
+dump $OUT/c.txt
+click nav:mesh
+click mesh-gen
+wait-until job finished timeout 60
+click nav:run
+wait 300
+dump $OUT/d.txt

@@ -1,0 +1,14 @@
+open $SB/ws/cavity
+click nav:run
+wait-until page Run
+wait 10
+click dict:system/controlDict:endTime
+enter 0.05
+key S ctrl
+wait 300
+assert text Nothing would be written
+click run-go
+wait 30
+dump $OUT/a.txt
+screenshot $OUT/a.png
+assert modal precheck

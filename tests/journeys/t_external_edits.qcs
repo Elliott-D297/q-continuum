@@ -1,0 +1,33 @@
+# Ground rule 2: the case folder is the source of truth. An outside change reloads a clean file; a change to an entry
+# the user is also editing asks which version to keep.
+open $SB/ws/cavity
+click nav:run
+wait-until page Run
+# a clean file: endTime changed in "vim" shows up without anything clicked
+shell sed -i 's/^endTime .*/endTime         0.75;/' system/controlDict
+wait-until text 0.75 timeout 5
+# ... and says so (2.7)
+wait-until toast Changed outside Q-Continuum, now shown here: system/controlDict timeout 5
+# a dirty file whose other entry changes on disk: both kept
+click dict:system/controlDict:deltaT
+enter 0.002
+shell sed -i 's/^writeInterval .*/writeInterval   40;/' system/controlDict
+wait 120
+assert modal none
+assert toast kept your unsaved edits
+key S ctrl
+wait 5
+assert log system/controlDict deltaT          0.002;
+assert log system/controlDict writeInterval   40;
+assert log system/controlDict endTime         0.75;
+# the same entry changed in both places: the app asks
+click dict:system/controlDict:deltaT
+enter 0.003
+shell sed -i 's/^deltaT .*/deltaT          0.001;/' system/controlDict
+wait-until modal conflict timeout 5
+screenshot $OUT/conflict.png
+assert text Yours
+click m-cf-mine
+wait 5
+assert modal none
+assert log system/controlDict deltaT          0.003;

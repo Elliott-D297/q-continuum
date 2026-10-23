@@ -1,0 +1,99 @@
+# DEME with the same workflow as every other program: a project from a starter (New case > DEME), its Setup form over
+# params.ini (a field, a preset, the Rayleigh check and its fix, an outside edit picked up), the tools, the run's
+# steps (it builds first), particle frames in the viewer on Overview and Results, and Clean moving them to the trash.
+# No GPU run: the drivers themselves are checked by hand (they need 3 minutes of kernel compiling each).
+action go.new
+wait-until page New case
+measure
+click new-prog:deme
+wait 5
+click label:Impact into a bed
+wait 5
+click clone-name
+key A ctrl
+type craterTest
+click clone-go
+wait-until page Overview timeout 10
+assert file $SB/home/deme/craterTest/params.ini
+assert not file $SB/ws/craterTest/params.ini
+assert file $SB/home/deme/craterTest/src/impact.cpp
+assert file $SB/home/deme/craterTest/src/qc_deme.hpp
+shell grep -q 'add_executable(impact src/impact.cpp)' $SB/home/deme/craterTest/CMakeLists.txt && touch $OUT/cmake-ok
+assert file $OUT/cmake-ok
+assert text DEME project
+assert text not built yet
+click nav:setup
+wait-until page Setup
+wait 10
+assert text Projectile radius
+assert text Rayleigh step
+# a field
+click label:density
+key A ctrl
+enter 2900
+wait 5
+shell grep -q '^density = 2900$' $SB/home/deme/craterTest/params.ini && touch $OUT/density-ok
+assert file $OUT/density-ok
+# a gravity preset (impact starts on the Moon)
+click label:Earth
+wait 5
+shell grep -q '^gravity = 9.81$' $SB/home/deme/craterTest/params.ini && touch $OUT/gravity-ok
+assert file $OUT/gravity-ok
+# a material preset sets the material keys
+choose dm-mat Steel shot
+wait 5
+shell grep -q '^density = 7800$' $SB/home/deme/craterTest/params.ini && grep -q '^restitution = 0.8$' $SB/home/deme/craterTest/params.ini && touch $OUT/material-ok
+assert file $OUT/material-ok
+# a time step far above the Rayleigh step is flagged, and the fix sets 20 % of it
+click label:dt
+key A ctrl
+enter 1e-4
+wait 5
+assert text too big
+click dm-fix-dt
+wait 5
+shell awk -F' = ' '/^dt = /{ if ($2 + 0 < 1e-5) ok = 1 } END { exit !ok }' $SB/home/deme/craterTest/params.ini && touch $OUT/dt-ok
+assert file $OUT/dt-ok
+assert not text too big
+# an edit made outside the app shows up
+shell sed -i 's/^impact_speed = .*/impact_speed = 33/' $SB/home/deme/craterTest/params.ini
+sleep 2
+wait 10
+assert text at 33 m/s
+# the comments in params.ini survive all of that
+shell grep -q '^# Impact speed | m/s$' $SB/home/deme/craterTest/params.ini && touch $OUT/comments-ok
+assert file $OUT/comments-ok
+# the run builds first, then runs the driver in run/
+click nav:run
+wait-until page Run
+wait 5
+assert text Build now
+# tools open the folder and a terminal there
+click nav:overview
+wait-until page Overview
+click p-folder
+wait 3
+assert file $LAUNCH
+click p-term
+wait 3
+assert file $OUT/terminal.txt
+# fake output: the viewer draws it on Overview and Results, Clean moves it to the trash
+shell mkdir -p $SB/home/deme/craterTest/run/output && printf 'X,Y,Z,r,absv\n0,0,0.01,0.002,0.5\n0.01,0,0.01,0.002,0.1\n' > $SB/home/deme/craterTest/run/output/particles_0000.csv && cp $SB/home/deme/craterTest/run/output/particles_0000.csv $SB/home/deme/craterTest/run/output/particles_0001.csv
+sleep 6
+wait 10
+click nav:results
+wait-until page Results
+wait 10
+assert text Frame 2 of 2
+assert text run/output
+screenshot $OUT/deme.png
+click pres-clean
+wait-until modal any timeout 5
+click pc-go
+wait-until modal none timeout 5
+wait 5
+assert not file $SB/home/deme/craterTest/run/output/particles_0000.csv
+shell ls -d $SB/home/deme/craterTest/.qc-trash/*/run/output >/dev/null 2>&1 && touch $OUT/trash-ok
+assert file $OUT/trash-ok
+assert file $SB/home/deme/craterTest/params.ini
+budget p95 16.7 max 100

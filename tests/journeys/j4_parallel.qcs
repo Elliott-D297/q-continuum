@@ -1,0 +1,19 @@
+# J4: run on N cores, monitor, reconstruct. Target: one control for N; decomposition always consistent.
+open $SB/ws/cavity
+measure
+budget p95 16.7 max 100
+click nav:run
+wait-until page Run
+click np-in
+enter 4
+wait 3
+assert text Parallel with mpirun on 4
+click run-go
+wait-until job running timeout 10
+wait-until job finished timeout 120
+assert log log.decomposePar Number of processor faces
+assert log log.icoFoam nProcs : 4
+assert log log.reconstructPar Time = 0.5
+assert file processor3
+assert file 0.5/U
+screenshot $OUT/j4_done.png

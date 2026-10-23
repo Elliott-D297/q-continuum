@@ -1,0 +1,34 @@
+# 2.10 LCARS sounds (QC_TEST_SOUND_LOG records cues instead of playing them): keys beep, a finished run chimes, a failed
+# run sounds the klaxon (not the error-toast tone as well), and the classic themes stay silent.
+open $SB/ws/cavity
+click nav:run
+wait-until page Run
+wait 5
+assert log $OUT/sounds.txt click
+click run-go
+wait-until job running timeout 20
+wait-until not job running timeout 120
+assert job finished
+wait 10
+assert log $OUT/sounds.txt done
+# break the case: the solver fails
+shell sed -i 's/^deltaT .*/deltaT          garbage;/' system/controlDict
+wait 30
+click run-go
+wait-until modal any timeout 5
+click m-rr-over
+wait-until not job running timeout 60
+wait 10
+assert log $OUT/sounds.txt alert
+assert not log $OUT/sounds.txt error
+# classic dark: nothing more is recorded
+shell sed -i 's/^deltaT .*/deltaT          0.005;/' system/controlDict
+shell cp $OUT/sounds.txt $OUT/sounds-lcars.txt
+theme 1
+wait 10
+click nav:overview
+wait 10
+click nav:run
+wait 10
+shell cmp -s $OUT/sounds.txt $OUT/sounds-lcars.txt && touch $OUT/silent-in-classic
+assert file $OUT/silent-in-classic

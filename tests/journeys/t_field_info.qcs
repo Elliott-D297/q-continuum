@@ -1,0 +1,25 @@
+# 2.5 physics information (F-16): units from each field's dimensions on the Boundaries page, fields the turbulence model
+# doesn't read marked "not used" (pitzDaily is kEpsilon: omega and nuTilda are ignored), and the field's description,
+# typical values and the tutorials' initial values in the drawer.
+open $SB/ws/pitzDaily
+click nav:boundary conditions
+wait-until page Boundary
+wait 10
+assert text m²/s³
+assert text not used
+screenshot $OUT/field_units.png
+# U is on the second page of columns
+click bc-next
+wait 5
+assert text m/s
+click bc-prev
+wait 5
+click bc-head#0
+wait 3
+# the epsilon column's initial value: units, meaning and typical range in the drawer
+click bc-cell#0#0
+wait 5
+assert text mixing length
+wait-until text In the OpenFOAM tutorials timeout 90
+screenshot $OUT/field_drawer.png
+budget p95 16.7 max 100

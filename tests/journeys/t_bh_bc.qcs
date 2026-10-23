@@ -1,0 +1,45 @@
+# Bug hunt H-03, H-04, H-05, H-22 on a case with #include "U.bc", a sideWalls patch group (inGroups) and regex keys:
+# conditions from groups and includes are found (not "missing"), the include piece is not a field, a role never
+# writes into the include, and one Ctrl+Z takes back the whole role.
+open $SB/ws/cavityRx
+click nav:mesh
+click mesh-gen
+wait-until job finished timeout 60
+click nav:boundaries
+wait-until page Boundary
+wait 5
+screenshot $OUT/bc.png
+assert not text missing
+assert not text need attention
+assert not widget bc-head#2
+assert text via U.bc
+assert text via sideWalls
+# movingWall's U comes from the include: shown with where it comes from
+click bc-patch#0
+wait 5
+assert text comes from U.bc, pulled in with #include
+assert widget bc-open-inc#1
+screenshot $OUT/insp_include.png
+# fixedWalls: Inlet over every field, one undo step for all of them
+click bc-patch#1
+wait 5
+click pi-role#1
+wait 5
+assert toast type the inlet velocity below
+assert dirty 1
+key Z ctrl
+wait 5
+assert toast Undone: fixedWalls set for an inlet in every field
+assert dirty 0
+click pi-role#1
+wait 5
+key S ctrl
+wait 5
+assert not log 0/U.bc boundaryField
+assert not log 0/U.bc fixedWalls
+assert log 0/U fixedWalls
+# a constraint patch: the right article, nothing to add
+click bc-patch#2
+wait 5
+assert text frontAndBack is an empty patch
+assert not widget bc-addentry#0

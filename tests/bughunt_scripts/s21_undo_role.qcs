@@ -1,0 +1,29 @@
+open $SB/ws/pitzDaily
+click nav:boundaries
+wait-until page Boundary
+click bc-patch#1
+wait 5
+click pi-role#0
+wait 5
+dump $OUT/a.txt
+key Z ctrl
+wait 10
+dump $OUT/b.txt
+key S ctrl
+wait 10
+shell cp -a 0 $OUT/after_undo1
+key Y ctrl
+wait 5
+click dict:system/controlDict:endTime
+wait 2
+action go.run
+wait 10
+click dict:system/controlDict:endTime
+enter 50
+wait 5
+key Y ctrl
+wait 5
+dump $OUT/c.txt
+key S ctrl
+wait 10
+shell cp -a 0 $OUT/after_final

@@ -1,0 +1,43 @@
+# A coupled run is a case (user request 2026-10-20): flow-over-heated-plate opens from Cases with its own pages (Overview,
+# Coupling setup, Participants, Run), a participant opens as a case with the way back, running a participant alone is
+# refused (it would wait for its partners), and the coupled run goes with real buoyantPimpleFoam + laplacianFoam through
+# preCICE (max-time cut to 0.05 s: five time windows).
+shell sed -i 's|<max-time value="1" />|<max-time value="0.05" />|' $SB/ws/fohp/flow-over-heated-plate/precice-config.xml
+click nav:cases
+wait-until page Cases
+wait 10
+assert text flow-over-heated-plate
+assert text 2 participants
+open $SB/ws/fohp/flow-over-heated-plate
+wait 10
+assert text Temperature
+assert text Heat-Flux
+assert text serial-implicit: time windows of 0.01 up to t = 0.05
+screenshot $OUT/cpl_overview.png
+click nav:coupling setup
+wait 10
+assert widget cpl-set-tabs#1
+click nav:participants
+wait 10
+assert text Interface1: mesh Fluid-Mesh on patches (interface)
+click cpl-part-open#0
+wait-until page Overview timeout 10
+assert text fluid-openfoam
+click nav:run
+wait-until page Run
+assert text is the Fluid participant of a preCICE coupling
+click run-go
+wait 5
+assert toast alone it would wait for its partners
+assert job idle
+screenshot $OUT/cpl_participant_run.png
+click run-cpl-parent
+wait 10
+assert widget cpl-go
+click cpl-go
+wait-until toast Started 2 participants timeout 20
+wait-until toast Coupled run finished timeout 400
+assert log fluid-openfoam/log.Fluid End
+assert log solid-openfoam/log.Solid End
+assert file fluid-openfoam/precice-Fluid-iterations.log
+screenshot $OUT/cpl_done.png

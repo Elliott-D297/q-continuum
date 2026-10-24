@@ -82,6 +82,14 @@ assert text Pre-flight check
 assert text Distance to destination
 screenshot $OUT/starcitizen.png
 click nav:settings
+click theme#15
+wait 10
+click nav:run
+wait 10
+assert text HEV suit diagnostics
+assert text HEALTH
+screenshot $OUT/halflife.png
+click nav:settings
 click theme#0
 wait 10
 click nav:run

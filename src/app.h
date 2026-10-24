@@ -68,7 +68,7 @@ typedef struct {
     bool     filesRaw;
     int      runLog;                    /* index into logs, -1 = follow newest */
     int      runLogFilter;
-    int      meshTab;                   /* Mesh page: 0 dictionaries, 1 SALOME, -1 not chosen */
+    int      meshTab;                   /* Mesh page: 0 dictionaries, 1 SALOME, 2 view, 3 STL mesher, -1 not chosen */
     char     chartRegion[64];           /* residual chart: region shown ("" = all, "-" = not chosen yet) */
     bool     runFollow;
     Alert    alert;                     /* RED ALERT: the open case's running solver (app.c red_alert_tick) */
@@ -307,10 +307,14 @@ void  case_turbulence(Case *c, char *st, int stCap, char *model, int mCap);   /*
    *cellsOut report the present size and the total for base (see the Mesh page) */
 bool  blocks_base_size(FDFile *bm, double scale, double base, bool write, double *current, long *cellsOut, char *why, int cap);
 void  decomp_split(Case *c, long np, char *out, int cap);    /* page_dicts.c: (nx ny nz) for np */       /* page_dicts.c: fields the turbulence model needs */
-float page_salome(Rectangle r, float x, float y, float w);   /* page_salome.c: returns height */
+float page_salome(Rectangle r, float x, float y, float w);
+float page_stlmesh(Rectangle r, float x, float y, float w);  /* page_stlmesh.c: the STL mesher tab; returns height */
+void  stlmesh_new_case(void);                                /* page_stlmesh.c: pick an STL, make a case for it, open its mesher */
+void  stlmesh_tick(void);                                    /* page_stlmesh.c: follows the file dialog, every frame */   /* page_salome.c: returns height */
 float page_mesh_patches(float x, float y, float w);
 bool  mesh_change_pending(Case *c, char *why, int cap);       /* page_case.c: the next run meshes again */
 float xsection_panel(Rectangle r, Case *c, bool compact);
+void  meshview_release(void);                               /* page_meshview.c: frees the 3-D view (Mesh > View switched off) */
 float meshview_panel(Rectangle r, Case *c);                 /* page_meshview.c: Mesh > View, the mesh in 3-D */   /* page_xsection.c: a 2-D case's cross section */          /* page_case.c: cells, patches and their types */
 void coupling_frame(double now);              /* poll the coupled run every frame */
 void run_chart(Rectangle r, LogMon *m);

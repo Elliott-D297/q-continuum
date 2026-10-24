@@ -65,6 +65,7 @@ set(QC_FONTS
   ${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/Electrolize-Regular.ttf
   ${CMAKE_CURRENT_SOURCE_DIR}/packaging/q-continuum.png
   ${CMAKE_CURRENT_SOURCE_DIR}/assets/salome/mesh_template.py
+  ${CMAKE_CURRENT_SOURCE_DIR}/assets/salome/stl_mesher.py
   ${CMAKE_CURRENT_SOURCE_DIR}/assets/paraview/movie_template.py
   ${CMAKE_CURRENT_SOURCE_DIR}/assets/deme/settle_template.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/assets/deme/CMakeLists_template.txt
@@ -97,14 +98,14 @@ configure_file(${QC_ASSETS_C}.tmp ${QC_ASSETS_C} COPYONLY)
 
 # ---------------------------------------------------------------- core (no graphics) + app
 add_library(qc_core STATIC
-  src/pl_util.c src/foamdict.c src/foamcase.c src/runner.c src/env.c src/xmlspan.c src/coupling.c src/safety.c src/precheck.c src/monitor.c src/xsection.c src/explain.c src/physics.c src/fieldinfo.c src/redalert.c src/sweep.c src/demeparams.c src/program.c src/params.c src/textdiff.c src/runlog.c src/plume.c src/cplbuild.c
+  src/pl_util.c src/foamdict.c src/foamcase.c src/runner.c src/env.c src/xmlspan.c src/coupling.c src/safety.c src/precheck.c src/monitor.c src/xsection.c src/explain.c src/physics.c src/fieldinfo.c src/redalert.c src/sweep.c src/demeparams.c src/program.c src/params.c src/textdiff.c src/runlog.c src/plume.c src/cplbuild.c src/stlmesh.c
   ${QC_ASSETS_C})   # the embedded fonts and starters (program.c writes the Chrono starter)
 target_include_directories(qc_core PUBLIC src)
 target_link_libraries(qc_core PUBLIC m)
 
 add_executable(q-continuum
   src/app.c src/app_widgets.c src/suggest.c src/ui.c src/input.c src/script.c
-  src/page_cases.c src/page_case.c src/page_bc.c src/page_dicts.c src/page_run.c src/logview.c src/undo.c src/actions.c src/palette.c src/page_settings.c src/page_env.c src/texteditor.c src/page_coupling.c src/page_salome.c src/page_history.c src/page_queue.c src/page_studies.c src/page_deme.c src/page_prog.c src/page_review.c src/page_away.c src/flavour.c src/logo.c src/terms.c src/page_movie.c src/page_xsection.c src/page_meshview.c src/sound.c)
+  src/page_cases.c src/page_case.c src/page_bc.c src/page_dicts.c src/page_run.c src/logview.c src/undo.c src/actions.c src/palette.c src/page_settings.c src/page_env.c src/texteditor.c src/page_coupling.c src/page_salome.c src/page_history.c src/page_queue.c src/page_studies.c src/page_deme.c src/page_prog.c src/page_review.c src/page_away.c src/flavour.c src/logo.c src/terms.c src/page_movie.c src/page_xsection.c src/page_meshview.c src/sound.c src/page_stlmesh.c)
 target_link_libraries(q-continuum PRIVATE qc_core raylib)
 target_compile_definitions(q-continuum PRIVATE QC_VERSION="${PROJECT_VERSION}")
 

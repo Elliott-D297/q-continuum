@@ -2,7 +2,7 @@
  *
  * Every mark is a Q on a tile, drawn in the theme's own way: LCARS elbows, a glass tile, a wooden sign, a Poké Ball, the arc
  * reactor, Lumon's globe, a phosphor Q, a vault-door cog, NERV's hexagon, a portal, a coiled sword, a gear on a belt, a
- * Windows 95 button and a quantum jump. The colours are fixed per theme (not TH), so Settings can show them side by side.
+ * Windows 95 button, a quantum jump and the lambda. The colours are fixed per theme (not TH), so Settings can show them side by side.
  *
  * The icon: when the theme changes, the mark is rendered at 512 px, scaled to 256 and set as the window icon (the taskbar
  * under WSLg). Outside test runs it also replaces the desktop icon: ~/.local/share/icons (Linux desktops), and on WSL the
@@ -262,6 +262,18 @@ void logo_draw(int theme, float x, float y, float s)
         DrawLineEx(a, b, s * 0.08f, alpha(amber, 0.35f));
         DrawLineEx(a, b, s * 0.04f, amber);
         DrawCircleV(b, s * 0.035f, (Color){ 255, 240, 210, 255 });
+        break;
+    }
+    case THEME_HALFLIFE: {                               /* gunmetal, the lambda inside an orange ring for the bowl, a steel tail */
+        Color o = hexc(0xFF8C1A);
+        rrect(r, s * 0.08f, hexc(0x232423));
+        DrawRectangleGradientV((int)x, (int)y, (int)s, (int)(s * 0.5f), alpha(WHITE, 0.10f), alpha(WHITE, 0));
+        rrect_lines(r, s * 0.08f, fmaxf(1, s * 0.02f), hexc(0x5E5C57));
+        float ro = s * 0.30f;
+        DrawRing(c, ro - s * 0.06f, ro, 0, 360, 48, o);
+        ui_lambda(c.x, c.y, s * 0.34f, fmaxf(1, s * 0.055f), o);
+        Vector2 a = { c.x + ro * 0.62f, c.y + ro * 0.62f }, b = { x + s * 0.92f, y + s * 0.92f };
+        DrawLineEx(a, b, s * 0.07f, o);
         break;
     }
     default: logo_draw(THEME_DARK, x, y, s); break;

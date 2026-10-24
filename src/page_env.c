@@ -86,7 +86,8 @@ static void build(void)
     row(1, "This machine", "What the pre-run check sizes runs against.", "%d cores  ·  %.1f GB memory, %.1f GB free  ·  %s%.0f GB free in the workspace",
         e->nCpu, meminfo("MemTotal"), meminfo("MemAvailable"), e->wsl ? "WSL  ·  " : "", freeGB);
     int pk = app_sound_pack(), ds = sound_device_state();
-    static const char *const PK[SOUND__N] = { "LCARS", "Stardew", "Pokémon", "JARVIS" };
+    static const char *const PK[SOUND__N] = { "LCARS", "Stardew", "Pokémon", "JARVIS", "Severance", "Alien", "Pip-Boy", "NERV", "Portal",
+                                              "Dark Souls", "Factorio", "Windows 95", "Star Citizen", "Half-Life" };
     if (pk < 0) row(1, "Sound", "Theme sounds (Settings > Appearance).", "off: the classic themes are silent");
     else row(ds == 2 || ds == 3 ? 0 : 1, "Sound", "Theme sounds (Settings > Appearance).", "%s sounds %s  ·  %s", PK[pk], A.set.sounds ? "on" : "off",
              e->wsl ? "played by Windows" : ds == 1 ? "audio device open" : ds == 0 ? "opens on the first sound" : "no audio device (libpulse)");

@@ -253,7 +253,7 @@ void page_overview(Rectangle r)
         }
     }
     ry += pr2.height + 30;
-    if (c->s.meshed && c->s.nRegions == 0 && xs_is_2d(c->s.path)) {   /* a 2-D case: what it looks like */
+    if (A.set.meshView && c->s.meshed && c->s.nRegions == 0 && xs_is_2d(c->s.path)) {   /* a 2-D case: what it looks like */
         ry += section_head(rx2, ry, rw, "Cross section", "Click it to open it larger on the Mesh page.");
         xsection_panel((Rectangle){ rx2, ry, rw, 340 }, c, true);
         ry += 360;
@@ -522,6 +522,7 @@ void page_mesh(Rectangle r)
                                  : c->s.meshed ? "This case brings its own mesh in constant/polyMesh."
                                                : "No mesh yet, and no blockMeshDict to make one: build it on the SALOME tab, or convert one into constant/polyMesh.", mt, mt);
     if (A.meshTab == 1) snprintf(sub, sizeof sub, "SALOME builds this mesh from salome/mesh.py; ideasUnvToFoam converts it.");
+    if (A.meshTab == 3) snprintf(sub, sizeof sub, "Mesh any STL: snappyHexMesh here, or SALOME's tetrahedra, polyhedra and body-fitted hexahedra.");
     float bw = ui_button_width(ICON_PLAY, "Generate mesh"), bw2 = ui_button_width(ICON_CIRCLE_CHECK, "Check mesh");
     y += page_header(x, y, w - bw - bw2 - 30, "Mesh", sub);
     ui_disable(A.cj->active || !mt);
@@ -556,17 +557,35 @@ void page_mesh(Rectangle r)
 
     /* the dictionaries as they are, a SALOME script, or the mesh itself */
     if (A.meshTab < 0) {
-        char q[PL_PATH]; pl_join(q, sizeof q, c->s.path, "salome/mesh.py");
-        A.meshTab = pl_is_file(q) ? 1 : 0;
+        char q[PL_PATH], st[PL_PATH]; pl_join(q, sizeof q, c->s.path, "salome/mesh.py"); pl_join(st, sizeof st, c->s.path, "mesher/mesher.ini");
+        A.meshTab = pl_is_file(st) ? 3 : pl_is_file(q) ? 1 : 0;
     }
-    static const char *mtabs[] = { "Dictionaries", "SALOME", "View" };
+    /* shown in this order; A.meshTab keeps its numbers (0 dictionaries, 1 SALOME, 2 view, 3 STL mesher) */
+    static const char *mtabs[] = { "Dictionaries", "STL mesher", "SALOME script", "View" };
+    static const int TAB_OF[4] = { 0, 3, 1, 2 };
+    int shown = 0;
+    for (int k = 0; k < 4; k++) if (TAB_OF[k] == A.meshTab) shown = k;
     float tth;
-    ui_tabs(ui_id("mesh-tabs"), x, y, mtabs, 3, &A.meshTab, &tth);
+    if (ui_tabs(ui_id("mesh-tabs"), x, y, mtabs, 4, &shown, &tth)) A.meshTab = TAB_OF[shown];
     ui_divider(x, y + tth, w);
     y += tth + 22;
     if (A.meshTab == 2) {                                  /* the mesh: 3-D surface; a 2-D case also its cross section */
         static int mode;                                   /* 0 cross section (2-D: the plane; 3-D: a cut), 1 surface in 3-D */
         static const char *vm[] = { "Cross section", "Surface (3-D)" };
+        UiId sw = ui_id("mesh-view-on");
+        float sx = x + w - 34;                             /* off: nothing is read, uploaded or drawn (the GPU copy is freed) */
+        if (ui_switch(sw, sx, y + 6, &A.set.meshView)) { if (!A.set.meshView) meshview_release(); settings_save(&A.set); }
+        ui_register(sw, (Rectangle){ sx, y + 6, 34, 20 }, "Show mesh");
+        ui_text(F_MED, 13, ui_cap("Show mesh"), sx - 12 - ui_text_w(F_MED, 13, ui_cap("Show mesh")), y + 8, TH.text2);
+        if (!A.set.meshView) {
+            y += 46;
+            const char *t = "The mesh view is off", *d = "Nothing is read or drawn here (or on the Overview) until you switch it back on.";
+            float ch = callout_height(w, t, d);
+            callout((Rectangle){ x, y, w, ch }, TOAST_INFO, ICON_GRID_3X3, t, d);
+            y += ch + 20;
+            ui_scroll_end(sc, y - top + 20);
+            return;
+        }
         ui_segmented(ui_id("mesh-view-mode"), (Rectangle){ x, y, 300, 32 }, vm, 2, &mode);
         y += 46;
         float h = fmaxf(460, r.y + r.height - y - 24);
@@ -581,6 +600,11 @@ void page_mesh(Rectangle r)
         return;
     }
     if (c->region[0]) { y += region_mesh(x, y, w); ui_scroll_end(sc, y - top + 20); return; }
+    if (A.meshTab == 3) {
+        y += page_stlmesh(r, x, y, w);
+        ui_scroll_end(sc, y - top + 40);
+        return;
+    }
     if (A.meshTab == 1) {
         y += page_salome(r, x, y, w);
         ui_scroll_end(sc, y - top + 40);

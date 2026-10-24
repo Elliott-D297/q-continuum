@@ -3,39 +3,39 @@
 #include <string.h>
 #include "app.h"
 
-static const char *const TERMS[T__N][14] = {
-    /*  LCARS / classic / Stardew / Pokemon / JARVIS / Severance / Alien / Pip-Boy / NERV / Portal / Dark Souls / Factorio / Windows 95 / Star Citizen */
+static const char *const TERMS[T__N][15] = {
+    /*  LCARS / classic / Stardew / Pokemon / JARVIS / Severance / Alien / Pip-Boy / NERV / Portal / Dark Souls / Factorio / Windows 95 / Star Citizen / Half-Life */
     [T_SWEEP]     = { "Sensor sweep", "Pre-run check", "Morning field check", "Pokédex scan", "Running diagnostics",
                       "Refinement check", "System diagnostic", "V.A.T.S. scan", "MAGI deliberation", "Test protocol review",
-                      "Inspect the path ahead", "Production check", "ScanDisk", "Pre-flight check" },
+                      "Inspect the path ahead", "Production check", "ScanDisk", "Pre-flight check", "HEV suit diagnostics" },
     [T_ALERT]     = { "Red alert", "Divergence warning", "Storm warning", "Your run is low on HP", "Critical failure",
                       "Macrodata breach", "Special Order 937", "Radiation critical", "Pattern blue", "Test failure imminent",
-                      "You died", "Biters attacking", "General protection fault", "Hull integrity critical" },
+                      "You died", "Biters attacking", "General protection fault", "Hull integrity critical", "Resonance cascade" },
     [T_WATCH]     = { "Yellow alert", "Divergence watch", "Clouds gathering", "Your run looks hurt", "Anomaly detected",
                       "The numbers feel scary", "Anomaly detected", "Rads rising", "Pattern orange", "Unusual test behaviour",
-                      "Something stirs in the dark", "Pollution spreading", "Not responding", "Shields failing" },
+                      "Something stirs in the dark", "Pollution spreading", "Not responding", "Shields failing", "Anomalous materials" },
     [T_PALETTE]   = { "Computer", "Command palette", "Journal", "PC", "JARVIS",
-                      "Lumon terminal", "MU/TH/UR", "Pip-Boy", "MAGI", "Facility AI", "Messages", "Console", "Run...", "mobiGlas" },
+                      "Lumon terminal", "MU/TH/UR", "Pip-Boy", "MAGI", "Facility AI", "Messages", "Console", "Run...", "mobiGlas", "Developer console" },
     [T_REVIEW]    = { "Make it so", "Review changes", "Shipping bin", "Save the game?", "Awaiting your approval",
                       "Review with management", "Confirm order", "Vault-Tec release form", "MAGI vote", "Sign the release form",
-                      "Review the covenant", "Blueprint preview", "Are you sure?", "Review the contract" },
+                      "Review the covenant", "Blueprint preview", "Are you sure?", "Review the contract", "Administrator's approval" },
     [T_REVIEW_GO] = { "Make it so", "Save changes", "Ship it", "Save", "Approve",
                       "Submit to the board", "Execute", "Accept", "Approve (3 of 3)", "Proceed to testing", "Rest at the bonfire",
-                      "Build", "OK", "Accept contract" },
+                      "Build", "OK", "Accept contract", "Quicksave" },
     [T_EXPLAIN]   = { "Diagnostic", "What went wrong", "The Wizard's reading", "Professor's note", "JARVIS analysis",
                       "Wellness session", "MU/TH/UR analysis", "Diagnosis", "MAGI analysis", "Test results",
-                      "A message from another world", "Alert details", "Details", "Ship diagnostics" },
+                      "A message from another world", "Alert details", "Details", "Ship diagnostics", "HEV damage report" },
     [T_RUN_GO]    = { "Engage", "Run", "Get to work on", "Go,", "Initiate",
                       "Begin refinement", "Initiate", "Engage", "Launch", "Commence testing", "Link the fire", "Start production",
-                      "Start", "Quantum jump" },
+                      "Start", "Quantum jump", "Push the sample into" },
     [T_ASK]       = { "Ask Claude", "Ask Claude", "Ask Claude", "Ask Claude", "Ask Claude",
-                      "Ask Claude", "Ask Claude", "Ask Claude", "Ask Claude", "Ask Claude", "Ask Claude", "Ask Claude", "Ask Claude", "Ask Claude" },
+                      "Ask Claude", "Ask Claude", "Ask Claude", "Ask Claude", "Ask Claude", "Ask Claude", "Ask Claude", "Ask Claude", "Ask Claude", "Ask Claude" },
     [T_LOG]       = { "Captain's log", "Run records", "Farm diary", "Trainer's journal", "Flight log",
                       "Refinement records", "Mother's log", "Holotapes", "Operation records", "Test records", "Bonfire journal",
-                      "Production statistics", "Event Viewer", "Contract history" },
+                      "Production statistics", "Event Viewer", "Contract history", "Black Mesa research logs" },
     [T_AWAY]      = { "Away mission", "Prepare for the cluster", "Pack for the mines", "Trade to another Trainer", "Remote deployment",
                       "Send to the outie", "Ship to orbit", "Leave the vault", "Deploy to Matsushiro", "Off-site testing",
-                      "Journey to another land", "Launch a rocket", "Map network drive", "Jump to another system" },
+                      "Journey to another land", "Launch a rocket", "Map network drive", "Jump to another system", "Teleport to Xen" },
 };
 
 static int col_of(int theme)
@@ -45,7 +45,7 @@ static int col_of(int theme)
     case THEME_STARDEW: return 2;
     case THEME_POKEMON: return 3;
     case THEME_JARVIS: return 4;
-    default: return theme >= THEME_SEVERANCE && theme <= THEME_STARCITIZEN ? 5 + (theme - THEME_SEVERANCE) : 1;
+    default: return theme >= THEME_SEVERANCE && theme <= THEME_HALFLIFE ? 5 + (theme - THEME_SEVERANCE) : 1;
     }
 }
 

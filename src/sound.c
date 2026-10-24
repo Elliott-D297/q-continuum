@@ -4,7 +4,7 @@
  * play in Windows (see "Windows players": WSLg's audio stutters and echoes); elsewhere the audio device opens on the first
  * cue (Linux needs libpulse), so the classic themes never touch it. Tests: QC_TEST_SOUND_LOG=<file> appends each cue's
  * name to the file instead of playing it; scripted and screenshot runs without it stay silent. Sound files of your own in
- * ~/.config/q-continuum/sounds (LCARS), sounds/stardew, sounds/pokemon, sounds/jarvis replace the synthesised cues (see user_file).
+ * ~/.config/q-continuum/sounds (LCARS), sounds/stardew, sounds/pokemon, sounds/jarvis, sounds/halflife ... replace the synthesised cues (see user_file).
  */
 #define _GNU_SOURCE
 #include <math.h>
@@ -302,6 +302,10 @@ static const Pack PACKS[] = {
     /* Star Citizen: soft MFD blips, the quantum drive spooling up to a chord, the shields-down two-tone */
     { SINE1, 1, { 2637, 2794, 2489, 2960 }, 0.035, 0.012, false, GLASS, 4, { 587, 880, 1175, 1760 }, 4, 0.09, 0.7, false,
       SQ3, 3, { 880, 622 }, 6, 0.36, 0.2, 1400, 180 },
+    /* Half-Life: the synthesised stand-ins for the HL2 / Garry's Mod clips (assets/sounds/halflife): a metal button, the HEV
+       suit's charge-up, the Black Mesa klaxon */
+    { METAL, 4, { 900, 1100, 800, 1200 }, 0.05, 0.015, false, SQ3, 3, { 523, 784, 1047, 1568 }, 4, 0.08, 0.3, false,
+      SAW, 8, { 500, 380 }, 4, 0.7, 0.35, 700, 140 },
 };
 
 static Wave synth_pack(const Pack *P, Snd which, int variant, float gain)
@@ -361,9 +365,9 @@ static Wave synth(Snd which, int variant, float gain)
 }
 static int synth_clicks(void) { return S.pack >= SOUND_SEVERANCE ? 4 : S.pack == SOUND_STARDEW ? 4 : S.pack == SOUND_POKEMON ? 3 : S.pack == SOUND_JARVIS ? 4 : CLICK_VARIANTS; }
 static const char *const PACK_DIR[SOUND__N] = { "", "/stardew", "/pokemon", "/jarvis", "/severance", "/alien", "/pipboy", "/nerv",
-                                                 "/portal", "/souls", "/factorio", "/win95", "/starcitizen" };
+                                                 "/portal", "/souls", "/factorio", "/win95", "/starcitizen", "/halflife" };
 static const char *const PACK_NAME[SOUND__N] = { "lcars", "stardew", "pokemon", "jarvis", "severance", "alien", "pipboy", "nerv",
-                                                  "portal", "souls", "factorio", "win95", "starcitizen" };
+                                                  "portal", "souls", "factorio", "win95", "starcitizen", "halflife" };
 
 /* your own recordings override the synthesised cues: <config>/q-continuum/sounds/<name>.wav (or .ogg, .mp3), and
    click.wav, click-2.wav, ... for the keys (a different one each press) */

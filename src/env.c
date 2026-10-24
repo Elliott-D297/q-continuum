@@ -202,6 +202,7 @@ void settings_defaults(Settings *s, const Env *e)
     s->notify = 1;
     s->notifySound = true;
     s->sounds = true;
+    s->meshView = true;
     s->soundLevel = 1;
     s->notifyMinSec = 60;
 }
@@ -244,6 +245,7 @@ void settings_load(Settings *s, const Env *e)
         else if (!strcmp(k, "notify")) s->notify = atoi(v);
         else if (!strcmp(k, "notify_sound")) s->notifySound = atoi(v) != 0;
         else if (!strcmp(k, "sounds")) s->sounds = atoi(v) != 0;
+        else if (!strcmp(k, "mesh_view")) s->meshView = atoi(v) != 0;
         else if (!strcmp(k, "last_case")) pl_strlcpy(s->lastCase, v, sizeof s->lastCase);
         else if (!strcmp(k, "last_page")) pl_strlcpy(s->lastPage, v, sizeof s->lastPage);
         else if (!strcmp(k, "last_region")) pl_strlcpy(s->lastRegion, v, sizeof s->lastRegion);
@@ -290,7 +292,7 @@ void settings_save(const Settings *s)
     if (s->runSplit > 0) str_catf(&b, "run_split=%.3f\n", s->runSplit);
     str_catf(&b, "delete_confirm=%d\nlog_fold=%d\nwhats_new_seen=%d\nreview_save=%d\n", s->deleteConfirm, s->logFold ? 1 : 0, s->whatsNewSeen,
              s->reviewSave ? 1 : 0);
-    str_catf(&b, "sounds=%d\nsound_level=%d\n", s->sounds ? 1 : 0, s->soundLevel);
+    str_catf(&b, "sounds=%d\nsound_level=%d\nmesh_view=%d\n", s->sounds ? 1 : 0, s->soundLevel, s->meshView ? 1 : 0);
     if (s->lastCase[0]) str_catf(&b, "last_case=%s\nlast_page=%s\nlast_region=%s\n", s->lastCase, s->lastPage, s->lastRegion);
     str_catf(&b, "history=%d\nqueue_cores=%d\nqueue_paused=%d\nnotify=%d\nnotify_sound=%d\nnotify_min_seconds=%d\n", s->history ? 1 : 0,
              s->queueCores, s->queuePaused ? 1 : 0, s->notify, s->notifySound ? 1 : 0, s->notifyMinSec);

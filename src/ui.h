@@ -39,8 +39,9 @@ typedef struct {
 
 /* the themes, as Settings stores them */
 enum { THEME_LCARS = 0, THEME_DARK, THEME_LIGHT, THEME_STARDEW, THEME_POKEMON, THEME_JARVIS,
-       THEME_SEVERANCE, THEME_ALIEN, THEME_PIPBOY, THEME_NERV, THEME_PORTAL, THEME_SOULS, THEME_FACTORIO, THEME_WIN95, THEME_STARCITIZEN, THEME__N };
-enum { RETRO_NONE = 0, RETRO_SEVERANCE, RETRO_ALIEN, RETRO_PIPBOY, RETRO_NERV, RETRO_PORTAL, RETRO_SOULS, RETRO_FACTORIO, RETRO_WIN95, RETRO_STARCITIZEN };
+       THEME_SEVERANCE, THEME_ALIEN, THEME_PIPBOY, THEME_NERV, THEME_PORTAL, THEME_SOULS, THEME_FACTORIO, THEME_WIN95, THEME_STARCITIZEN,
+       THEME_HALFLIFE, THEME__N };
+enum { RETRO_NONE = 0, RETRO_SEVERANCE, RETRO_ALIEN, RETRO_PIPBOY, RETRO_NERV, RETRO_PORTAL, RETRO_SOULS, RETRO_FACTORIO, RETRO_WIN95, RETRO_STARCITIZEN, RETRO_HALFLIFE };
 int  ui_theme_id(void);                  /* THEME_* now shown */
 enum { GAME_NONE = 0, GAME_STARDEW, GAME_POKEMON };
 
@@ -70,6 +71,7 @@ double ui_time(void);
 const Theme *ui_theme(void);
 bool ui_crt_begin(void);                 /* the CRT themes: draw the frame into a texture (after BeginDrawing) */
 void ui_crt_end(void);                   /* ... and onto the screen through the tube (before EndDrawing) */
+void ui_lambda(float cx, float cy, float h, float thick, Color c);   /* the Half-Life lambda, h tall, centred on cx, cy */
 void ui_backdrop(float w, float h);       /* glass themes: the colour field the translucent panels sit on; JARVIS: its grid and reactor rings */
 #define TH (*ui_theme())
 
@@ -112,6 +114,7 @@ void  ui_clip_push(Rectangle r);
 void  ui_clip_pop(void);
 void  ui_restore_2d(void);             /* after drawing into a render texture */
 Rectangle ui_clip_rect(void);
+bool  ui_culled(float y0, float y1);    /* the band is outside the clip: skip drawing it */
 Color ui_mix(Color a, Color b, float t);
 Color ui_alpha(Color c, float a);
 float ui_anim(UiId id, float target, float speed);

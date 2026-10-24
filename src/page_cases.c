@@ -130,7 +130,9 @@ void page_cases(Rectangle r)
     pl_fmt_ui(sub, sizeof sub, "OpenFOAM cases in %s, and the projects of the other programs (DEME, CalculiX, MOOSE, code_aster, "
              "code_saturne, Elmer, SPARTA, Chrono) found there and in your home folder. Open one to set it up, run it and watch it.", ws);
     float bw1 = ui_button_width(ICON_FOLDER_PLUS, "New case"), bw2 = ui_button_width(ICON_FOLDER_OPEN, "Open folder");
-    float hh = page_header(x, y, w - bw1 - bw2 - 30, "Cases", sub);
+    float bw3 = ui_button_width(ICON_BOX, "Mesh an STL");
+    float hh = page_header(x, y, w - bw1 - bw2 - bw3 - 40, "Cases", sub);
+    if (ui_button(ui_id("cases-stl"), (Rectangle){ x + w - bw1 - bw2 - bw3 - 20, y + 2, bw3, 36 }, ICON_BOX, "Mesh an STL", BTN_SECONDARY)) stlmesh_new_case();
     if (ui_button(ui_id("cases-new"), (Rectangle){ x + w - bw1, y + 2, bw1, 36 }, ICON_FOLDER_PLUS, "New case", BTN_PRIMARY)) app_go(PG_NEW);
     if (ui_button(ui_id("cases-open"), (Rectangle){ x + w - bw1 - bw2 - 10, y + 2, bw2, 36 }, ICON_FOLDER_OPEN, "Open folder", BTN_SECONDARY)) {
         A.modal = MD_OPEN_FOLDER; A.mText[0] = 0; A.mErr[0] = 0;

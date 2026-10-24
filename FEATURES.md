@@ -61,6 +61,7 @@ Test IDs refer to `ctest` names (`ctest --test-dir build -N` lists them).
 
 | Feature | Where | What it does | How it's tested | Status |
 |---|---|---|---|---|
+| Mesh an STL | `page_cases.c`, `page_stlmesh.c` `new_case_from` | Picks an STL, makes `<workspace>/<name>` with the minimal dictionaries and the STL, opens Mesh > STL mesher | Manual | untested |
 | Case cards | `page_cases.c` `case_card` | Solver, cells, t/endTime, status chip, path, age; newest activity first | none | untested |
 | Workspace scan | `app.c` `app_rescan_cases` | Workspace + one level of grouping folders + recent list; every 3 s | none | untested |
 | Search | `page_cases.c` | Filter by name, solver or path | none | untested |
@@ -109,6 +110,7 @@ Test IDs refer to `ctest` names (`ctest --test-dir build -N` lists them).
 | Patch types (polyMesh) | `page_case.c` `region_mesh` | Type dropdown per patch of an imported or region mesh | Manual | untested |
 | snappyHexMesh card | `page_case.c` | castellate/snap/layers switches, maxGlobalCells, locationInMesh | none | untested |
 | SALOME tab | `page_salome.c` | Template mesh.py, run headless + ideasUnvToFoam, edit, open GUI, convert only | Manual (2026-10-17) | untested |
+| STL mesher tab | `page_stlmesh.c`, `stlmesh.c` | Any STL (ASCII/binary, named solids) chosen in Windows' Open dialog (zenity/kdialog on Linux) or typed; units; watertight check; split by angle into named boundaries with types; internal or wind-tunnel domain; STAR-CCM+-style reference values (base size, target/min surface %, curvature, growth, feature angle), prism layers, box/sphere/cylinder volumetric controls; cell estimate; snappyHexMesh (dictionaries written, user's kept as .orig) or SALOME NETGEN tet / polyhedral (polyDualMesh) / Body Fitting via `salome/stl_mesh.py` reading `mesher/mesher.ini` | `t_stl_mesher.qcs` (flange, snappyHexMesh, Mesh OK, prism layers) | snappy tested; SALOME untested (not installed) |
 | Cross section tab | `page_xsection.c`, `xsection.c` | 2-D cells/patches/field view; zoom, pan, fit; field dropdown, edges | Manual (2026-10-18) | untested |
 | Region pills | `app_widgets.c` `region_bar` | Choose the region for Mesh/BC/Physics/Numerics | Manual | untested |
 

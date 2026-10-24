@@ -241,7 +241,7 @@ static void make_theme(int t)
         for (int i = 0; i < 10; i++) h->series[i] = hex(se[sv ? 0 : 1][i]);
         return;
     }
-    if (t >= THEME_SEVERANCE && t <= THEME_STARCITIZEN) {
+    if (t >= THEME_SEVERANCE && t <= THEME_HALFLIFE) {
         /* the screen and game themes, on the classic layout. One table: bg, sidebar, surface, surface2, raised, input, line,
            lineSoft, hover, selected, text, text2, text3, onAccent, accent, ok, warn, err, info; then the series */
         static const struct { int retro; bool dark; float crt; bool upper; unsigned c[19]; unsigned se[6]; } P[] = {
@@ -281,6 +281,10 @@ static void make_theme(int t)
             { RETRO_STARCITIZEN, true, 0.0f, true, { 0x03070D, 0x050C15, 0x08131F, 0x0B1826, 0x0F1F31, 0x040A12, 0x3FB8D8, 0x15394A,
               0x0E2638, 0x0F3A52, 0xD8F4FF, 0x8EC6D8, 0x5A8597, 0x03070D, 0x4FD8FF, 0x5FE3A1, 0xFFB238, 0xFF4F4F, 0x4FD8FF },
               { 0x4FD8FF, 0xFFB238, 0x5FE3A1, 0xFF4F4F, 0xA98BFF, 0xD8F4FF } },
+            /* Half-Life: Black Mesa gunmetal, bevelled steel plates and the lambda's orange (the HL2 skins: dark steel, one hot colour) */
+            { RETRO_HALFLIFE, true, 0.0f, false, { 0x161717, 0x1C1D1D, 0x262726, 0x2C2D2C, 0x343533, 0x0F1010, 0x5E5C57, 0x353533,
+              0x353634, 0x4A3214, 0xEDE6D8, 0xB9B0A0, 0x837C70, 0x120D06, 0xFF8C1A, 0x9BCB4A, 0xFFC93C, 0xE8452E, 0x86B8DC },
+              { 0xFF8C1A, 0x86B8DC, 0x9BCB4A, 0xE8452E, 0xFFC93C, 0xB9B0A0 } },
         };
         const int i = t - THEME_SEVERANCE;
         const unsigned *c = P[i].c;
@@ -438,6 +442,17 @@ static void retro_backdrop(float w, float h)
         }
         break;
     }
+    case RETRO_HALFLIFE: {                         /* brushed steel, a warm light from above, the lambda's ring watermarked low on the right */
+        DrawRectangleGradientV(0, 0, (int)w, (int)h, (Color){ 30, 31, 31, 255 }, (Color){ 14, 15, 15, 255 });
+        Color br = ui_alpha(WHITE, 0.012f);
+        for (float y = 0; y < h; y += 3) DrawRectangleRec((Rectangle){ 0, y, w, 1 }, br);
+        DrawCircleGradient((int)(w * 0.3f), (int)(-h * 0.2f), s * 0.6f, ui_alpha(a, 0.05f), clear);
+        float R = fminf(w, h) * 0.30f;
+        Vector2 c = { w * 0.86f, h * 0.80f };
+        DrawRing(c, R * 0.86f, R, 0, 360, 96, ui_alpha(a, 0.045f));
+        ui_lambda(c.x, c.y, R * 1.1f, R * 0.13f, ui_alpha(a, 0.045f));
+        break;
+    }
     case RETRO_PORTAL: {                           /* white panels of a test chamber */
         Color g = ui_alpha(BLACK, 0.035f);
         for (float x = 0; x < w; x += 96) DrawRectangleRec((Rectangle){ x, 0, 1, h }, g);
@@ -446,6 +461,16 @@ static void retro_backdrop(float w, float h)
     }
     default: break;
     }
+}
+
+/* the lambda: a hooked serif at the top left, the long leg down to the right with a foot, the short leg out to the left */
+void ui_lambda(float cx, float cy, float h, float thick, Color c)
+{
+    Vector2 top = { cx - h * 0.10f, cy - h * 0.5f }, foot = { cx + h * 0.30f, cy + h * 0.5f };
+    DrawLineEx((Vector2){ cx - h * 0.30f, top.y + thick * 0.5f }, (Vector2){ top.x + thick * 0.3f, top.y + thick * 0.5f }, thick, c);
+    DrawLineEx(top, foot, thick, c);
+    DrawLineEx((Vector2){ foot.x - thick * 0.3f, foot.y - thick * 0.5f }, (Vector2){ cx + h * 0.42f, foot.y - thick * 0.5f }, thick, c);
+    DrawLineEx((Vector2){ cx + h * 0.06f, cy - h * 0.10f }, (Vector2){ cx - h * 0.30f, cy + h * 0.5f }, thick, c);
 }
 
 void ui_backdrop(float w, float h)
@@ -555,6 +580,7 @@ static const DisplayFace *retro_face(void)
     case RETRO_SOULS: return &FACE_CINZEL;
     case RETRO_FACTORIO: return &FACE_TITILLIUM;
     case RETRO_STARCITIZEN: return &FACE_ELECTROLIZE;
+    case RETRO_HALFLIFE: return &FACE_TITILLIUM;
     default: return NULL;
     }
 }
@@ -650,12 +676,22 @@ static const char *caps(UiFamily f, const char *s, char *buf, size_t cap)
     return buf;
 }
 
+/* y0..y1 lies wholly above or below the clip (a scrolled-away row): drawing it would only feed the GPU vertices the
+   scissor throws away, and uploading those is most of a long page's frame on WSLg's d3d12 driver (Settings: ~140 ms) */
+bool ui_culled(float y0, float y1)
+{
+    if (!U.nClip) return false;
+    Rectangle c = U.clip[U.nClip - 1];
+    return y1 < c.y || y0 > c.y + c.height;
+}
+
 void ui_text(UiFamily f, float size, const char *s, float x, float y, Color c)
 {
     if (!s || !*s) return;
     char ub[2048]; s = caps(f, s, ub, sizeof ub);
     if (U.disabled) c = ui_alpha(c, 0.45f);
     if (g_ui_no_input) reg_text(s, (Rectangle){ x, y, ui_text_w(f, size, s), size });
+    if (ui_culled(y - size, y + 2 * size)) return;              /* after reg_text: tests still find scrolled-away text */
     if (needs_runs(f, s)) { text_runs(f, size, s, x, y, c, true); return; }
     Font font = ui_font(f, size);
     /* callers treat y as the top of a size-high box; shift so cap height sits centred in it */
@@ -800,7 +836,7 @@ float ui_text_wrap(UiFamily f, float size, const char *s, Rectangle r, float lin
 
 void ui_icon(const char *icon, float cx, float cy, float size, Color c)
 {
-    if (!icon) return;
+    if (!icon || ui_culled(cy - size, cy + size)) return;
     if (U.disabled) c = ui_alpha(c, 0.45f);
     int bytes = 0;
     int cp = GetCodepoint(icon, &bytes);
@@ -825,6 +861,7 @@ static float game_radius(float radius)
     switch (U.th.retro) {                                                         /* the screens are square, Portal and Severance soft */
     case RETRO_WIN95: case RETRO_ALIEN: case RETRO_NERV: case RETRO_SOULS: return 0;
     case RETRO_PIPBOY: case RETRO_FACTORIO: return fminf(radius, 2);
+    case RETRO_HALFLIFE: return fminf(radius, 3);
     case RETRO_SEVERANCE: case RETRO_STARCITIZEN: return fminf(radius, 4);
     case RETRO_PORTAL: return radius >= 3 ? radius * 1.2f : radius;
     default: break;
@@ -834,7 +871,7 @@ static float game_radius(float radius)
 
 void ui_rect(Rectangle r, float radius, Color c)
 {
-    if (c.a == 0 || r.width <= 0 || r.height <= 0) return;
+    if (c.a == 0 || r.width <= 0 || r.height <= 0 || ui_culled(r.y, r.y + r.height)) return;
     radius = game_radius(radius);
     if (radius <= 0.5f) DrawRectangleRec(r, c);
     else DrawRectangleRounded(r, roundness(r, radius), 12, c);
@@ -853,7 +890,7 @@ static bool between(Color c, Color a, Color b)
 
 void ui_rect_lines(Rectangle r, float radius, float thick, Color c)
 {
-    if (c.a == 0) return;
+    if (c.a == 0 || ui_culled(r.y - thick - 4, r.y + r.height + thick + 4)) return;
     if (U.th.game && thick < 2) {
         /* a box border: the frame with its inner highlight (wood and bevel, slate and blue); other borders get heavier */
         bool box = between(c, U.th.lineSoft, U.th.line) && r.width >= 120 && r.height >= 50;   /* cards, panels, modals */
@@ -902,6 +939,18 @@ void ui_rect_lines(Rectangle r, float radius, float thick, Color c)
             for (int i = 0; i < 5; i++) DrawLineEx(pts[i], pts[i + 1], 1, hl);
             DrawLineEx(pts[1], pts[2], 2, br);
             DrawRectangleRec((Rectangle){ x0, y0, fminf(40, r.width * 0.2f), 2 }, br);
+            return;
+        }
+        case RETRO_HALFLIFE: {                     /* a bevelled steel plate: lit top-left, shadowed bottom-right, an orange tab on top */
+            float k = c.a / 255.0f;
+            DrawRectangleLinesEx(r, 1, ui_alpha((Color){ 8, 8, 8, 255 }, k));
+            DrawRectangleRec((Rectangle){ x0 + 1, y0 + 1, r.width - 2, 1 }, ui_alpha(WHITE, 0.16f * k));
+            DrawRectangleRec((Rectangle){ x0 + 1, y0 + 1, 1, r.height - 2 }, ui_alpha(WHITE, 0.09f * k));
+            DrawRectangleRec((Rectangle){ x0 + 1, y1 - 2, r.width - 2, 1 }, ui_alpha(BLACK, 0.55f * k));
+            DrawRectangleRec((Rectangle){ x1 - 2, y0 + 1, 1, r.height - 2 }, ui_alpha(BLACK, 0.45f * k));
+            DrawRectangleRec((Rectangle){ x0 + 10, y0, fminf(48, r.width * 0.18f), 2 }, ui_alpha(U.th.accent, 0.85f * k));
+            for (int i = 0; i < 2; i++)                    /* rivets in the top corners */
+                DrawCircleV((Vector2){ i ? x1 - 6 : x0 + 6, y0 + 6 }, 1.5f, ui_alpha(WHITE, 0.18f * k));
             return;
         }
         case RETRO_ALIEN: case RETRO_PIPBOY:       /* one phosphor line */

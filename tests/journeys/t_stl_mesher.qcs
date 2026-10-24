@@ -1,0 +1,26 @@
+# The STL mesher (user request 2026-10-23): an STL's path typed in, the part read (closed, split into boundaries by
+# angle), meshed with snappyHexMesh from the STAR-CCM+-style settings, with prism layers, and checked.
+budget p95 40 max 300
+open $SB/ws/cavity
+shell zcat "${FOAM_TUTORIALS:-/usr/lib/openfoam/openfoam2606/tutorials}/resources/geometry/flange.stl.gz" > ../flange.stl
+click nav:mesh
+wait-until page Mesh
+click text:STL mesher
+wait 5
+assert text No STL yet
+click stl-path
+enter $SB/ws/flange.stl
+wait 10
+assert text 6468 triangles
+assert text Closed (watertight)
+assert text 24 boundaries
+assert file mesher/mesher.ini
+assert text Reference values
+click stl-gen
+wait-until job running timeout 20
+wait-until job finished timeout 300
+assert log log.checkMesh Mesh OK.
+assert log constant/polyMesh/boundary patch1_1
+assert log system/snappyHexMeshDict nSurfaceLayers 3
+assert file system/blockMeshDict.orig
+screenshot $OUT/stl_mesher.png

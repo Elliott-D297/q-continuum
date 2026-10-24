@@ -236,7 +236,7 @@ bool app_can_start(void)
 /* the theme's set of cues; -1 for the classic themes, which are silent */
 int app_sound_pack(void)
 {
-    if (A.set.theme >= THEME_SEVERANCE && A.set.theme <= THEME_STARCITIZEN) return SOUND_SEVERANCE + (A.set.theme - THEME_SEVERANCE);
+    if (A.set.theme >= THEME_SEVERANCE && A.set.theme <= THEME_HALFLIFE) return SOUND_SEVERANCE + (A.set.theme - THEME_SEVERANCE);
     return A.set.theme == THEME_LCARS ? SOUND_LCARS : A.set.theme == THEME_STARDEW ? SOUND_STARDEW
          : A.set.theme == THEME_POKEMON ? SOUND_POKEMON : A.set.theme == THEME_JARVIS ? SOUND_JARVIS : -1;
 }
@@ -1571,6 +1571,7 @@ static void frame(void)
     ui_crt_begin();                                          /* Alien, Pip-Boy, Severance: through a tube */
     ClearBackground(TH.bg);
     ui_begin_frame();
+    stlmesh_tick();                                         /* the STL file dialog, whichever page is open */
     ui_backdrop(ui_width(), ui_height());
     float W = ui_width(), H = ui_height();
     float sw = 248;
@@ -1582,7 +1583,7 @@ static void frame(void)
         float by = LC_HH + 6 + LC_NAV + 4 + 14;      /* black under the frame (and its "you are here" marks): scrolled text is clipped clear */
         body = (Rectangle){ LC_M + LC_CW + 4, by, W - (LC_M + LC_CW + 4) - LC_M, H - by - LC_M };
     }
-    if (!TH.glass && !TH.hud) ui_rect(body, 0, TH.bg);     /* glass, JARVIS: the backdrop shows through */
+    if (!TH.glass && !TH.hud && TH.retro != RETRO_HALFLIFE) ui_rect(body, 0, TH.bg);     /* glass, JARVIS, Half-Life: the backdrop shows through */
     switch (A.page) {
     case PG_CASES: page_cases(body); break;
     case PG_NEW: page_new(body); break;
@@ -1649,8 +1650,37 @@ static bool gl_window_works(void)
     return WIFEXITED(st) && WEXITSTATUS(st) == 0;
 }
 
+/* glibc copies large blocks with rep movsb, which on AMD Zen writes into GPU-mapped memory at ~10 MB/s: under WSLg
+   that is the d3d12 driver's glBufferSubData, ~97 % of every frame (Overview 100+ ms). The tunable keeps memcpy on
+   vector stores, and glibc reads it only at startup, so the app starts itself again once with it set. The second
+   start gives back the environment it was given, so solvers and tools launched from the app don't inherit it. */
+static void fast_gpu_copies(char **argv)
+{
+#if defined(__linux__) && defined(__x86_64__)
+    static const char TUNE[] = "glibc.cpu.x86_rep_movsb_threshold=4294967295";
+    const char *t = getenv("GLIBC_TUNABLES");
+    if (getenv("QC_TUNED")) {
+        const char *orig = getenv("QC_TUNABLES_ORIG");
+        if (orig && *orig) setenv("GLIBC_TUNABLES", orig, 1); else unsetenv("GLIBC_TUNABLES");
+        unsetenv("QC_TUNABLES_ORIG"); unsetenv("QC_TUNED");
+        return;
+    }
+    const char *pre = getenv("LD_PRELOAD");                        /* under Valgrind /proc/self/exe is Valgrind */
+    if (getenv("QC_NO_TUNE") || (t && strstr(t, "x86_rep_movsb_threshold")) || (pre && strstr(pre, "vgpreload"))) return;
+    char v[2048];
+    if (snprintf(v, sizeof v, "%s%s%s", t ? t : "", t && *t ? ":" : "", TUNE) >= (int)sizeof v) return;
+    setenv("QC_TUNABLES_ORIG", t ? t : "", 1); setenv("QC_TUNED", "1", 1); setenv("GLIBC_TUNABLES", v, 1);
+    execv("/proc/self/exe", argv);
+    if (t) setenv("GLIBC_TUNABLES", t, 1); else unsetenv("GLIBC_TUNABLES");   /* no exec: run as we are */
+    unsetenv("QC_TUNABLES_ORIG"); unsetenv("QC_TUNED");
+#else
+    (void)argv;
+#endif
+}
+
 int main(int argc, char **argv)
 {
+    fast_gpu_copies(argv);
     const char *shot = NULL, *casePath = NULL, *pageName = NULL;
     int frames = 3, theme = -1, bcF = -1, bcP = -1;
     bool testModal = false, waitJob = false;
@@ -1696,7 +1726,7 @@ int main(int argc, char **argv)
             SetTraceLogLevel(LOG_WARNING);
             const char *pk = argv[++i];
             static const char *const PK[] = { "lcars", "stardew", "pokemon", "jarvis", "severance", "alien", "pipboy", "nerv", "portal",
-                                              "souls", "factorio", "win95", "starcitizen" };
+                                              "souls", "factorio", "win95", "starcitizen", "halflife" };
             int p = SOUND_LCARS;
             for (int k = 0; k < SOUND__N; k++) if (!strcmp(pk, PK[k])) p = k;
             printf("played %d sounds\n", sound_play_all(p, 0.45f));
@@ -1794,7 +1824,7 @@ int main(int argc, char **argv)
         if (testScroll > 0 && n == 2) for (int k = 0; k < 24; k++) A.scr[k].target = testScroll;
         if (sweep > 0 && n % sweep == 0) {
             /* (page, tab) stops; each is drawn at the top, then scrolled to the end */
-            static const int stops[][2] = { {PG_CASES,0}, {PG_NEW,0}, {PG_OVERVIEW,0}, {PG_MESH,0}, {PG_MESH,1}, {PG_MESH,2}, {PG_BC,0}, {PG_BC,1},
+            static const int stops[][2] = { {PG_CASES,0}, {PG_NEW,0}, {PG_OVERVIEW,0}, {PG_MESH,0}, {PG_MESH,1}, {PG_MESH,2}, {PG_MESH,3}, {PG_BC,0}, {PG_BC,1},
                                             {PG_PHYSICS,0}, {PG_PHYSICS,1}, {PG_NUMERICS,0}, {PG_NUMERICS,1},
                                             {PG_NUMERICS,2}, {PG_RUN,0}, {PG_FILES,0}, {PG_HISTORY,0}, {PG_HISTORY,1},
                                             {PG_HISTORY,2}, {PG_SETTINGS,0}, {PG_COUPLING,0}, {PG_QUEUE,0}, {PG_STUDIES,0} };

@@ -11,3 +11,6 @@ dynamicCode/
 *.swp
 *~
 .vscode/
+
+# copyrighted Star Trek clips: personal use only, never commit
+assets/sounds/

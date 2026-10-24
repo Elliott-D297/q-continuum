@@ -161,6 +161,13 @@ static void redraw(Rectangle r)
     V.dirty = false;
 }
 
+void meshview_release(void)
+{
+    unload_models();
+    if (V.rtOk) { UnloadRenderTexture(V.rt); V.rtOk = false; }
+    V.path[0] = 0;                                         /* switched on again: read the mesh afresh */
+}
+
 float meshview_panel(Rectangle r, Case *c)
 {
     char dir[PL_PATH]; pl_join(dir, sizeof dir, c->s.path, case_rpath(c, "constant/polyMesh"));

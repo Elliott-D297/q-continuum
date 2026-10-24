@@ -7,7 +7,8 @@
 typedef enum { SND_CLICK, SND_DENIED, SND_ERROR, SND_DONE, SND_ALERT, SND_STOPPED, SND__N } Snd;
 /* the sets of cues: one per theme that has sounds */
 enum { SOUND_LCARS = 0, SOUND_STARDEW, SOUND_POKEMON, SOUND_JARVIS,
-       SOUND_SEVERANCE, SOUND_ALIEN, SOUND_PIPBOY, SOUND_NERV, SOUND_PORTAL, SOUND_SOULS, SOUND_FACTORIO, SOUND_WIN95, SOUND_STARCITIZEN, SOUND__N };
+       SOUND_SEVERANCE, SOUND_ALIEN, SOUND_PIPBOY, SOUND_NERV, SOUND_PORTAL, SOUND_SOULS, SOUND_FACTORIO, SOUND_WIN95, SOUND_STARCITIZEN,
+       SOUND_HALFLIFE, SOUND__N };
 
 /* plays the cue when enabled (the caller decides: LCARS theme and the setting) at volume 0..1; testing = a scripted
    or screenshot run, which stays silent unless QC_TEST_SOUND_LOG records the cues */

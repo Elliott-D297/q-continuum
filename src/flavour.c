@@ -13,6 +13,8 @@
  *   Windows 95  a chunky "copying" progress bar, a paperclip offering help when Co > 1, a blue screen when a tool crashes
  *   Star Citizen a run is a contract somewhere in Stanton, the Run page a quantum drive spooling towards endTime, a failed run
  *               is a 30k disconnect, a finished one pays out in aUEC
+ *   Half-Life   a case is a Black Mesa test lab, the Run page the HEV suit's HUD (health from the residuals, suit power from
+ *               the Courant headroom), a failed or diverging run is a resonance cascade, a finished one ends the experiment
  *
  * Nothing here changes what the app does: the themes' moments say the same things the plain themes say, in their words.
  * Full-screen moments are dismissed with a click or Esc; nothing flashes faster than 1 Hz.
@@ -48,6 +50,12 @@ const char *flavour_case_tag(const char *path)
         snprintf(b, sizeof b, "Contract #%05u · %s", h % 90000 + 10000, L[h % (sizeof L / sizeof L[0])]);
         return b;
     }
+    case RETRO_HALFLIFE: {
+        static const char *const S[] = { "Sector A", "Sector C", "Sector D", "Sector E", "Sector G", "Lambda Complex", "Anomalous Materials",
+                                         "Hazard Course", "Nova Prospekt", "White Forest", "Ravenholm", "Black Mesa East" };
+        snprintf(b, sizeof b, "%s · test lab %c-%02u", S[h % (sizeof S / sizeof S[0])], 'A' + (char)(h % 6), h % 90 + 10);
+        return b;
+    }
     default: return NULL;
     }
 }
@@ -63,10 +71,10 @@ void flavour_event(int ev, const char *casePath, const char *detail)
     int r = TH.retro;
     bool show = false;
     switch (ev) {
-    case FEV_FAILED:  show = r == RETRO_ALIEN || r == RETRO_SOULS || r == RETRO_WIN95 || r == RETRO_FACTORIO || r == RETRO_NERV || r == RETRO_STARCITIZEN; break;
-    case FEV_DIVERGE: show = r == RETRO_ALIEN || r == RETRO_SOULS || r == RETRO_FACTORIO; break;
+    case FEV_FAILED:  show = r == RETRO_HALFLIFE || r == RETRO_ALIEN || r == RETRO_SOULS || r == RETRO_WIN95 || r == RETRO_FACTORIO || r == RETRO_NERV || r == RETRO_STARCITIZEN; break;
+    case FEV_DIVERGE: show = r == RETRO_HALFLIFE || r == RETRO_ALIEN || r == RETRO_SOULS || r == RETRO_FACTORIO; break;
     case FEV_COURANT: show = r == RETRO_NERV || r == RETRO_WIN95; break;
-    case FEV_DONE:    show = r == RETRO_PORTAL || r == RETRO_SOULS || r == RETRO_FACTORIO || r == RETRO_STARCITIZEN; break;
+    case FEV_DONE:    show = r == RETRO_HALFLIFE || r == RETRO_PORTAL || r == RETRO_SOULS || r == RETRO_FACTORIO || r == RETRO_STARCITIZEN; break;
     case FEV_SWEEP:   show = r == RETRO_SEVERANCE; break;
     default: break;
     }
@@ -281,6 +289,27 @@ void flavour_modal(bool *close)
                 DrawRing((Vector2){ cx, cy + 110 }, 18 - i * 5, 20 - i * 5, t * (120 + 60 * i), t * (120 + 60 * i) + 240, 24, ui_alpha(TH.accent, 0.5f + 0.2f * i));
         }
         break;
+    case RETRO_HALFLIFE:
+        if (O.ev == FEV_DONE) {                                /* the experiment is over: the lambda, the lab, a word from the administrator */
+            DrawRectangleRec(all, ui_alpha(BLACK, 0.82f));
+            float a = fminf(1, t / 0.8f);
+            DrawRing((Vector2){ cx, cy - 70 }, 52, 60, 0, 360, 64, ui_alpha(TH.accent, a));
+            ui_lambda(cx, cy - 70, 64, 9, ui_alpha(TH.accent, a));
+            center(F_SEMI, 34, "Experiment complete", cx, cy + 14, ui_alpha(TH.text, a));
+            const char *tag = flavour_case_tag(O.path);
+            center(F_MED, 16, tag ? tag : who, cx, cy + 60, ui_alpha(TH.accent, a));
+            center(F_REG, 15, "\"The right case in the right place can make all the difference in the world.\"", cx, cy + 96, ui_alpha(TH.text2, a));
+        } else {                                               /* the resonance cascade: a slow white-orange bloom, never flashing */
+            float a = fminf(1, t / 1.2f);
+            DrawRectangleRec(all, ui_alpha(BLACK, 0.85f * a));
+            DrawCircleGradient((int)cx, (int)cy, fmaxf(W, H) * 0.5f * a, ui_alpha((Color){ 255, 200, 120, 255 }, 0.35f * a), ui_alpha(TH.accent, 0));
+            for (int i = 0; i < 3; i++) DrawRing((Vector2){ cx, cy }, 80 + i * 70 + fmodf(t * 30, 70), 82 + i * 70 + fmodf(t * 30, 70), 0, 360, 64, ui_alpha(TH.accent, 0.25f * a));
+            center(F_SEMI, 58, "RESONANCE CASCADE", cx, cy - 60, ui_alpha(TH.accent, a));
+            char sub[300]; pl_fmt_ui(sub, sizeof sub, "%s%s%s", who, O.text[0] ? ": " : "", O.text);
+            center(F_REG, 16, sub, cx, cy + 10, ui_alpha(TH.text, a));
+            center(F_REG, 14, "The sample was not supposed to do that. The log on the Run page says what went wrong.", cx, cy + 42, ui_alpha(TH.text2, a));
+        }
+        break;
     default: *close = true; return;
     }
     if (click || inp_key_pressed(KEY_ESCAPE) || t > 12) *close = true;
@@ -475,6 +504,26 @@ float flavour_run(Case *c, LogMon *m, bool running, float x, float y, float w)
         char dl[160]; pl_fmt_ui(dl, sizeof dl, "Distance to destination  %.4g s of simulated time  ·  %.0f%%", t1 - tn > 0 ? t1 - tn : 0, frac * 100);
         ui_text(F_REG, 12.5f, dl, x, y + 42, TH.text2);
         h = 66;
+        break;
+    }
+    case RETRO_HALFLIFE: {                                     /* the HEV suit's HUD: HEALTH, SUIT and the sample's progress */
+        double hp = worst > 0 ? fmin(1, fmax(0, (-log10(worst)) / 6.0)) : 1, suit = co > 0 ? fmax(0, 1 - co) : 1;
+        struct { const char *lab; int val; } B[3] = { { "HEALTH", (int)lround(hp * 100) }, { "SUIT", (int)lround(suit * 100) },
+                                                      { "SAMPLE", (int)lround(frac * 100) } };
+        float bw = fminf(200, (w - 24) / 3), bh = 58;
+        for (int i = 0; i < 3; i++) {
+            Rectangle br = { x + i * (bw + 12), y, bw, bh };
+            DrawRectangleRounded(br, 0.18f, 8, ui_alpha(BLACK, 0.45f));
+            Color col = B[i].val < 25 && i < 2 ? TH.err : TH.accent;
+            ui_text(F_SEMI, 13, B[i].lab, br.x + 12, br.y + bh - 24, ui_alpha(col, 0.85f));
+            char v[16]; snprintf(v, sizeof v, "%d", B[i].val);
+            ui_text(F_SEMI, 34, v, br.x + br.width - 14 - ui_text_w(F_SEMI, 34, v), br.y + 8, col);
+        }
+        const char *tag = flavour_case_tag(c->s.path);
+        ui_text(F_REG, 12.5f, tag ? tag : "", x, y + bh + 8, TH.text3);
+        const char *who = running ? "HEV: monitoring vital signs" : frac >= 1 ? "HEV: experiment complete" : "HEV: standing by";
+        ui_text(F_REG, 12.5f, who, x + w - ui_text_w(F_REG, 12.5f, who), y + bh + 8, TH.text3);
+        h = bh + 32;
         break;
     }
     case RETRO_ALIEN: {

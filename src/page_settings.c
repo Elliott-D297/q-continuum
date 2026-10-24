@@ -210,7 +210,7 @@ void page_settings(Rectangle r)
     /* one grid of every theme, each tile with its own Q (logo.c); tile ids are "theme#<THEME_*>" */
     static const char *const THEME_NAME[THEME__N] = { "LCARS", "Classic dark", "Classic light", "Stardew", "Pokémon", "JARVIS",
                                                       "Severance", "Alien", "Pip-Boy", "NERV", "Portal", "Dark Souls", "Factorio",
-                                                      "Windows 95", "Star Citizen" };
+                                                      "Windows 95", "Star Citizen", "Half-Life" };
     {
         const float tw = 128, th = 92, gap = 8;
         float cw = w - fminf(300, w * 0.38f);
@@ -226,7 +226,7 @@ void page_settings(Rectangle r)
             if (ui_row(ui_idn(tid, t), tr, sel) && !sel) { A.set.theme = t; ui_set_theme(A.set.theme); settings_save(&A.set); }
             ui_register(ui_idn(tid, t), tr, THEME_NAME[t]);
             ui_rect_lines(tr, 7, sel ? 2 : 1, sel ? TH.accent : TH.lineSoft);
-            logo_draw(t, tr.x + (tw - 44) / 2, tr.y + 12, 44);
+            if (!ui_culled(tr.y, tr.y + th)) logo_draw(t, tr.x + (tw - 44) / 2, tr.y + 12, 44);
             float nw = ui_text_w(F_MED, 12.5f, THEME_NAME[t]);
             ui_text_clip(F_MED, 12.5f, THEME_NAME[t], tr.x + fmaxf(6, (tw - nw) / 2), tr.y + th - 26, tw - 12, sel ? TH.text : TH.text2);
         }
@@ -240,7 +240,8 @@ void page_settings(Rectangle r)
         "Geiger clicks on keys, the level-up chirp when a run completes, crackling rads when one fails.", "Hard beeps and the command centre's klaxon.",
         "Aperture's clean dings, and a polite alarm.", "A stone tap, a bonfire's bell when a run completes, the death toll when one fails.",
         "Mechanical clunks, research completed, and the biters alarm.", "A click, the chord when a run completes, the critical stop when one fails.",
-        "Soft MFD blips on keys, the quantum drive spooling up when a run completes, the shields-down warning when one fails." };
+        "Soft MFD blips on keys, the quantum drive spooling up when a run completes, the shields-down warning when one fails.",
+        "HL2 buttons and the Garry's Mod click on keys, the GMod ding when a run completes, the Black Mesa klaxon when one fails." };
     int pk = app_sound_pack();
     char hint[400];
     if (pk >= 0) snprintf(hint, sizeof hint, "%s Your own files in ~/.config/q-continuum/sounds%s replace them.", SOUND_HINT[pk],
@@ -288,7 +289,7 @@ void page_settings(Rectangle r)
 
     y += section_head(x, y, w, "About", NULL);
     y += ui_text_wrap(F_REG, 13, "Q-Continuum " QC_VERSION ", a desktop front-end for setting up, running and monitoring OpenFOAM cases. "
-                      "Typeset in IBM Plex, Antonio, Pixelify Sans, Silkscreen, Rajdhani, VT323, Share Tech Mono, Cinzel, Titillium Web, Oranienbaum and Electrolize (SIL Open Font License) with Lucide icons (ISC). The Stardew, Pokémon, JARVIS, Severance, Alien, Pip-Boy, NERV, Portal, Dark Souls, Factorio, Windows 95 and Star Citizen themes are fan homages, not affiliated with ConcernedApe, Nintendo / The Pokémon Company, Marvel, Apple TV+, 20th Century Studios, Bethesda, Khara, Valve, FromSoftware, Wube Software, Microsoft or Cloud Imperium Games. "
+                      "Typeset in IBM Plex, Antonio, Pixelify Sans, Silkscreen, Rajdhani, VT323, Share Tech Mono, Cinzel, Titillium Web, Oranienbaum and Electrolize (SIL Open Font License) with Lucide icons (ISC). The Stardew, Pokémon, JARVIS, Severance, Alien, Pip-Boy, NERV, Portal, Dark Souls, Factorio, Windows 95, Star Citizen and Half-Life themes are fan homages, not affiliated with ConcernedApe, Nintendo / The Pokémon Company, Marvel, Apple TV+, 20th Century Studios, Bethesda, Khara, Valve, FromSoftware, Wube Software, Microsoft or Cloud Imperium Games. "
                       "Not affiliated with or endorsed by OpenCFD Ltd or the OpenFOAM Foundation. OPENFOAM is a registered trademark of OpenCFD Ltd.",
                       (Rectangle){ x, y, fminf(w, 720), 200 }, 20, TH.text3, true) + 30;
     ui_scroll_end(sc, y - top);
@@ -737,6 +738,10 @@ void draw_modals(void)
         break;
     case MD_WHATS_NEW: {
         static const char *const NEWS[][2] = {
+            { "Half-Life theme", "Black Mesa gunmetal and lambda orange, bevelled steel panels, HL2 and Garry's Mod sounds, an HEV "
+              "suit on the Run page (health from the residuals, suit power from the Courant headroom) and a resonance cascade when a run fails." },
+            { "STL to mesh", "Mesh > STL import: pick any STL, then mesh it with snappyHexMesh or send it to SALOME with STAR-CCM+-style "
+              "controls (base size, surface curvature, prism layers, volume growth, refinement zones)." },
             { "A Q for every theme", "Each theme has its own Q mark, and the window and desktop icon change with the theme." },
             { "Star Citizen theme", "A mobiGlas look: runs are contracts in Stanton, the Run page a quantum drive, a failed run a 30k, "
               "a finished one pays out. All themes are now in one place: Settings > Themes." },

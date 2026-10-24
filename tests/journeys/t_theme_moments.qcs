@@ -71,4 +71,18 @@ screenshot $OUT/starcitizen_done.png
 key ESCAPE
 wait 5
 assert not modal any
+theme 15
+flavour 1 icoFoam
+wait 20
+assert text RESONANCE CASCADE
+screenshot $OUT/halflife_cascade.png
+key ESCAPE
+wait 5
+flavour 4
+wait 10
+assert text Experiment complete
+screenshot $OUT/halflife_done.png
+key ESCAPE
+wait 5
+assert not modal any
 theme 0

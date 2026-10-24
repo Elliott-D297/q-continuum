@@ -1,0 +1,22 @@
+# Mesh > View's "Show mesh" switch: off, the view says so and nothing is drawn, and the Overview drops its cross
+# section; the setting is saved, and switching it back on reads the mesh again.
+open $SB/ws/pitzDaily
+click nav:mesh
+wait-until page Mesh
+click text:View
+wait 20
+assert text cells
+click label:Show mesh
+wait 5
+assert text The mesh view is off
+screenshot $OUT/mesh-off.png
+click nav:overview
+wait 10
+screenshot $OUT/overview-off.png
+click nav:mesh
+wait 5
+click label:Show mesh
+wait 20
+assert text cells
+screenshot $OUT/mesh-on.png
+quit

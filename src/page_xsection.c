@@ -342,9 +342,12 @@ float xsection_panel(Rectangle r, Case *c, bool compact)
                 ui_cursor(MOUSE_CURSOR_RESIZE_ALL);
             } else V.dragging = false;
         }
-        /* the cell under the mouse */
-        V.hoverPoly = -1;
-        if (hov && !V.dragging) {
+        /* the cell under the mouse: a search of every cell (half a million on a fine mesh), so only when the mouse or the view moved */
+        static Vector2 hm = { -1e9f, -1e9f }; static float hcu, hcv, hs; static int hn = -1;
+        if (!hov || V.dragging) { V.hoverPoly = -1; hm.x = -1e9f; }
+        else if (m.x != hm.x || m.y != hm.y || V.cu != hcu || V.cv != hcv || V.scale != hs || x->nPoly != hn || V.hoverPoly >= x->nPoly) {
+            hm = m; hcu = V.cu; hcv = V.cv; hs = V.scale; hn = x->nPoly;
+            V.hoverPoly = -1;
             float mu = V.cu + (m.x - view.x - view.width / 2) / V.scale, mv = V.cv - (m.y - view.y - view.height / 2) / V.scale;
             for (int p = 0; p < x->nPoly; p++) if (point_in_poly(x, p, mu, mv)) { V.hoverPoly = p; break; }
         }

@@ -38,23 +38,32 @@ A desktop workbench for simulations on Ubuntu 24.04 and WSL: **OpenFOAM v2606** 
 
 LCARS-styled labels are capitalised, except OpenFOAM names (patches, fields, solvers), which keep their case because OpenFOAM is case-sensitive.
 
+## Download
+
+Get the code into your Linux **home folder** (`~`, i.e. `/home/<you>`) in either of two ways:
+
+- **Download the ZIP.** On the repository's [Releases page](https://github.com/Elliott-D297/q-continuum/releases/latest), download `q-continuum_alpha2.0.zip` and unzip it into your home folder, so that you have `~/q-continuum_alpha2.0`. (*Code → Download ZIP* on the main page works too; that folder is called `q-continuum-main`, so use that name in the commands below, or rename it.)
+- **Or clone it with git**, which makes updating easy (`git pull`):
+  ```bash
+  git clone https://github.com/Elliott-D297/q-continuum.git ~/q-continuum_alpha2.0
+  ```
+
 ## Install on Ubuntu 24.04
 
 ```bash
-# put the q-continuum_alpha2.0 folder in your home folder (drag it there, or git clone it), then:
 cd ~/q-continuum_alpha2.0
 bash install.sh                 # asks before installing OpenFOAM v2606 if it's missing
 q-continuum
 ```
 
 The installer:
-1. Installs the build tools and X11/OpenGL headers with apt.
+1. Installs the build tools and X11/OpenGL headers with apt (it asks for your password).
 2. Optionally installs OpenFOAM v2606 from openfoam.com:
    `curl -s https://dl.openfoam.com/add-debian-repo.sh | sudo bash`, then `sudo apt install openfoam2606-default`.
 3. Builds Q-Continuum. raylib 5.5 is downloaded automatically and fonts and icons are embedded, so the binary is self-contained.
 4. Installs it to `/usr/local/bin/q-continuum` with a menu entry and icon.
 
-Options: `--with-openfoam`, `--no-openfoam`, `--user` (install to `~/.local`), `--uninstall`.
+Options: `--with-openfoam`, `--no-openfoam`, `--user` (install to `~/.local`, no sudo for that step), `--uninstall`.
 
 ## Install on Windows with WSL
 
@@ -64,18 +73,36 @@ Options: `--with-openfoam`, `--no-openfoam`, `--user` (install to `~/.local`), `
    wsl --update
    ```
    `wsl --update` makes sure **WSLg** is present. WSLg is what lets Linux windows appear on your Windows desktop. Windows 11 has it built in; Windows 10 needs build 19044 or later.
-2. Open **Ubuntu 24.04** from the Start menu. Drag the `q-continuum_alpha2.0` folder into your Linux home (in Explorer, `\\wsl$\Ubuntu-24.04\home\<you>`, or *Linux* in the Explorer sidebar), then:
+2. Open **Ubuntu 24.04** from the Start menu and set up your Linux user when it asks.
+3. Put Q-Continuum in your Linux home folder. Easiest is to clone it in the Ubuntu window:
+   ```bash
+   git clone https://github.com/Elliott-D297/q-continuum.git ~/q-continuum_alpha2.0
+   ```
+   Or download `q-continuum_alpha2.0.zip` from the [Releases page](https://github.com/Elliott-D297/q-continuum/releases/latest) in Windows, open your Linux home in Explorer (*Linux → Ubuntu-24.04 → home → <you>* in the sidebar, or type `\\wsl$\Ubuntu-24.04\home\<you>` in the address bar) and unzip it there, so that you have `q-continuum_alpha2.0` next to your other Linux files. Don't build it from `C:\` (`/mnt/c/...`): Windows drives are much slower from WSL.
+4. Build and install it, with OpenFOAM:
    ```bash
    cd ~/q-continuum_alpha2.0
    bash install.sh --with-openfoam
    q-continuum
    ```
-   Build from `~`, not from `/mnt/c/...`, because Windows drives are much slower from WSL.
-3. Install **ParaView for Windows** from <https://www.paraview.org/download/>. Q-Continuum finds it in `C:\Program Files\ParaView*` and opens your results there. The case path is translated with `wslpath`, so the files never leave WSL.
+5. Install **ParaView for Windows** from <https://www.paraview.org/download/>. Q-Continuum finds it in `C:\Program Files\ParaView*` and opens your results there. The case path is translated with `wslpath`, so the files never leave WSL.
 
 After installing, **Q-Continuum** also appears in the Windows Start menu, in the Ubuntu folder. This can take a minute, or a `wsl --shutdown`.
 
 **If the window doesn't open:** run `wsl --update` and `wsl --shutdown` in PowerShell, then try again. If your GPU driver can't give WSL an OpenGL context, Q-Continuum automatically retries with Mesa's software renderer. You can force that with `LIBGL_ALWAYS_SOFTWARE=1 q-continuum`.
+
+## Optional extras
+
+- **SALOME** (for the STL mesher's tetrahedral, polyhedral and body-fitted meshers, and the SALOME script tab): download *SALOME 9.14 for Ubuntu 24.04* from <https://www.salome-platform.org/?page_id=2430> into your Downloads folder, then run `bash ~/q-continuum_alpha2.0/tools/install_salome.sh` and restart Q-Continuum. The snappyHexMesh mesher needs only OpenFOAM.
+- **Theme sounds.** Every theme but the classic ones has built-in synthesised sounds (Settings → Appearance → Sounds). To use real clips instead, put `click.wav`, `click-2.wav` ..., `denied`, `error`, `done`, `alert` and `stopped` (`.wav`, `.ogg` or `.mp3`) in `~/.config/q-continuum/sounds/<theme>` (for example `sounds/halflife`; the LCARS ones go straight in `sounds/`). Clips from films and games are copyrighted, so none are included here.
+
+## Updating
+
+```bash
+cd ~/q-continuum_alpha2.0
+git pull                        # or download the new ZIP and unzip it over the old folder
+bash install.sh --no-openfoam
+```
 
 ## Using it
 

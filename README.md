@@ -1,6 +1,6 @@
 # Q-Continuum
 
-First off, I would like to give a disclaimer that this is HEAVILY vibe coded, and still very early in "development." I don't have the experience nor the skills to make something even remotely close to this, but I still wanted to make something that would help lower the learning curve for some open source software for my peers. That being said, I am trying to learn C at the moment so that I can eventually improve this project on my own. Hope you 
+First off, I would like to give a disclaimer that this is HEAVILY vibe coded, and still very early in "development." I don't have the experience nor the skills to make something even remotely close to this, but I still wanted to make something that would help lower the learning curve for some open source software for my peers. That being said, I am trying to learn C at the moment so that I can eventually improve this project on my own. Hope you enjoy!
 
 A desktop workbench for simulations on Ubuntu 24.04 and WSL: **OpenFOAM v2606** first, and the same workflow for **DEME, Chrono, CalculiX, code_aster, code_saturne, MOOSE, Elmer and SPARTA** projects. It is styled after the LCARS starship consoles of *The Next Generation* by default, with iOS-style glass light and dark themes, two game themes and a JARVIS heads-up display. Q-Continuum handles setting up, running and watching cases. Post-processing stays in ParaView (or each program's own viewer), which Q-Continuum opens with one click.
 

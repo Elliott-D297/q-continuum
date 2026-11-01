@@ -18,7 +18,12 @@ A desktop workbench for simulations on Ubuntu 24.04 and WSL: **OpenFOAM v2606** 
   - **Boundary conditions** is a patch × field matrix. Click a cell to change its type; the right default entries are filled in. Patch-group and regex entries are understood. Each field shows its unit (from its `dimensions`), fields the turbulence model doesn't read are marked *not used*, and hovering a field says what it is, its typical values and what the OpenFOAM tutorials start it at.
   - **Physics** covers turbulence (RAS/LES, including the required-field check), transport or phase properties, thermophysical models, gravity and radiation (P1 / fvDOM).
   - **Mesh** has blockMesh cell counts, scale and patch types. Generate and check the mesh from here.
-  - **STL mesher** (Mesh page, or *Mesh an STL* on the Cases page): choose any STL, see whether it is closed, split it into named boundaries by angle, and mesh it the way STAR-CCM+'s automated mesher works: a base size, target and minimum surface sizes as percentages of it, surface curvature, growth rates, prism layers (number, total thickness, stretching) and volumetric controls (boxes, spheres, cylinders), inside the part or around it in a wind tunnel. The trimmed mesher is snappyHexMesh; with SALOME installed (`bash tools/install_salome.sh` after downloading it) the same settings make NETGEN tetrahedra, polyhedra (via polyDualMesh) or Body Fitting hexahedra, and *Open in SALOME* shows the result in its window.
+  - **STL mesher** (Mesh page, or *Mesh an STL* on the Cases page): choose any STL, see whether it is closed, split it into named boundaries by angle, and mesh it the way STAR-CCM+'s automated mesher works: a base size, target and minimum surface sizes as percentages of it, surface curvature, growth rates, prism layers (number, total thickness, stretching) and volumetric controls (boxes, spheres, cylinders), inside the part or around it in a wind tunnel. The trimmed mesher is snappyHexMesh; with SALOME installed (`bash tools/install_salome.sh`) the same settings make NETGEN tetrahedra, polyhedra (via polyDualMesh) or Body Fitting hexahedra, and *Open in SALOME* shows the result in its window.
+  - **Thin parts and 2-D.** The mesher measures how thick the part is where it is thin and warns when its surface cells are larger (snappyHexMesh can't carve a body thinner than its cells), with *Fit the sizes*. A part that is a profile extruded along an axis (an airfoil section) can be meshed **2-D**: one cell thick across that axis, front and back `empty`, through snappyHexMesh on a slab and `extrudeMesh`, as OpenFOAM's wingMotion tutorial does. The cross section draws the STL's own outline over the cells.
+  - **Clean first, then carry on.** Generating or importing a mesh over existing results opens the Clean dialog with the reason, and *Clean and continue* does the rest.
+  - **Wind tunnel direction.** For external flow, choose which way the flow goes (±X, ±Y, ±Z) and which way is up; the view shows the tunnel and an arrow. The tunnel's distances (upstream, downstream, sides, above, below) are in a reference length L, by default the body's length along the flow (a blade's chord), or one you type.
+  - **Import a mesh** (Mesh > SALOME, or *Import a mesh* on the Cases page): a mesh made by hand in SALOME (Mesh > Export > MED or UNV) or Gmsh (`.msh`) is copied into the case's `salome/` folder and converted (MED through SALOME, then ideasUnvToFoam; gmshToFoam). Its face groups become patches, given a role from their names (inlet, outlet, symmetry, farfield ... else wall); *Write case files* also makes the mesh's patch types match the roles (walls become wall patches). *Open in SALOME* shows the imported mesh in SALOME's window.
+  - **STL to simulation, in steps.** A case made from an STL shows a step bar over the mesher, Physics > Setup and Run: **STL → Boundaries → Mesh → Physics → Run**, each marked done, out of date (settings changed after the mesh, or the mesh after the case files) or next, with one button for the next thing (*Choose an STL*, *Generate mesh*, *Write case files*, *Run simulation*, *Open in ParaView*). The Run page brings the case files up to date with the setup by itself, so a change made on the Mesh tab or Physics > Setup is what runs. Click a face of the part to name it and make it an inlet (speed, velocity, volume or mass flow rate, total pressure), outlet, opening, wall (no slip, slip, moving) or symmetry plane; Physics > Setup picks steady or transient flow, laminar or k-omega SST / k-epsilon / realizable k-epsilon / Spalart-Allmaras, and the fluid, and writes every file the run needs: `0/` (U, p and the model's turbulence fields, from intensity and mixing length), `constant/transportProperties` and `turbulenceProperties`, and `system/controlDict`, `fvSchemes`, `fvSolution` for simpleFoam or pimpleFoam.
 - **Run & monitor.** Run tools in serial or with `mpirun` (decomposePar → solver → reconstructPar), or use the case's own `Allrun`. Multi-region (chtMultiRegionFoam) cases get topoSet, splitMeshRegions, per-region changeDictionary and `-allRegions` automatically. The monitor shows:
   - a live residual chart on a log scale
   - time progress, Courant number, time step and estimated time remaining
@@ -65,6 +70,18 @@ The installer:
 
 Options: `--with-openfoam`, `--no-openfoam`, `--user` (install to `~/.local`, no sudo for that step), `--uninstall`.
 
+At a terminal, the installer also offers each of the other programs that isn't installed yet. To choose up front:
+
+| Option | Installs | Script (run it again on its own any time) |
+|---|---|---|
+| `--with-precice` | the latest preCICE (.deb, checksum checked), pyprecice, the OpenFOAM adapter (built into `$FOAM_USER_LIBBIN`), `ccx_preCICE` and the preCICE tutorials in `~/src/precice-tutorials` | `tools/install_precice.sh` |
+| `--with-calculix` | CalculiX `ccx` and `cgx` from Ubuntu's packages | `tools/install_calculix.sh` |
+| `--with-chrono`, `--with-deme`, `--with-chrono-deme` | Project Chrono (latest release) and DEM-Engine built from source in `~/src/chrono` and `~/src/DEM-Engine`, with CUDA for an NVIDIA GPU; 20-60 minutes | `tools/install_chrono_deme.sh` |
+| `--with-salome` | SALOME 9.16 in `~/salome`: downloads the official Linux Universal tarball from salome-platform.org with wget and unpacks it. If the site's bot protection refuses the script, it opens the download page in your browser and waits for the file in your Downloads folder | `tools/install_salome.sh` |
+| `--with-all` | OpenFOAM and all of the above | |
+
+`--no-extras` skips the questions. Programs that are installed already are left alone.
+
 ## Install on Windows with WSL
 
 1. In **PowerShell (admin)**, run the following, then restart if asked:
@@ -93,7 +110,7 @@ After installing, **Q-Continuum** also appears in the Windows Start menu, in the
 
 ## Optional extras
 
-- **SALOME** (for the STL mesher's tetrahedral, polyhedral and body-fitted meshers, and the SALOME script tab): download *SALOME 9.14 for Ubuntu 24.04* from <https://www.salome-platform.org/?page_id=2430> into your Downloads folder, then run `bash ~/q-continuum_alpha2.0/tools/install_salome.sh` and restart Q-Continuum. The snappyHexMesh mesher needs only OpenFOAM.
+- **SALOME** (for the STL mesher's tetrahedral, polyhedral and body-fitted meshers, and the SALOME script tab): run `bash ~/q-continuum_alpha2.0/tools/install_salome.sh` (it wgets the official tarball and unpacks it into `~/salome`; an archive already in your Downloads folder from <https://www.salome-platform.org/?page_id=2430> is used instead) and restart Q-Continuum. The snappyHexMesh mesher needs only OpenFOAM.
 - **Theme sounds.** Every theme but the classic ones has built-in synthesised sounds (Settings → Appearance → Sounds). To use real clips instead, put `click.wav`, `click-2.wav` ..., `denied`, `error`, `done`, `alert` and `stopped` (`.wav`, `.ogg` or `.mp3`) in `~/.config/q-continuum/sounds/<theme>` (for example `sounds/halflife`; the LCARS ones go straight in `sounds/`). Clips from films and games are copyrighted, so none are included here.
 
 ## Updating

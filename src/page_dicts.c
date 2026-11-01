@@ -474,12 +474,32 @@ void page_physics(Rectangle r)
     pl_fmt_ui(sub, sizeof sub, "Models and material properties from %s/. Changes are written when you save.", dir);
     y += page_header(x, y, w, "Physics", sub);
     y += region_bar(x, y, w);
-    static const char *tabs[] = { "Models", "All files" };
+    /* shown in this order; A.physicsTab keeps its numbers (0 models, 1 all files, 2 setup). Setup writes a single-region
+       simpleFoam/pimpleFoam case: it is there for a case made from an STL, one set up there before, or an empty one
+       (no physics dictionaries yet); never for a multi-region case (chtMultiRegionFoam ... keeps its own files), where
+       Write case files would have replaced them. Where it is, the case opens on it. */
+    char ini[PL_PATH], msh[PL_PATH];
+    pl_join(ini, sizeof ini, A.cs->s.path, "simulation.ini");
+    pl_join(msh, sizeof msh, A.cs->s.path, "mesher/mesher.ini");
+    bool bare = A.cs->s.nRegions == 0 && !A.cs->region[0] &&
+                !case_dict(A.cs, "constant/transportProperties") && !case_dict(A.cs, "constant/turbulenceProperties") &&
+                !case_dict(A.cs, "constant/momentumTransport") && !case_dict(A.cs, "constant/thermophysicalProperties");
+    bool setupOk = A.cs->s.nRegions == 0 && (pl_is_file(ini) || pl_is_file(msh) || bare);
+    if (A.physicsTab < 0) A.physicsTab = setupOk ? 2 : 0;
+    if (A.physicsTab == 2 && !setupOk) A.physicsTab = 0;
+    static const char *tabsAll[] = { "Setup", "Models", "All files" }, *tabsNo[] = { "Models", "All files" };
+    static const int TAB_ALL[3] = { 2, 0, 1 }, TAB_NO[2] = { 0, 1 };
+    const char **tabs = setupOk ? tabsAll : tabsNo;
+    const int *TAB_OF = setupOk ? TAB_ALL : TAB_NO;
+    int nt = setupOk ? 3 : 2;
+    int shown = 0;
+    for (int k = 0; k < nt; k++) if (TAB_OF[k] == A.physicsTab) shown = k;
     float th;
-    ui_tabs(ui_id("phys-tabs"), x, y, tabs, 2, &A.physicsTab, &th);
+    if (ui_tabs(ui_id("phys-tabs"), x, y, tabs, nt, &shown, &th)) A.physicsTab = TAB_OF[shown];
     ui_divider(x, y + th, w);
     y += th + 26;
-    if (A.physicsTab == 0) y += physics_models(x, y, w);
+    if (A.physicsTab == 2) { y += stl_workflow(A.cs, x, y, w); y += page_setup(x, y, w); }
+    else if (A.physicsTab == 0) y += physics_models(x, y, w);
     else {
         static const char *const skip[] = { NULL };
         y += files_in(dir, x, y, w, skip);

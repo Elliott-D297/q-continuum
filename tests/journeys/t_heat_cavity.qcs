@@ -1,0 +1,126 @@
+# Heat (setup plan step 3, 2026-10-28): de Vahl Davis's differentially heated square cavity, set up in Physics > Setup
+# with no hand edits: the Natural convection template (steady, laminar, buoyancy), gravity typed in (no STL to take it
+# from), the left wall 0.962 K warmer than the right (Ra = 1e5 for air over 0.1 m), top and bottom adiabatic. Run, the
+# Run page shows each wall's heat and Nusselt number (Nu_<wall>, 2026-10-29), and the mean Nusselt number on the hot wall from the wallHeatFlux report is within 3 %
+# of the benchmark's 4.519.
+budget p95 80 max 600
+shell mkdir -p $SB/ws/dvd/system && printf 'FoamFile { version 2.0; format ascii; class dictionary; object blockMeshDict; }\nscale 0.1;\nvertices ( (0 0 0) (1 0 0) (1 1 0) (0 1 0) (0 0 0.1) (1 0 0.1) (1 1 0.1) (0 1 0.1) );\nblocks ( hex (0 1 2 3 4 5 6 7) (64 64 1) simpleGrading (((0.5 0.5 5) (0.5 0.5 0.2)) ((0.5 0.5 5) (0.5 0.5 0.2)) 1) );\nboundary\n(\n    hot { type wall; faces ( (0 4 7 3) ); }\n    cold { type wall; faces ( (1 2 6 5) ); }\n    adiabatic { type wall; faces ( (0 1 5 4) (3 7 6 2) ); }\n    frontAndBack { type empty; faces ( (0 3 2 1) (4 5 6 7) ); }\n);\n' > $SB/ws/dvd/system/blockMeshDict && printf 'FoamFile { version 2.0; format ascii; class dictionary; object controlDict; }\napplication simpleFoam;\nstartTime 0;\nendTime 10;\ndeltaT 1;\nwriteControl timeStep;\nwriteInterval 10;\n' > $SB/ws/dvd/system/controlDict && cd $SB/ws/dvd && bash -c '. "$WM_PROJECT_DIR/etc/bashrc" > /dev/null 2>&1; blockMesh > log.blockMesh 2>&1'
+open $SB/ws/dvd
+click nav:physics
+wait-until page Physics
+wait 10
+assert text What are you simulating?
+assert enabled su-tmpl#4
+screenshot $OUT/01_templates.png
+click su-tmpl#5
+wait 10
+assert log simulation.ini template = naturalConvection
+assert log simulation.ini energy = buoyancy
+assert text With buoyancy
+note no STL: gravity is typed in, down y here
+click su-g#1
+key A ctrl
+enter -9.81
+wait 3
+click su-g#2
+key A ctrl
+enter 0
+wait 5
+assert log simulation.ini gravity = 0 -9.81 0
+screenshot $OUT/02_models.png
+note PISO is greyed with heat on
+click su-flow#1
+wait 5
+assert text buoyantPimpleFoam
+screenshot $OUT/03_transient.png
+click su-flow#0
+wait 5
+click su-step#1
+wait 5
+assert widget su-tref
+assert not widget su-cp
+screenshot $OUT/04_materials.png
+click su-more#1
+wait 5
+assert widget su-cp
+assert widget su-kappa
+note air is an ideal gas: no expansion row
+assert not widget su-beta
+screenshot $OUT/04b_materials_more.png
+click su-more#1
+wait 3
+click su-step#2
+wait 5
+assert text Nothing heats or cools the fluid
+click su-b#0>hot>wall-heat
+wait 3
+click text:Fixed temperature
+wait 5
+click su-b#0>hot>wall-T
+key A ctrl
+enter 293.6311
+wait 3
+click su-b#1>cold>wall-heat
+wait 3
+click text:Fixed temperature
+wait 5
+click su-b#1>cold>wall-T
+key A ctrl
+enter 292.6689
+wait 5
+assert log simulation.ini heat = fixedTemperature
+assert not text Nothing heats or cools the fluid
+assert not text Nothing moves the fluid
+screenshot $OUT/05_boundaries.png
+note Models now gives Ra over the mesh's height (no STL): about 1e5
+click su-step#0
+wait 5
+wheel 0 text:Ra ≈
+assert text Ra ≈ 1e+05
+screenshot $OUT/05b_models_ra.png
+click su-step#3
+wait 5
+assert widget su-T0
+click su-step#4
+wait 5
+assert widget su-heat
+note the Nusselt number's length is the mesh's height along gravity (0.1 m), its dT the walls' 0.962 K
+wheel 0 su-nudt
+assert widget su-nul#0
+assert widget su-nudt
+assert log simulation.ini nusselt_length = 0.1
+assert text 0: the span the boundaries set
+screenshot $OUT/06_reports.png
+wheel 0 su-heat
+click su-step#6
+wait 5
+assert text thermophysicalProperties, g
+screenshot $OUT/07_check.png
+click su-check-run
+wait-until page Run
+wait 10
+click run-go
+wait-until job running timeout 30
+wait-until job finished timeout 500
+assert log log.buoyantSimpleFoam End
+assert not log log.buoyantSimpleFoam FOAM FATAL
+assert not log 0/T externalWallHeatFluxTemperature
+assert log constant/thermophysicalProperties perfectGas
+assert file postProcessing/wallHeatFlux/0/wallHeatFlux.dat
+wait-until widget run-heat timeout 30
+assert text Heat in:
+assert file postProcessing/Nu_hot/0/surfaceFieldValue.dat
+wait-until widget run-nu timeout 30
+screenshot $OUT/08_run.png
+click run-heat
+wait 10
+screenshot $OUT/09_heat_chart.png
+note the mean Nusselt number on the hot wall: Q / (depth k dT), depth 0.01 m, k 0.0257 W/(m K), dT 0.9622 K
+shell python3 -c "import sys; r={l.split()[1]: float(l.split()[4]) for l in open('postProcessing/wallHeatFlux/0/wallHeatFlux.dat') if l.strip() and not l.startswith('#')}; nu=r['hot']/0.01/(0.0257*0.9622); open('nu.txt','w').write('Nu %.4f %s\n' % (nu, 'NU OK' if abs(nu-4.519)/4.519 < 0.03 else 'NU OFF'))"
+assert log nu.txt NU OK
+note the setup's own Nusselt report says the same, with no hand calculation
+shell python3 -c "v=[float(l.split()[1]) for l in open('postProcessing/Nu_hot/0/surfaceFieldValue.dat') if l.strip() and not l.startswith('#')][-1]; open('nu_report.txt','w').write('Nu %.4f %s\n' % (v, 'REPORT OK' if abs(v-4.519)/4.519 < 0.03 else 'REPORT OFF'))"
+assert log nu_report.txt REPORT OK
+click run-nu
+wait 10
+screenshot $OUT/10_nu_chart.png

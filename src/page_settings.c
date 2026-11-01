@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "app.h"
+#include "tour.h"
 #include "actions.h"
 #include "palette.h"
 #include "sweep.h"
@@ -42,6 +43,18 @@ void page_settings(Rectangle r)
     float x = r.x + PAGE_PAD, w = fminf(r.width - 2 * PAGE_PAD, 920);
     float y = top + 30;
     y += page_header(x, y, w, "Settings", "Where OpenFOAM lives, where your cases go, and how results open in ParaView.");
+
+    /* ---------------- Help: the tour first, for someone new */
+    y += section_head(x, y, w, "Help", "New to Q-Continuum? The tour walks through every page and how to work it.");
+    {
+        float bx = x, bw = ui_button_width(ICON_BOOK_OPEN, "Take the tour");
+        if (ui_button(ui_id("set-tour"), (Rectangle){ bx, y, bw, 36 }, ICON_BOOK_OPEN, "Take the tour", BTN_PRIMARY)) tour_start();
+        bx += bw + 10; bw = ui_button_width(ICON_KEYBOARD, "Keyboard shortcuts");
+        if (ui_button(ui_id("set-keys"), (Rectangle){ bx, y, bw, 36 }, ICON_KEYBOARD, "Keyboard shortcuts", BTN_SECONDARY)) A.modal = MD_SHORTCUTS;
+        bx += bw + 10; bw = ui_button_width(ICON_SPARKLES, "What's new");
+        if (ui_button(ui_id("set-news"), (Rectangle){ bx, y, bw, 36 }, ICON_SPARKLES, "What's new", BTN_SECONDARY)) A.modal = MD_WHATS_NEW;
+        y += 36 + 30;
+    }
 
     /* ---------------- OpenFOAM */
     y += section_head(x, y, w, "OpenFOAM", "Q-Continuum loads this environment (etc/bashrc) before running any tool.");
@@ -347,24 +360,38 @@ void draw_modals(void)
             snprintf(csub, sizeof csub, "Moves the results up to t = %s (%s), the log files and postProcessing to the case's trash, "
                      "where History > Deleted results can restore them. Your setup in system, constant and 0.orig stays.", case_latest_result(cs), where);
         }
-        b = ui_modal_begin("Clean results", csub, 600, 320, &close);
-        ui_checkbox(ui_id("m-clean-mesh"), (Rectangle){ b.x, b.y + 4, b.width, 24 }, &A.mFlag, "Also remove the generated mesh (blockMesh cases only)");
-        ui_checkbox(ui_id("m-clean-perm"), (Rectangle){ b.x, b.y + 38, b.width, 24 }, &A.mFlag2, "Delete permanently (otherwise they go to the case's trash and can be restored)");
-        if (ui_button(ui_id("m-clean-cancel"), (Rectangle){ b.x + b.width - 240, b.y + b.height - 38, 110, 38 }, NULL, "Cancel", BTN_GHOST)) close = true;
-        if (ui_button(ui_id("m-clean-go"), (Rectangle){ b.x + b.width - 120, b.y + b.height - 38, 120, 38 }, ICON_TRASH_2, "Clean", BTN_DANGER) && A.cs) {
+        if (A.cleanWhy[0]) {                                   /* opened for something that needs it: say what */
+            char t[sizeof csub]; snprintf(t, sizeof t, "%s %s", A.cleanWhy, csub); pl_strlcpy(csub, t, sizeof csub);
+        }
+        b = ui_modal_begin(A.cleanThen ? "Clean results first" : "Clean results", csub, 600, A.cleanWhy[0] ? 360 : 320, &close);
+        float cy = b.y + 4;
+        if (!A.cleanThen) {                                    /* a new mesh comes next anyway: no question about this one */
+            ui_checkbox(ui_id("m-clean-mesh"), (Rectangle){ b.x, cy, b.width, 24 }, &A.mFlag, "Also remove the generated mesh (blockMesh cases only)");
+            cy += 34;
+        }
+        ui_checkbox(ui_id("m-clean-perm"), (Rectangle){ b.x, cy, b.width, 24 }, &A.mFlag2, "Delete permanently (otherwise they go to the case's trash and can be restored)");
+        if (ui_button(ui_id("m-clean-cancel"), (Rectangle){ b.x, b.y + b.height - 38, 110, 38 }, NULL, "Cancel", BTN_GHOST)) close = true;
+        const char *goLab = A.cleanThen ? "Clean and continue" : "Clean";
+        float gw = fmaxf(120, ui_button_width(ICON_TRASH_2, goLab));
+        if (ui_button(ui_id("m-clean-go"), (Rectangle){ b.x + b.width - gw, b.y + b.height - 38, gw, 38 }, ICON_TRASH_2, goLab, BTN_DANGER) && A.cs) {
             case_rescan(A.cs);
             if (A.cj->active && !strcmp(A.cj->casePath, A.cs->s.path)) ui_toast(TOAST_WARN, "Stop the run first");
             else if (A.cs->s.runningLog[0]) ui_toast(TOAST_ERR, "%s is still being written: another process is running this case. Stop it first.", A.cs->s.runningLog);
             else {
                 char msg[160];
-                case_trash_results(A.cs, TR_LOGS | TR_POST | TR_ZERO | (A.mFlag ? TR_MESH : 0), A.mFlag2, "Clean", msg, sizeof msg);
+                case_trash_results(A.cs, TR_LOGS | TR_POST | TR_ZERO | (A.mFlag ? TR_MESH : TR_KEEP_MESH_LOGS), A.mFlag2, "Clean", msg, sizeof msg);
                 logset_open(&A.logs, A.cs->s.path);
                 A.stepInit = false;
                 ui_toast(TOAST_OK, "%s", msg);
                 app_rescan_cases(true);
                 A.modal = MD_NONE;
+                void (*then)(void) = A.cleanThen;
+                A.cleanThen = NULL; A.cleanWhy[0] = 0;
+                case_rescan(A.cs);
+                if (then) then();                              /* what it was opened for: generate, import ... */
             }
         }
+        if (close) { A.cleanThen = NULL; A.cleanWhy[0] = 0; }
         break;
     }
     case MD_PV_CLAUDE: {
@@ -454,6 +481,7 @@ void draw_modals(void)
     case MD_AWAY: away_modal(&close); break;
     case MD_CPL_BUILD: cpl_build_modal(&close); break;
     case MD_FLAVOUR: ui_modal_layer(); flavour_modal(&close); break;
+    case MD_BLANK: blank_modal(&close); break;
     case MD_QUEUE_ADD: {
         if (!A.cs) { close = true; break; }
         extern int run_procs_for_check(void), run_mode_for_queue(void);
@@ -738,6 +766,20 @@ void draw_modals(void)
         break;
     case MD_WHATS_NEW: {
         static const char *const NEWS[][2] = {
+            { "Heat and buoyancy", "Physics > Setup > Models > Energy: Temperature (forced convection) or With buoyancy (warm fluid "
+              "rises). Materials gains specific heat and conductivity, every boundary a temperature, walls a heat flux, heat rate or "
+              "convection, and the Run page shows each wall's heat as it runs. New cards: Heat transfer and Natural convection." },
+            { "What are you simulating?", "Physics > Setup starts from a card: External aero, Internal flow, Vortex shedding or "
+              "Resolved turbulence fill in the models, run length and time step from your part. Then a step list (Models, Materials, "
+              "Boundaries, Starting values, Reports, Solver, Check), each marked done or not, with More settings for the expert rows. "
+              "Models now has laminar, RANS, LES and DES with 13 turbulence models and PISO / PIMPLE." },
+            { "The tour", "A walk through every page and how to work it, shown on the first start. Settings > Help > Take the tour "
+              "(or the palette) brings it back; Try it pauses it so you can use the page." },
+            { "Lift and drag", "Physics > Setup > Lift and drag: switch on Monitor forces and the drag, lift and moment coefficients "
+              "are measured on the part's walls (reference length, area and directions from the STL, 2-D or 3-D). The Run page shows "
+              "Cd, Cl, Cm and L/D live and plots them." },
+            { "Turn about an axis", "The 3-D views (STL mesher, Mesh > View) have Turn about: Free, or X, Y or Z only; 90 degree "
+              "turn buttons, arrow keys for 15 degree steps, and a Fit button." },
             { "Half-Life theme", "Black Mesa gunmetal and lambda orange, bevelled steel panels, HL2 and Garry's Mod sounds, an HEV "
               "suit on the Run page (health from the residuals, suit power from the Courant headroom) and a resonance cascade when a run fails." },
             { "STL to mesh", "Mesh > STL import: pick any STL, then mesh it with snappyHexMesh or send it to SALOME with STAR-CCM+-style "

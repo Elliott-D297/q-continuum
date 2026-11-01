@@ -98,14 +98,14 @@ configure_file(${QC_ASSETS_C}.tmp ${QC_ASSETS_C} COPYONLY)
 
 # ---------------------------------------------------------------- core (no graphics) + app
 add_library(qc_core STATIC
-  src/pl_util.c src/foamdict.c src/foamcase.c src/runner.c src/env.c src/xmlspan.c src/coupling.c src/safety.c src/precheck.c src/monitor.c src/xsection.c src/explain.c src/physics.c src/fieldinfo.c src/redalert.c src/sweep.c src/demeparams.c src/program.c src/params.c src/textdiff.c src/runlog.c src/plume.c src/cplbuild.c src/stlmesh.c
+  src/pl_util.c src/foamdict.c src/foamcase.c src/runner.c src/env.c src/xmlspan.c src/coupling.c src/safety.c src/precheck.c src/monitor.c src/xsection.c src/explain.c src/physics.c src/fieldinfo.c src/redalert.c src/sweep.c src/demeparams.c src/program.c src/params.c src/textdiff.c src/runlog.c src/plume.c src/cplbuild.c src/stlmesh.c src/simsetup.c src/simmodels.c
   ${QC_ASSETS_C})   # the embedded fonts and starters (program.c writes the Chrono starter)
 target_include_directories(qc_core PUBLIC src)
 target_link_libraries(qc_core PUBLIC m)
 
 add_executable(q-continuum
   src/app.c src/app_widgets.c src/suggest.c src/ui.c src/input.c src/script.c
-  src/page_cases.c src/page_case.c src/page_bc.c src/page_dicts.c src/page_run.c src/logview.c src/undo.c src/actions.c src/palette.c src/page_settings.c src/page_env.c src/texteditor.c src/page_coupling.c src/page_salome.c src/page_history.c src/page_queue.c src/page_studies.c src/page_deme.c src/page_prog.c src/page_review.c src/page_away.c src/flavour.c src/logo.c src/terms.c src/page_movie.c src/page_xsection.c src/page_meshview.c src/sound.c src/page_stlmesh.c)
+  src/page_cases.c src/page_case.c src/page_bc.c src/page_dicts.c src/page_run.c src/logview.c src/undo.c src/actions.c src/palette.c src/page_settings.c src/page_env.c src/texteditor.c src/page_coupling.c src/page_salome.c src/page_history.c src/page_queue.c src/page_studies.c src/page_deme.c src/page_prog.c src/page_review.c src/page_away.c src/flavour.c src/logo.c src/terms.c src/page_movie.c src/page_xsection.c src/page_meshview.c src/orbit.c src/tour.c src/sound.c src/page_stlmesh.c src/page_setup.c)
 target_link_libraries(q-continuum PRIVATE qc_core raylib)
 target_compile_definitions(q-continuum PRIVATE QC_VERSION="${PROJECT_VERSION}")
 
@@ -150,7 +150,7 @@ function(qc_unit name)
   target_link_libraries(${name} PRIVATE qc_core m)
   qc_target(${name})
 endfunction()
-foreach(t test_foamdict test_logparse test_xml test_coupling test_sync test_tutorials test_oracle test_props test_dictsem test_units test_explain test_sweep test_deme test_program test_params test_textdiff test_plume test_cplbuild test_monitor)
+foreach(t test_foamdict test_logparse test_xml test_coupling test_sync test_tutorials test_oracle test_props test_dictsem test_units test_explain test_sweep test_deme test_program test_params test_textdiff test_plume test_cplbuild test_monitor test_simsetup test_stlmesh)
   qc_unit(${t})
 endforeach()
 target_compile_definitions(test_units PRIVATE QC_LOG_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/logs")
@@ -171,6 +171,7 @@ add_test(NAME sync_external_edits COMMAND test_sync ${QC_SCRATCH})
 add_test(NAME tutorial_groups COMMAND test_tutorials ${QC_TUTORIALS})
 add_test(NAME dict_semantics COMMAND test_dictsem)
 add_test(NAME plume COMMAND test_plume)
+add_test(NAME simsetup COMMAND test_simsetup ${QC_SCRATCH})
 add_test(NAME units COMMAND test_units ${QC_SCRATCH})
 add_test(NAME programs COMMAND test_program fixtures ${CMAKE_CURRENT_SOURCE_DIR}/tests/programs ${QC_SCRATCH}/programs)
 add_test(NAME textdiff COMMAND test_textdiff)
@@ -235,3 +236,26 @@ add_custom_target(check COMMAND ${CMAKE_CTEST_COMMAND} -L fast --output-on-failu
                   DEPENDS test_foamdict test_logparse test_xml test_sync test_tutorials)
 add_custom_target(check-full COMMAND ${CMAKE_CTEST_COMMAND} --output-on-failure WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
                   DEPENDS q-continuum test_foamdict test_logparse test_xml test_sync test_tutorials)
+# the STL mesher's prism layers with snappyHexMesh: 3-D outside and inside, and 2-D (user report 2026-10-26)
+add_test(NAME stlmesh_smooth COMMAND test_stlmesh smooth ${CMAKE_CURRENT_SOURCE_DIR}/tests/tools/NACA_Airfoil.STL ${QC_SCRATCH}/naca_smooth.stl)
+set_tests_properties(stlmesh_smooth PROPERTIES LABELS fast)
+add_test(NAME simsetup_solvers COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tests/simsetup_solvers.sh $<TARGET_FILE:test_simsetup> ${QC_BASHRC} ${QC_SCRATCH})
+set_tests_properties(simsetup_solvers PROPERTIES LABELS full TIMEOUT 3600)
+# step 3: heat validated on de Vahl Davis's heated cavity at Ra 1e5 (Nu within 3 % of 4.519)
+add_test(NAME simsetup_heat COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tests/simsetup_heat.sh $<TARGET_FILE:test_simsetup> ${QC_BASHRC} ${QC_SCRATCH})
+set_tests_properties(simsetup_heat PROPERTIES LABELS full TIMEOUT 1800)
+# turbulent natural convection: the buoyantCavity tutorial's tall cavity against Betts and Bokhari's temperatures
+add_test(NAME simsetup_cavity COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tests/simsetup_cavity.sh $<TARGET_FILE:test_simsetup> ${QC_BASHRC} ${QC_SCRATCH})
+set_tests_properties(simsetup_cavity PROPERTIES LABELS full TIMEOUT 1800)
+# step 4 (compressible): nozzles against isentropic theory, the aerofoilNACA0012 tutorial against the setup's own
+add_test(NAME simsetup_gas COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tests/simsetup_gas.sh $<TARGET_FILE:test_simsetup> ${QC_BASHRC} ${QC_SCRATCH})
+set_tests_properties(simsetup_gas PROPERTIES LABELS full TIMEOUT 3600)
+add_test(NAME simsetup_naca COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tests/simsetup_naca.sh $<TARGET_FILE:test_simsetup> ${QC_BASHRC} ${QC_SCRATCH})
+set_tests_properties(simsetup_naca PROPERTIES LABELS full TIMEOUT 1800)
+# step 5 (turbulence and walls): k-omega SST with transition on the T3A flat plate finds the onset
+add_test(NAME simsetup_transition COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tests/simsetup_transition.sh $<TARGET_FILE:test_simsetup> ${QC_BASHRC} ${QC_SCRATCH})
+set_tests_properties(simsetup_transition PROPERTIES LABELS full TIMEOUT 2400)
+add_test(NAME stlmesh_layers COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tests/stlmesh_layers.sh $<TARGET_FILE:test_stlmesh> ${QC_BASHRC} ${QC_SCRATCH} ${CMAKE_CURRENT_SOURCE_DIR}/tests/tools/NACA_Airfoil.STL)
+# the STL mesher's SALOME route: NETGEN on the STL's triangles and on CAD, Body Fitting, polyhedra (skipped without SALOME)
+add_test(NAME stlmesh_salome COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tests/stlmesh_salome.sh $<TARGET_FILE:test_stlmesh> ${QC_BASHRC} ${QC_SCRATCH} ${CMAKE_CURRENT_SOURCE_DIR}/assets/salome/stl_mesher.py)
+set_tests_properties(stlmesh_salome PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 1800)

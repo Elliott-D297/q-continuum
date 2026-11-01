@@ -1,0 +1,120 @@
+# Compressible gas (setup plan step 4, 2026-11-01): an inviscid converging nozzle set up in Physics > Setup with no hand
+# edits. The High-speed gas template (steady, ideal-gas air: rhoSimpleFoam), laminar, a slip wall, a total pressure of
+# 112 583 Pa and 300 K at the inlet against 101 325 Pa at the outlet (pe/p0 0.9). Run; the exit Mach number from the
+# MachNo report is the isentropic one for that pressure ratio (0.391) and the inlet's the one the area ratio 2 gives
+# (0.182), both within 2 %.
+budget p95 80 max 600
+shell mkdir -p $SB/ws/nozzle/system && python3 $QC_TESTS/tools/nozzle_mesh.py conv > $SB/ws/nozzle/system/blockMeshDict && printf 'FoamFile { version 2.0; format ascii; class dictionary; object controlDict; }\napplication simpleFoam;\nstartTime 0;\nendTime 10;\ndeltaT 1;\nwriteControl timeStep;\nwriteInterval 10;\n' > $SB/ws/nozzle/system/controlDict && cd $SB/ws/nozzle && bash -c '. "$WM_PROJECT_DIR/etc/bashrc" > /dev/null 2>&1; blockMesh > log.blockMesh 2>&1'
+open $SB/ws/nozzle
+click nav:physics
+wait-until page Physics
+wait 10
+assert text What are you simulating?
+note High-speed gas is no longer greyed
+assert enabled su-tmpl#6
+click su-tmpl#6
+wait 10
+assert log simulation.ini template = highSpeedGas
+assert log simulation.ini compressibility = idealGas
+assert text rhoSimpleFoam
+note the template brings the inlet in at Mach 0.5
+assert log simulation.ini inlet = mach
+screenshot $OUT/01_models.png
+note laminar: an inviscid nozzle
+click su-appr#0
+wait 5
+assert log simulation.ini turbulence = laminar
+note heat is always on for a gas: Off and buoyancy are greyed
+assert text Ma ≈ 0.5
+note transient: rhoPimpleFoam, and PISO greyed
+click su-flow#1
+wait 5
+assert text rhoPimpleFoam
+screenshot $OUT/02_transient.png
+click su-flow#0
+wait 5
+click su-step#1
+wait 5
+assert widget su-gas#0
+assert widget su-pop
+assert text speed of sound
+screenshot $OUT/03_materials.png
+click su-gas#2
+wait 5
+assert log simulation.ini gas = CO2
+assert log simulation.ini heat_capacity_ratio = 1.289
+click su-gas#0
+wait 5
+assert log simulation.ini gas = air
+click su-step#2
+wait 5
+note the inlet: total pressure and temperature
+click su-b#0>inlet>in-kind
+wait 3
+click text:Total pressure
+wait 5
+click su-b#0>inlet>in-p
+key A ctrl
+enter 11258.333
+wait 3
+assert text Total temperature
+click su-b#0>inlet>in-T
+key A ctrl
+enter 300
+wait 3
+click su-b#1>outlet>out-T
+key A ctrl
+enter 300
+wait 3
+note the outlet's non-reflecting switch is for transient runs
+assert widget su-b#1>outlet>out-nonrefl
+assert text Transient runs only
+click su-b#2>wall>wall-kind#1
+wait 5
+assert log simulation.ini inlet = totalPressure
+assert log simulation.ini wall = slip
+screenshot $OUT/04_boundaries.png
+click su-step#0
+wait 5
+note the Mach number now comes from the total pressure over the outlet's
+assert text Ma ≈ 0.39
+click su-step#3
+wait 5
+click su-T0
+key A ctrl
+enter 300
+wait 3
+click su-step#5
+wait 5
+click su-it
+key A ctrl
+enter 5000
+wait 3
+click su-resp
+key A ctrl
+enter 1e-6
+wait 3
+click su-resu
+key A ctrl
+enter 1e-6
+wait 3
+click su-step#6
+wait 5
+assert text Nothing to fix
+assert text fvOptions
+screenshot $OUT/05_check.png
+click su-check-run
+wait-until page Run
+wait 10
+click run-go
+wait-until job running timeout 30
+wait-until job finished timeout 500
+assert log log.rhoSimpleFoam SIMPLE solution converged
+assert not log log.rhoSimpleFoam FOAM FATAL
+assert log constant/thermophysicalProperties hePsiThermo
+assert log 0/p totalPressure
+screenshot $OUT/06_run.png
+note the exit and inlet Mach numbers against isentropic theory
+shell bash -c '. "$WM_PROJECT_DIR/etc/bashrc" > /dev/null 2>&1; postProcess -latestTime -func "patchAverage(name=outlet,Ma)" > log.out 2>&1; postProcess -latestTime -func "patchAverage(name=inlet,Ma)" > log.in 2>&1'
+shell python3 -c "g=lambda f: float([l for l in open(f) if 'areaAverage(' in l and ' of Ma' in l][-1].split('=')[1]); o,i=g('log.out'),g('log.in'); ok=abs(o-0.39090)/0.39090<0.02 and abs(i-0.18215)/0.18215<0.02; open('mach.txt','w').write('exit %.4f inlet %.4f %s\n' % (o, i, 'MACH OK' if ok else 'MACH OFF'))"
+assert log mach.txt MACH OK

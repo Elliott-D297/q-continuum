@@ -1,0 +1,67 @@
+# 2-D with SALOME (user request 2026-10-26: snappyHexMesh's airfoil meshes weren't good enough): the user's NACA profile in a
+# wind tunnel, cut out as CAD and meshed by NETGEN with boundary layers all round, extruded one cell. The mesh must come out
+# with its patches (the profile, the tunnel's, front2D and back2D empty) and the flow must run on it: thin layers against
+# much larger triangles made simpleFoam diverge, so the script holds the outer layer to the surface cells.
+# Skipped without SALOME (~/salome/SALOME-*).
+budget p95 80 max 600
+shell ls -d ~/salome/SALOME-*/salome > /dev/null 2>&1 || exit 77
+shell mkdir -p $SB/ws/naca/system && cp "$QC_TESTS/tools/NACA_Airfoil.STL" $SB/ws/NACA_Airfoil.STL && printf 'FoamFile { version 2.0; format ascii; class dictionary; object controlDict; }\napplication simpleFoam;\nstartTime 0;\nendTime 10;\ndeltaT 1;\nwriteControl timeStep;\nwriteInterval 10;\n' > $SB/ws/naca/system/controlDict
+open $SB/ws/naca
+click nav:mesh
+wait-until page Mesh
+click text:STL mesher
+wait 5
+click stl-path
+enter $SB/ws/NACA_Airfoil.STL
+wait 10
+click stl-units#2
+wait 10
+click stl-next
+wait 3
+click stl-domain#1
+wait 10
+click stl-flow#2
+wait 10
+click stl-2d-fix
+wait 10
+assert log mesher/mesher.ini two_d = 1
+click stl-next
+wait 3
+click stl-next
+wait 3
+click stl-mesher
+wait 3
+click text:Tetrahedral: SALOME NETGEN
+wait 5
+assert log mesher/mesher.ini mesher = tet
+assert text SALOME cuts the profile out as CAD
+screenshot $OUT/1_settings.png
+click stl-next
+wait 3
+click stl-gen
+wait-until job running timeout 20
+wait-until job finished timeout 600
+assert log log.salome boundary layers
+assert log log.salome 2-D: 1 loop
+assert log constant/polyMesh/boundary front2D
+assert log constant/polyMesh/boundary empty
+assert log constant/polyMesh/boundary farfield
+assert log log.checkMesh Mesh has 2 solution (non-empty) directions
+screenshot $OUT/2_meshed.png
+click nav:physics
+wait-until page Physics
+wait 5
+click wf-next
+wait 10
+assert file 0/U
+shell foamDictionary system/controlDict -entry endTime -set 300 > /dev/null && foamDictionary system/controlDict -entry writeInterval -set 300 > /dev/null
+wait 20
+click nav:run
+wait-until page Run
+wait 10
+click wf-next
+wait-until job running timeout 30
+wait-until job finished timeout 600
+assert log log.simpleFoam End
+assert not log log.simpleFoam FOAM FATAL
+assert not log log.simpleFoam Signal: Floating point exception

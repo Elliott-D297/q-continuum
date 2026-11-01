@@ -1,0 +1,134 @@
+# Setup plan step 2 (2026-10-27): "What are you simulating?" on a duct STL. Internal flow (suits the part: flow through it)
+# from the STL to a finished steady run, then Change > Resolved turbulence (LES WALE, PISO) and a short transient run, on
+# the same mesh. Only what a user would click: the template card, the step list, Next, the step bar.
+budget p95 60 max 400
+shell mkdir -p $SB/ws/duct/system && python3 -c "import itertools;L=(0.4,0.1,0.1);P=lambda a,b,c:(a*L[0],b*L[1],c*L[2]);F=[(P(0,0,0),P(0,0,1),P(0,1,1),P(0,1,0)),(P(1,0,0),P(1,1,0),P(1,1,1),P(1,0,1)),(P(0,0,0),P(1,0,0),P(1,0,1),P(0,0,1)),(P(0,1,0),P(0,1,1),P(1,1,1),P(1,1,0)),(P(0,0,0),P(0,1,0),P(1,1,0),P(1,0,0)),(P(0,0,1),P(1,0,1),P(1,1,1),P(0,1,1))];o=open('$SB/ws/duct.stl','w');o.write('solid duct\n');[o.write('facet normal 0 0 0\nouter loop\n'+''.join('vertex %g %g %g\n'%v for v in t)+'endloop\nendfacet\n') for q in F for t in ((q[0],q[1],q[2]),(q[0],q[2],q[3]))];o.write('endsolid duct\n')" && printf 'FoamFile { version 2.0; format ascii; class dictionary; object controlDict; }\napplication simpleFoam;\nstartTime 0;\nendTime 10;\ndeltaT 1;\nwriteControl timeStep;\nwriteInterval 10;\n' > $SB/ws/duct/system/controlDict
+open $SB/ws/duct
+click nav:mesh
+wait-until page Mesh
+click text:STL mesher
+wait 5
+click stl-path
+enter $SB/ws/duct.stl
+wait 10
+click stl-next
+wait 3
+click stl-next
+wait 3
+click stl-b#4>name
+key a ctrl
+enter inlet
+wait 3
+click stl-b#4>type
+wait 2
+click text:Inlet
+wait 3
+click stl-b#5>name
+key a ctrl
+enter outlet
+wait 3
+click stl-b#5>type
+wait 2
+click text:Outlet
+wait 3
+# Physics before meshing: the template cards, Internal flow marked as suiting the part
+click nav:physics
+wait-until page Physics
+wait 10
+assert text What are you simulating?
+assert text Suits your part: flow through it
+assert widget su-tmpl#1
+screenshot $OUT/01_templates.png
+click su-tmpl#1
+wait 10
+assert log simulation.ini template = internalFlow
+assert log simulation.ini flow = steady
+assert log simulation.ini turbulence = kOmegaSST
+assert log mesher/mesher.ini prism_layers_on = 1
+screenshot $OUT/02_models.png
+# Next through the steps a beginner sees, none opened past its defaults
+click su-next
+wait 5
+assert text Density 1.204
+click su-next
+wait 5
+assert widget su-b#4>inlet>in-speed
+screenshot $OUT/03_boundaries.png
+click su-next
+wait 5
+assert widget su-u0#0
+assert not widget su-ti
+click su-next
+wait 5
+assert widget su-forces
+click su-next
+wait 5
+click su-it
+key A ctrl
+enter 40
+wait 5
+assert log simulation.ini iterations = 40
+click su-next
+wait 5
+assert text Nothing to fix
+screenshot $OUT/04_check.png
+# mesh, write, run from the step bar
+click wf-next
+wait-until job running timeout 20
+wait-until job finished timeout 300
+assert log log.checkMesh Mesh OK.
+click nav:physics
+wait-until page Physics
+wait 10
+click su-check-run
+wait-until page Run
+wait 10
+click run-go
+wait-until job running timeout 30
+wait-until job finished timeout 300
+assert log log.simpleFoam End
+assert not log log.simpleFoam FOAM FATAL
+screenshot $OUT/05_ran_internal.png
+# another template on the same mesh: Resolved turbulence, a few PISO steps
+click nav:physics
+wait-until page Physics
+wait 10
+click su-step#0
+wait 5
+click su-tmpl-change
+wait 10
+assert widget su-tmpl-cancel
+click su-tmpl#3
+wait 10
+assert log simulation.ini template = resolvedTurbulence
+assert log simulation.ini turbulence = WALE
+assert log simulation.ini algorithm = PISO
+assert widget su-algo#0
+click su-step#5
+wait 5
+assert text Fixed time step
+click su-et
+key A ctrl
+enter 0.01
+wait 5
+click su-wt
+key A ctrl
+enter 0.01
+wait 5
+screenshot $OUT/06_resolved_solver.png
+click su-step#6
+wait 5
+assert text pisoFoam
+click su-check-run
+wait-until page Run
+wait 10
+click run-go
+note the steady results are still there: start over
+wait-until widget m-rr-over timeout 30
+click m-rr-over
+wait-until job running timeout 30
+wait-until job finished timeout 300
+assert log log.pisoFoam End
+assert not log log.pisoFoam FOAM FATAL
+assert log constant/turbulenceProperties LESModel        WALE;
+screenshot $OUT/07_ran_resolved.png

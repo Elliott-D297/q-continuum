@@ -1,0 +1,58 @@
+# STL to a converged run through the GUI steps (user request 2026-10-26): a bare duct STL, its ends named inlet and outlet
+# by clicking, meshed, the physics set and the case files written from Physics > Setup, then run from the step bar.
+budget p95 60 max 400
+shell mkdir -p $SB/ws/duct/system && python3 -c "import itertools;L=(0.4,0.1,0.1);P=lambda a,b,c:(a*L[0],b*L[1],c*L[2]);F=[(P(0,0,0),P(0,0,1),P(0,1,1),P(0,1,0)),(P(1,0,0),P(1,1,0),P(1,1,1),P(1,0,1)),(P(0,0,0),P(1,0,0),P(1,0,1),P(0,0,1)),(P(0,1,0),P(0,1,1),P(1,1,1),P(1,1,0)),(P(0,0,0),P(0,1,0),P(1,1,0),P(1,0,0)),(P(0,0,1),P(1,0,1),P(1,1,1),P(0,1,1))];o=open('$SB/ws/duct.stl','w');o.write('solid duct\n');[o.write('facet normal 0 0 0\nouter loop\n'+''.join('vertex %g %g %g\n'%v for v in t)+'endloop\nendfacet\n') for q in F for t in ((q[0],q[1],q[2]),(q[0],q[2],q[3]))];o.write('endsolid duct\n')" && printf 'FoamFile { version 2.0; format ascii; class dictionary; object controlDict; }\napplication simpleFoam;\nstartTime 0;\nendTime 10;\ndeltaT 1;\nwriteControl timeStep;\nwriteInterval 10;\n' > $SB/ws/duct/system/controlDict
+open $SB/ws/duct
+click nav:mesh
+wait-until page Mesh
+click text:STL mesher
+wait 5
+click stl-path
+enter $SB/ws/duct.stl
+wait 10
+assert text 6 boundaries
+screenshot $OUT/01_loaded.png
+click stl-next
+wait 3
+click stl-next
+wait 3
+assert text Internal flow needs
+click stl-b#4>name
+key a ctrl
+enter inlet
+wait 3
+click stl-b#4>type
+wait 2
+click text:Inlet
+wait 3
+click stl-b#5>name
+key a ctrl
+enter outlet
+wait 3
+click stl-b#5>type
+wait 2
+click text:Outlet
+wait 3
+assert file mesher/mesher.ini
+assert log mesher/mesher.ini = inlet Inlet
+assert log mesher/mesher.ini = outlet Outlet
+screenshot $OUT/02_named.png
+click wf-next
+wait-until job running timeout 20
+wait-until job finished timeout 300
+assert log log.checkMesh Mesh OK.
+assert log constant/polyMesh/boundary inlet
+click nav:mesh
+wait 5
+screenshot $OUT/03_meshed.png
+click wf-next
+wait 5
+assert file 0/U
+assert log system/controlDict simpleFoam
+assert log 0/U surfaceNormalFixedValue
+screenshot $OUT/04_written.png
+click wf-next
+wait-until job running timeout 30
+wait-until job finished timeout 300
+assert log log.simpleFoam End
+screenshot $OUT/05_ran.png

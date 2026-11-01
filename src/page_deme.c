@@ -52,7 +52,8 @@ static void detect(void)
     if (D.detected) return;
     D.detected = true;
     const char *pats[] = { "%s/src/DEM-Engine/build/DEME/DEMEConfig.cmake", "%s/DEM-Engine/build/DEME/DEMEConfig.cmake",
-                           "%s/src/*/build/DEME/DEMEConfig.cmake", "/usr/local/lib/cmake/DEME/DEMEConfig.cmake", NULL };
+                           "%s/src/*/build/DEME/DEMEConfig.cmake", "%s/opt/deme-*/lib/cmake/DEME/DEMEConfig.cmake",
+                           "/usr/local/lib/cmake/DEME/DEMEConfig.cmake", NULL };
     for (int i = 0; pats[i] && !D.demeDir[0]; i++) {
         char pat[PL_PATH]; snprintf(pat, sizeof pat, pats[i], pl_home());
         glob_t g;

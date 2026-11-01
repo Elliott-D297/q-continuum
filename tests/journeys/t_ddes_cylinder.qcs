@@ -1,0 +1,74 @@
+# Turbulence and walls (setup plan step 5, 2026-11-01): a 3-D square cylinder (0.1 m, Re about 6.6e3) set up in
+# Physics > Setup from the Resolved turbulence template, switched to DES (Spalart-Allmaras DDES), whose walls are resolved
+# by default. A short PISO run averages the flow from the automatic start (40 % of the end time): fieldAverage writes
+# UMean, UPrime2Mean and pMean. The Run page then shows the walls' actual y+ (the yPlus function object) and, the mesh
+# being far too coarse to resolve the wall, says what to change.
+budget p95 80 max 600
+shell mkdir -p $SB/ws/sqcyl/system && python3 $QC_TESTS/tools/square_cylinder_mesh.py > $SB/ws/sqcyl/system/blockMeshDict && printf 'FoamFile { version 2.0; format ascii; class dictionary; object controlDict; }\napplication pisoFoam;\nstartTime 0;\nendTime 1;\ndeltaT 1;\nwriteControl timeStep;\nwriteInterval 1;\n' > $SB/ws/sqcyl/system/controlDict && cd $SB/ws/sqcyl && bash -c '. "$WM_PROJECT_DIR/etc/bashrc" > /dev/null 2>&1; blockMesh > log.blockMesh 2>&1'
+open $SB/ws/sqcyl
+click nav:physics
+wait-until page Physics
+wait 10
+assert enabled su-tmpl#3
+click su-tmpl#3
+wait 10
+assert log simulation.ini turbulence = WALE
+note LES walls are resolved by default
+assert text Automatic (resolved)
+click su-appr#3
+wait 5
+assert log simulation.ini turbulence = SpalartAllmarasDDES
+assert text Automatic (resolved)
+note no STL: the y+ helper asks for a size
+assert text The y+ helper needs the part's size
+screenshot $OUT/01_models.png
+note Spalart-Allmaras DDES can also take wall functions: the choice stays open
+assert enabled su-wall#1
+click su-step#2
+wait 5
+note the symmetry planes come from the patches' names
+assert log simulation.ini role = symmetry
+note the inlet's turbulence by viscosity ratio
+click su-b#0>inlet>in-tspec
+wait 3
+click text:Viscosity ratio
+wait 5
+assert widget su-b#0>inlet>in-ratio
+assert log simulation.ini turbulence_by = viscosityRatio
+screenshot $OUT/02_inlet.png
+click su-step#5
+wait 5
+click su-et
+key A ctrl
+enter 0.4
+wait 3
+click su-dt
+key A ctrl
+enter 0.002
+wait 3
+note the averaging starts by itself at 40 % of the end time
+assert widget su-avgmode#0
+assert log simulation.ini averaging_start = auto
+screenshot $OUT/03_solver.png
+click su-step#6
+wait 5
+assert text Nothing to fix
+click su-check-run
+wait-until page Run
+wait 10
+click run-go
+wait-until job running timeout 30
+wait-until job finished timeout 600
+assert log log.pisoFoam End
+assert not log log.pisoFoam FOAM FATAL
+assert log system/controlDict fieldAverage
+assert log system/controlDict timeStart       0.16
+assert file 0.4/UMean
+assert file 0.4/UPrime2Mean
+assert file 0.4/pMean
+assert file 0.4/yPlus
+note the walls' y+ on the Run page, and what to change: the cells are far too big to resolve the wall
+wait-until widget run-yplus timeout 30
+assert widget run-yplus-advice
+note the whole advice: on its own line, or in the chip's tooltip in a short chart
+screenshot $OUT/04_run.png

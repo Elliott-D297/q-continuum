@@ -35,13 +35,18 @@ void app_generate_mesh(void)
     bool sn = pl_is_file(p);
     if (!bm && !sn) { ui_toast(TOAST_WARN, "This case has no blockMeshDict or snappyHexMeshDict in system/"); return; }
     if (!app_require_foam() || !app_can_start()) return;
+    case_rescan(A.cs);
+    if (case_has_results(&A.cs->s)) {                      /* fields on the old mesh: the Clean dialog, then this again */
+        app_clean_then("The results were computed on the mesh that is about to be replaced, so they go first.", app_generate_mesh);
+        return;
+    }
     app_save_all(true);
     job_reset(A.cj, "Mesh");
     if (bm) job_add(A.cj, "blockMesh", "blockMesh", "blockMesh", "log.blockMesh", false);
     if (sn) {
         pl_join(p, sizeof p, A.cs->s.path, "system/surfaceFeatureExtractDict");
         if (pl_is_file(p)) job_add(A.cj, "surfaceFeatureExtract", "surfaceFeatureExtract", "surfaceFeatureExtract", "log.surfaceFeatureExtract", false);
-        job_add(A.cj, "snappyHexMesh", "snappyHexMesh", "snappyHexMesh -overwrite", "log.snappyHexMesh", false);
+        job_add(A.cj, "snappyHexMesh", "snappyHexMesh", SNAPPY_CMD, "log.snappyHexMesh", false);
     }
     job_add(A.cj, "checkMesh", "checkMesh", "checkMesh", "log.checkMesh", false);
     CaseSummary *cs = &A.cs->s;
@@ -521,10 +526,11 @@ void page_mesh(Rectangle r)
     snprintf(sub, sizeof sub, mt ? "%s builds this mesh from system/%sDict. Change the settings here, then generate the mesh again."
                                  : c->s.meshed ? "This case brings its own mesh in constant/polyMesh."
                                                : "No mesh yet, and no blockMeshDict to make one: build it on the SALOME tab, or convert one into constant/polyMesh.", mt, mt);
-    if (A.meshTab == 1) snprintf(sub, sizeof sub, "SALOME builds this mesh from salome/mesh.py; ideasUnvToFoam converts it.");
+    if (A.meshTab == 1) snprintf(sub, sizeof sub, "Import a mesh made in SALOME (MED, UNV) or Gmsh, or build one with a SALOME script.");
     if (A.meshTab == 3) snprintf(sub, sizeof sub, "Mesh any STL: snappyHexMesh here, or SALOME's tetrahedra, polyhedra and body-fitted hexahedra.");
     float bw = ui_button_width(ICON_PLAY, "Generate mesh"), bw2 = ui_button_width(ICON_CIRCLE_CHECK, "Check mesh");
     y += page_header(x, y, w - bw - bw2 - 30, "Mesh", sub);
+    if (A.meshTab == 3 || A.meshTab == 1) y += stl_workflow(c, x, y, w);   /* STL mesher, SALOME (an imported mesh) */
     ui_disable(A.cj->active || !mt);
     if (A.meshTab == 0 && ui_button(ui_id("mesh-gen"), (Rectangle){ x + w - bw, top + 32, bw, 36 }, ICON_PLAY, "Generate mesh", BTN_PRIMARY)) app_generate_mesh();
     ui_disable(A.cj->active || !c->s.meshed);

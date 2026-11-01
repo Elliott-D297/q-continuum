@@ -1,0 +1,41 @@
+# Flow direction (user request 2026-10-26): a blade (chord 0.1 m along y, span 1 m along z, 1 cm thick) meshed in a wind
+# tunnel with the flow along its chord (+Y), not across it: the inlet on the y-min face, the free stream (0 1 0), L the chord.
+budget p95 60 max 400
+shell mkdir -p $SB/ws/blade/system && python3 -c "L=(0.01,0.1,1.0);P=lambda a,b,c:(a*L[0],b*L[1],c*L[2]);F=[(P(0,0,0),P(0,0,1),P(0,1,1),P(0,1,0)),(P(1,0,0),P(1,1,0),P(1,1,1),P(1,0,1)),(P(0,0,0),P(1,0,0),P(1,0,1),P(0,0,1)),(P(0,1,0),P(0,1,1),P(1,1,1),P(1,1,0)),(P(0,0,0),P(0,1,0),P(1,1,0),P(1,0,0)),(P(0,0,1),P(1,0,1),P(1,1,1),P(0,1,1))];o=open('$SB/ws/blade.stl','w');o.write('solid blade\n');[o.write('facet normal 0 0 0\nouter loop\n'+''.join('vertex %g %g %g\n'%v for v in t)+'endloop\nendfacet\n') for q in F for t in ((q[0],q[1],q[2]),(q[0],q[2],q[3]))];o.write('endsolid blade\n')" && printf 'FoamFile { version 2.0; format ascii; class dictionary; object controlDict; }\napplication simpleFoam;\nstartTime 0;\nendTime 10;\ndeltaT 1;\nwriteControl timeStep;\nwriteInterval 10;\n' > $SB/ws/blade/system/controlDict
+open $SB/ws/blade
+click nav:mesh
+wait-until page Mesh
+click text:STL mesher
+wait 5
+click stl-path
+enter $SB/ws/blade.stl
+wait 10
+click stl-next
+wait 3
+click stl-domain#1
+wait 5
+screenshot $OUT/1_cross.png
+click stl-flow#2
+wait 10
+assert log mesher/mesher.ini flow_direction = +y
+assert text along the flow, L = 0.1 m
+screenshot $OUT/2_chord.png
+click wf-next
+wait-until job running timeout 20
+wait-until job finished timeout 400
+assert log log.checkMesh Mesh OK.
+assert log system/blockMeshDict faces ((1 5 4 0));
+click wf-next
+wait 10
+assert file 0/U
+shell foamDictionary system/controlDict -entry endTime -set 30 > /dev/null && foamDictionary system/controlDict -entry writeInterval -set 10 > /dev/null
+wait 20
+click nav:run
+wait-until page Run
+wait 10
+click wf-next
+wait-until job running timeout 30
+wait-until job finished timeout 400
+assert log log.simpleFoam End
+screenshot $OUT/3_ran.png
+assert log 0/U internalField   uniform (0 1 0);

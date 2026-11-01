@@ -94,6 +94,7 @@ bool ui_any_input_focused(void);
 bool ui_input_entered(UiId id);        /* Enter was pressed in it this frame (check after drawing it) */
 bool ui_input_focused(UiId id);
 void ui_focus_input(UiId id);          /* give the input the keyboard when it is next drawn */
+void ui_drop_focus(void);              /* the focused input lets go without committing (what it held belongs elsewhere) */
 void ui_cursor(int cursor);
 void ui_request_frames(int n);        /* keep animating even without input */
 bool  ui_awake(void);                     /* something is changing on screen: draw at the full frame rate */
@@ -134,6 +135,8 @@ float ui_button_width(const char *icon, const char *label);
 bool  ui_checkbox(UiId id, Rectangle r, bool *v, const char *label);
 bool  ui_switch(UiId id, float x, float y, bool *v);
 bool  ui_segmented(UiId id, Rectangle r, const char **items, int n, int *sel);
+/* as ui_segmented; why[i] non-NULL greys option i out, its hover saying why (why may be NULL) */
+bool  ui_segmented_why(UiId id, Rectangle r, const char **items, int n, int *sel, const char *const *why);
 bool  ui_tabs(UiId id, float x, float y, const char **items, int n, int *sel, float *outH);
 bool  ui_input(UiId id, Rectangle r, char *buf, int cap, const char *placeholder, int flags);
 bool  ui_dropdown(UiId id, Rectangle r, const char *current, const char *const *items, int n, int flags,
@@ -145,6 +148,8 @@ void  ui_progress(Rectangle r, float frac, Color c);
 void  ui_spinner(float cx, float cy, float rad, Color c);
 bool  ui_row(UiId id, Rectangle r, bool selected);          /* hoverable list row */
 void  ui_tooltip(Rectangle r, const char *text);
+void  ui_occlude_begin(Rectangle r);        /* a floating control on the page layer: what is under it gets no mouse */
+void  ui_occlude_end(void);
 void  ui_divider(float x, float y, float w);
 
 /* scroll areas */
@@ -185,7 +190,7 @@ typedef struct {
 void ui_register(UiId id, Rectangle r, const char *label);   /* widgets call it; custom clickable areas may too */
 const UiWidget *ui_widget_find(UiId id);                     /* drawn last frame, or NULL */
 const UiWidget *ui_widget_by_label(const char *label);
-bool ui_text_find(const char *s, Rectangle *vis, bool exact); /* text drawn last frame (test mode only) */
+bool ui_text_find(const char *s, Rectangle *vis, Rectangle *whole, bool exact); /* text drawn last frame (test mode only); whole: even scrolled away */
 int  ui_text_dump(char *out, int cap);
 int  ui_toast_count(void);
 const char *ui_toast_text(int i);

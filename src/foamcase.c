@@ -854,10 +854,23 @@ int case_conflicts(const Case *c, int *first)
     return n;
 }
 
+/* the logs of the tools that make a mesh: they describe the mesh, not a run (a missing log.checkMesh is a mesh that never
+   finished, so the STL step bar asked to generate again after every start over) */
+static bool mesh_log(const char *n)
+{
+    static const char *const L[] = { "log.blockMesh", "log.surfaceFeatureExtract", "log.surfaceFeatures", "log.snappyHexMesh",
+        "log.checkMesh", "log.extrudeMesh", "log.meshClear", "log.polyDualMesh", "log.ideasUnvToFoam", "log.gmshToFoam",
+        "log.fluentMeshToFoam", "log.meshImport", "log.salome", "log.createPatch", NULL };
+    for (int i = 0; L[i]; i++) if (!strcmp(n, L[i])) return true;
+    return false;
+}
+
 /* Results, logs, postProcessing, and (TR_ZERO) a 0/ made from 0.orig, (TR_MESH) a mesh blockMesh can make again.
    They go to the case's trash (History > Deleted results) unless permanent; returns items removed. */
 int case_trash_results(Case *c, int what, bool permanent, const char *reason, char *msg, int cap)
 {
+    char pmd[PL_PATH]; pl_join(pmd, sizeof pmd, c->s.path, "constant/polyMesh");
+    bool keepMeshLogs = (what & TR_KEEP_MESH_LOGS) && !(what & TR_MESH) && pl_is_dir(pmd);
     NameList all = { 0 }, take = { 0 };
     pl_list_dir(c->s.path, &all, false, false);
     for (int i = 0; i < all.n; i++) {
@@ -870,7 +883,7 @@ int case_trash_results(Case *c, int what, bool permanent, const char *reason, ch
             if ((what & TR_ZERO) && fabs(t) < 1e-300 && c->s.hasZeroOrig && !strcmp(n, "0")) del = true;   /* regenerated from 0.orig */
         }
         if (pl_starts_with(n, "processor") && pl_is_dir(full)) del = true;
-        if ((what & TR_LOGS) && pl_starts_with(n, "log.") && pl_is_file(full)) del = true;
+        if ((what & TR_LOGS) && pl_starts_with(n, "log.") && pl_is_file(full) && !(keepMeshLogs && mesh_log(n))) del = true;
         if ((what & TR_POST) && !strcmp(n, "postProcessing") && pl_is_dir(full)) del = true;
         if (del) names_add(&take, n);
     }

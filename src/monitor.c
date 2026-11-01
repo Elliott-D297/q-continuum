@@ -93,7 +93,9 @@ static void parse_line(MonFile *f, char *line)
     if (n < 2 || !is_number(g[0], &t)) return;
     static char h[MON_MAX_COLS + 8][96];
     int nh = f->lastHeader[0] ? split_groups(f->lastHeader, h, MON_MAX_COLS + 8) : 0;   /* h[0] = "Time" */
-    push_row(f, t);
+    /* a row per field (fieldMinMax) or per patch (wallHeatFlux) at each time: one row for the time, a column per name */
+    bool named = nh > 1 && (!strcmp(h[1], "field") || !strcmp(h[1], "patch"));
+    if (!(named && f->n > 0 && f->t[f->n - 1] == (float)t)) push_row(f, t);
     char prefix[64] = "";
     for (int i = 1; i < n; i++) {
         const char *hn = i < nh ? h[i] : NULL;
@@ -113,7 +115,7 @@ static void parse_line(MonFile *f, char *line)
                 q = e;
             }
         } else if (is_number(g[i], &v)) set_cell(f, base, v);
-        else if (hn && !strcmp(hn, "field")) pl_strlcpy(prefix, g[i], sizeof prefix);   /* fieldMinMax: rows per field */
+        else if (hn && (!strcmp(hn, "field") || !strcmp(hn, "patch"))) pl_strlcpy(prefix, g[i], sizeof prefix);   /* rows per field or patch */
         /* other words (solver names, true/false) are not plotted */
     }
 }

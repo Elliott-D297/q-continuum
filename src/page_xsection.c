@@ -9,6 +9,7 @@
 #include "app.h"
 #include "rlgl.h"
 #include "xsection.h"
+#include "stlmesh.h"
 
 static struct {
     XSection X;
@@ -29,7 +30,71 @@ static struct {
     int      fitMode;                   /* the next fit: 0 automatic, 1 whole domain, 2 walls */
     /* a 3-D mesh: the cut */
     int      axis; float frac; bool reslice, sliding; char region[64];
+    bool     onPart;                    /* the next cut goes through the middle of the case's STL (not the domain's) */
 } V = { .edges = true, .hoverPoly = -1, .axis = 2, .frac = 0.5f };
+
+/* ============================================================================ the STL's outline in the plane
+ * The case's STL (constant/triSurface/geometry.stl, written by the STL mesher, scaled) cut by the same plane: drawn over
+ * the cells, it shows the part's real shape, also where the mesh hasn't caught it (thinner than its cells) */
+static struct {
+    Stl     s; bool ok;
+    char    path[PL_PATH]; time_t mt;
+    int     axis; float pos; int axU, axV;        /* what the segments below are for */
+    float  *seg; int nSeg, cap;
+} SO;
+
+static void outline_free(void) { if (SO.ok) stl_free(&SO.s); SO.ok = false; free(SO.seg); SO.seg = NULL; SO.nSeg = SO.cap = 0; }
+
+/* the plane: a 3-D cut's, or a 2-D case's own (the middle of the STL across it) */
+static void outline_load(const Case *c)
+{
+    char p[PL_PATH]; pl_join(p, sizeof p, c->s.path, "constant/triSurface/geometry.stl");
+    time_t mt = pl_mtime(p);
+    if (strcmp(p, SO.path) || mt != SO.mt) {
+        outline_free();
+        pl_strlcpy(SO.path, p, sizeof SO.path); SO.mt = mt;
+        if (mt) { memset(&SO.s, 0, sizeof SO.s); SO.ok = stl_load(p, &SO.s); if (SO.ok) stl_split(&SO.s, 0); }   /* split: its bounding box */
+        SO.axis = -1;
+    }
+}
+
+/* the cut through the middle of the part: in a wind tunnel the domain's middle can miss a thin part altogether */
+static bool cut_on_part(const Case *c)
+{
+    outline_load(c);
+    const XSection *x = &V.X;
+    if (!SO.ok || !x->slice || x->sliceHi <= x->sliceLo) return false;
+    int a = x->sliceAxis;
+    float mid = (SO.s.bmin[a] + SO.s.bmax[a]) / 2, f = (mid - x->sliceLo) / (x->sliceHi - x->sliceLo);
+    if (!(f >= 0 && f <= 1)) return false;
+    if (fabsf(f - V.frac) < 1e-4f) return false;
+    V.frac = f;
+    return true;
+}
+
+static void outline_update(const Case *c, const XSection *x)
+{
+    outline_load(c);
+    if (!SO.ok || !x->ok) { SO.nSeg = 0; return; }
+    int ax = x->slice ? x->sliceAxis : 3 - x->axU - x->axV;
+    float pos = x->slice ? x->slicePos : (SO.s.bmin[ax] + SO.s.bmax[ax]) / 2 + (SO.s.bmax[ax] - SO.s.bmin[ax]) * 1.234e-4f;
+    if (ax == SO.axis && pos == SO.pos && x->axU == SO.axU && x->axV == SO.axV) return;
+    SO.axis = ax; SO.pos = pos; SO.axU = x->axU; SO.axV = x->axV; SO.nSeg = 0;
+    for (int t = 0; t < SO.s.nTri; t++) {
+        const float *v = SO.s.tri + 9 * (size_t)t;
+        float d[3] = { v[ax] - pos, v[3 + ax] - pos, v[6 + ax] - pos }, pt[4]; int np = 0;
+        for (int e = 0; e < 3 && np < 4; e++) {
+            int a = e, b = (e + 1) % 3;
+            if ((d[a] < 0) == (d[b] < 0)) continue;           /* this edge doesn't cross the plane */
+            float f = d[a] / (d[a] - d[b]);
+            pt[np++] = v[3 * a + x->axU] + f * (v[3 * b + x->axU] - v[3 * a + x->axU]);
+            pt[np++] = v[3 * a + x->axV] + f * (v[3 * b + x->axV] - v[3 * a + x->axV]);
+        }
+        if (np != 4) continue;
+        if (SO.nSeg == SO.cap) { SO.cap = SO.cap ? SO.cap * 2 : 1024; SO.seg = realloc(SO.seg, sizeof(float) * 4 * (size_t)SO.cap); }
+        memcpy(&SO.seg[4 * SO.nSeg++], pt, sizeof pt);
+    }
+}
 
 /* a perceptual rainbow (Turbo, polynomial fit) */
 static Color turbo(float t)
@@ -93,6 +158,7 @@ static void refresh(const Case *c)
     if (V.reslice) {                                          /* the plane moved: cut again, keep the view and the field */
         V.reslice = false;
         load_mesh(c);
+        if (V.onPart) { V.onPart = false; if (cut_on_part(c)) load_mesh(c); }
         V.dirty = true; V.hoverPoly = -1; V.fieldMtime = 0;
         if (V.field[0]) { char fn[160]; pl_fmt_ui(fn, sizeof fn, "%s%s%s", c->region, c->region[0] ? "/" : "", V.field);
                           if (!xs_load_field(&V.X, c->s.path, V.time, fn)) V.field[0] = 0; }
@@ -111,6 +177,7 @@ static void refresh(const Case *c)
             e[V.X.axU] = V.X.hi[0] - V.X.lo[0]; e[V.X.axV] = V.X.hi[1] - V.X.lo[1]; e[V.X.sliceAxis] = V.X.sliceHi - V.X.sliceLo;
             int thin = 0; for (int k = 1; k < 3; k++) if (e[k] < e[thin]) thin = k;
             if (thin != V.axis) { V.axis = thin; load_mesh(c); }
+            if (cut_on_part(c)) load_mesh(c);              /* through the part, not the tunnel's middle */
         }
         V.fitted = false; V.dirty = true; V.hoverPoly = -1; V.fitMode = 0;
         if (otherCase) V.field[0] = 0;
@@ -221,6 +288,13 @@ static void redraw(Rectangle r)
         float *g = &x->seg[i * 4];
         DrawLineEx((Vector2){ PX(g[0]), PY(g[1]) }, (Vector2){ PX(g[2]), PY(g[3]) }, 2.5f * s, TH.series[x->segPatch[i] % 10]);
     }
+    /* the STL's own outline on top: its real shape, dark under a light rim so it reads over any colour */
+    for (int pass = 0; pass < 2; pass++)
+        for (int i = 0; i < SO.nSeg; i++) {
+            float *g = &SO.seg[i * 4];
+            DrawLineEx((Vector2){ PX(g[0]), PY(g[1]) }, (Vector2){ PX(g[2]), PY(g[3]) }, (pass ? 1.4f : 3.6f) * s,
+                       pass ? (Color){ 255, 255, 255, 235 } : (Color){ 0, 0, 0, 200 });
+        }
 #undef PX
 #undef PY
     rlDrawRenderBatchActive();                 /* draw the batch while culling is still off: polygons come either way round */
@@ -243,6 +317,11 @@ static bool point_in_poly(const XSection *x, int p, float u, float v)
 float xsection_panel(Rectangle r, Case *c, bool compact)
 {
     refresh(c);
+    {   /* the STL outline follows the plane and the file */
+        int ax = SO.axis; float pos = SO.pos; time_t mt = SO.mt; int n = SO.nSeg;
+        outline_update(c, &V.X);
+        if (ax != SO.axis || pos != SO.pos || mt != SO.mt || n != SO.nSeg) V.dirty = true;
+    }
     XSection *x = &V.X;
     float y0 = r.y;
     if (!x->ok) {
@@ -286,9 +365,13 @@ float xsection_panel(Rectangle r, Case *c, bool compact)
         static const char *ax[] = { "Cut across x", "Cut across y", "Cut across z" };
         int a = V.axis;
         if (ui_segmented(ui_id("xs-axis"), (Rectangle){ r.x, cy, 360, 32 }, ax, 3, &a) && a != V.axis) {
-            V.axis = a; V.reslice = true; V.fitted = false;
+            V.axis = a; V.reslice = true; V.fitted = false; V.onPart = true;
         }
-        Rectangle tr = { r.x + 380, cy + 4, r.width - 380 - 190, 24 };
+        float pw = SO.ok ? ui_button_width(NULL, "Through the part") + 12 : 0;   /* back to the middle of the STL */
+        Rectangle tr = { r.x + 380, cy + 4, r.width - 380 - 190 - pw, 24 };
+        if (SO.ok && ui_button(ui_id("xs-on-part"), (Rectangle){ tr.x + tr.width + 12, cy, pw - 12, 32 }, NULL, "Through the part", BTN_GHOST)) {
+            V.onPart = true; V.reslice = true;
+        }
         UiId sid = ui_id("xs-pos");
         ui_register(sid, tr, "slice position");
         ui_rect((Rectangle){ tr.x, tr.y + 9, tr.width, 6 }, 3, TH.lineSoft);

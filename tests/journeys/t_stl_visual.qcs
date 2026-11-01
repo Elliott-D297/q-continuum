@@ -1,0 +1,84 @@
+# The STL mesher's pictures (user request 2026-10-26: 'make sure you do gui testing'): the 3-D view beside or above each
+# step with its overlays, the Up axis picker (z, y, x), Turn about (x, then the 90 degree button, Free again), the flow cards, the mesh preview in Generate and Mesh > View's Up.
+# Run it at other sizes with tests/run_visual_matrix.sh and look at the sheets.
+budget p95 400 max 4000
+shell mkdir -p $SB/ws/a/system && cp $QC_TESTS/tools/NACA_Airfoil.STL $SB/ws/naca.stl && printf 'FoamFile { version 2.0; format ascii; class dictionary; object controlDict; }\napplication simpleFoam;\nstartTime 0;\nendTime 10;\ndeltaT 1;\nwriteControl timeStep;\nwriteInterval 10;\n' > $SB/ws/a/system/controlDict
+open $SB/ws/a
+click nav:mesh
+wait-until page Mesh
+click text:STL mesher
+wait 5
+click stl-path
+enter $SB/ws/naca.stl
+wait 15
+screenshot $OUT/01_geom.png
+click stl-view-up#1
+wait 8
+screenshot $OUT/01b_up_y.png
+click stl-view-up#0
+wait 8
+screenshot $OUT/01c_up_x.png
+click stl-view-up#2
+wait 5
+click stl-view-turn#1
+wait 3
+drag stl-view 160 0
+wait 8
+screenshot $OUT/01d_turn_x.png
+click stl-view-rot#0
+wait 8
+screenshot $OUT/01e_rot90.png
+click stl-view-turn#0
+wait 8
+screenshot $OUT/01f_free.png
+wheel 0 stl-view
+key right
+key right
+wait 8
+screenshot $OUT/01g_keys.png
+click stl-view-fit
+wait 8
+screenshot $OUT/01h_fit.png
+click stl-next
+wait 8
+screenshot $OUT/02_flow.png
+click stl-domain#1
+wait 3
+click stl-flow#2
+wait 3
+click stl-2d-fix
+wait 8
+screenshot $OUT/02b_flow_ext.png
+click stl-next
+wait 5
+click stl-next
+wait 8
+screenshot $OUT/04_mesh.png
+click stl-next
+wait 3
+click stl-gen
+wait-until job running timeout 20
+wait-until job finished timeout 400
+wait 30
+wait 30
+screenshot $OUT/05_gen.png
+wheel -12 text:Build the mesh
+wait 20
+wait 20
+screenshot $OUT/06_preview.png
+click text:View
+wait 10
+click mesh-view-mode#1
+wait 40
+screenshot $OUT/07_view3d.png
+click mv-up#1
+wait 20
+screenshot $OUT/08_view3d_upy.png
+click mv-turn#3
+wait 3
+drag mv-view 200 0
+wait 3
+screenshot $OUT/09_view3d_turn_z.png
+click mv-rot#1
+wait 20
+screenshot $OUT/10_view3d_rot.png

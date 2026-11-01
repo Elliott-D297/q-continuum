@@ -1,0 +1,124 @@
+# The STL step bar on the Run page (bug shakedown, 2026-10-26): a setup never edited still writes its case files done;
+# the bar keeps its boundaries while the mesh is made; a mesh made after the Run page was opened is not made again by
+# the run; controlDict edited elsewhere comes back into the setup; a setup change after a run makes Physics, then Run,
+# out of date; an outlet made an opening is the same mesh; a boundary changed on the Mesh tab is what runs.
+budget p95 60 max 400
+shell mkdir -p $SB/ws/duct/system && python3 -c "import itertools;L=(0.4,0.1,0.1);P=lambda a,b,c:(a*L[0],b*L[1],c*L[2]);F=[(P(0,0,0),P(0,0,1),P(0,1,1),P(0,1,0)),(P(1,0,0),P(1,1,0),P(1,1,1),P(1,0,1)),(P(0,0,0),P(1,0,0),P(1,0,1),P(0,0,1)),(P(0,1,0),P(0,1,1),P(1,1,1),P(1,1,0)),(P(0,0,0),P(0,1,0),P(1,1,0),P(1,0,0)),(P(0,0,1),P(1,0,1),P(1,1,1),P(0,1,1))];o=open('$SB/ws/duct.stl','w');o.write('solid duct\n');[o.write('facet normal 0 0 0\nouter loop\n'+''.join('vertex %g %g %g\n'%v for v in t)+'endloop\nendfacet\n') for q in F for t in ((q[0],q[1],q[2]),(q[0],q[2],q[3]))];o.write('endsolid duct\n')" && printf 'FoamFile { version 2.0; format ascii; class dictionary; object controlDict; }\napplication simpleFoam;\nstartTime 0;\nendTime 10;\ndeltaT 1;\nwriteControl timeStep;\nwriteInterval 10;\n' > $SB/ws/duct/system/controlDict
+open $SB/ws/duct
+click nav:mesh
+wait-until page Mesh
+click text:STL mesher
+wait 5
+click stl-path
+enter $SB/ws/duct.stl
+wait 10
+assert text 6 boundaries
+screenshot $OUT/01_loaded.png
+click stl-next
+wait 3
+click stl-next
+wait 3
+assert text Internal flow needs
+click stl-b#4>name
+key a ctrl
+enter inlet
+wait 3
+click stl-b#4>type
+wait 2
+click text:Inlet
+wait 3
+click stl-b#5>name
+key a ctrl
+enter outlet
+wait 3
+click stl-b#5>type
+wait 2
+click text:Outlet
+wait 3
+assert file mesher/mesher.ini
+note 1: a setup never edited has no simulation.ini: the case files must still come out done, from the Run page
+shell rm -f simulation.ini
+click nav:run
+wait-until page Run
+wait 5
+click wf-next
+wait-until job running timeout 20
+note 2: on Run while the mesh is made: the bar keeps its boundaries
+wait 2
+assert text 1 in, 1 out, 4 walls
+screenshot $OUT/20_run_while_meshing.png
+wait-until job finished timeout 300
+wait 5
+assert log log.checkMesh Mesh OK.
+assert file mesher/mesh.sig
+note the Run page writes the case files itself once the mesh is there (nothing to click)
+wait-until file 0/U timeout 10
+wait 5
+screenshot $OUT/21_run_meshed.png
+assert file simulation.ini
+assert file 0/U
+assert text simpleFoam, k-omega SST
+assert text Run simulation
+screenshot $OUT/22_run_written.png
+note 3: the controlDict edited elsewhere: the setup takes it, and the case files stay done
+shell foamDictionary system/controlDict -entry endTime -set 40 > /dev/null && foamDictionary system/controlDict -entry writeInterval -set 20 > /dev/null
+wait-until log simulation.ini iterations = 40 timeout 10
+assert text simpleFoam, k-omega SST
+assert text Run simulation
+click wf-next
+wait-until job running timeout 30
+wait-until job finished timeout 300
+wait 5
+assert text Results to 40
+shell rm -f .qc-no-remesh; [ log.snappyHexMesh -ot log.checkMesh ] && touch .qc-no-remesh
+assert file .qc-no-remesh
+assert text Open in ParaView
+screenshot $OUT/23_run_done.png
+note 4: a setup change after the run: Physics then Run out of date
+click nav:physics
+wait-until page Physics
+wait 5
+click su-turb
+wait 2
+click text:k-epsilon
+wait 5
+assert text Setup changed: write again
+click wf-next
+wait 5
+assert log constant/turbulenceProperties kEpsilon
+assert text Older than the setup: run again
+screenshot $OUT/24_physics_rewritten.png
+note 5: an outlet made an opening is the same mesh
+click nav:mesh
+wait-until page Mesh
+wait 5
+click stl-step#2
+wait 3
+click stl-b#5>type
+wait 2
+click text:Opening
+wait 5
+click nav:physics
+wait-until page Physics
+wait 5
+assert text Older than the setup: run again
+assert text Write case files
+screenshot $OUT/25_type_swap.png
+assert log log.simpleFoam End
+note 6: a boundary changed on the Mesh tab: the Run page brings the case files up to date, and that is what runs
+click nav:mesh
+wait-until page Mesh
+wait 5
+click stl-step#2
+wait 3
+click stl-b#4>name
+wait 5
+click inlet>in-speed
+key a ctrl
+enter 3
+wait 5
+assert log simulation.ini speed = 3
+click nav:run
+wait-until page Run
+wait-until log 0/U refValue        uniform -3 timeout 10
+assert text simpleFoam, k-epsilon

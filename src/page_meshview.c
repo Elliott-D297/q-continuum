@@ -1,12 +1,13 @@
 /* page_meshview.c -- Mesh > View: the mesh of any case in 3-D. Its boundary surface (xsection.c ms_load), a colour
  * per patch with flat shading, the face outlines when there are few enough to see, a legend to hide patches (the
- * outer walls hide what is inside), and the counts. Drag to turn it, right-drag (or Shift+drag) to move it, the
- * wheel to zoom, double-click to fit. Drawn into a texture only when something changed, so it costs nothing idle. */
+ * outer walls hide what is inside), and the counts. Drag to turn it (freely, or about x, y or z alone: orbit.c), right-drag
+ * (or Shift+drag) to move it, the wheel to zoom, double-click to fit. Drawn into a texture only when something changed, so it costs nothing idle. */
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include "app.h"
+#include "orbit.h"
 #include "rlgl.h"
 #include "xsection.h"
 
@@ -20,11 +21,23 @@ static struct {
     bool      hidden[MS_MAX_PATCHES];
     RenderTexture2D rt; int rtW, rtH; bool rtOk;
     bool      dirty, edges, dragging, panning;
-    float     yaw, pitch, dist;                    /* the camera around the target */
-    Vector3   target;
+    Orbit     O;                                   /* the camera around the target */
     Vector2   last;
     double    lastClick;
-} V = { .edges = true, .yaw = 0.7f, .pitch = 0.45f };
+    int       up;                                  /* the axis kept up, turned about (0 x, 1 y, 2 z; -1: the case's) */
+} V = { .edges = true, .up = -1, .O = { .upAxis = 1, .spin = -1, .back = { 0.583f, 0.434f, 0.687f }, .up = { -0.281f, 0.900f, -0.333f } } };
+
+/* the camera looking along an axis: down onto it when it is up, else level (the up axis' frame: orbit.h) */
+static void look_along(int k)
+{
+    int u = V.O.upAxis;
+    if (k == u) orbit_set(&V.O, 0, 1.5607f);
+    else if (k == (u + 2) % 3) orbit_set(&V.O, 1.5708f, 0);
+    else orbit_set(&V.O, 0, 0);
+    V.dirty = true;
+}
+
+static void set_up(int u) { V.up = u; V.O.upAxis = u; orbit_set(&V.O, 0.7f, 0.45f); }
 
 static Color patch_color(int i, const char *type)
 {
@@ -77,32 +90,20 @@ static void build_models(void)
 static void fit(void)
 {
     const MeshSurf *m = &V.M;
-    V.target = (Vector3){ (m->lo[0] + m->hi[0]) / 2, (m->lo[1] + m->hi[1]) / 2, (m->lo[2] + m->hi[2]) / 2 };
+    V.O.target = (Vector3){ (m->lo[0] + m->hi[0]) / 2, (m->lo[1] + m->hi[1]) / 2, (m->lo[2] + m->hi[2]) / 2 };
     float dx = m->hi[0] - m->lo[0], dy = m->hi[1] - m->lo[1], dz = m->hi[2] - m->lo[2];
     float diag = sqrtf(dx * dx + dy * dy + dz * dz);
-    V.dist = fmaxf(diag, 1e-9f) * 1.9f;
+    V.O.dist = fmaxf(diag, 1e-9f) * 1.9f;
     /* a 2-D case (one thin direction): look straight at its plane */
     float mn = fminf(dx, fminf(dy, dz)), mx = fmaxf(dx, fmaxf(dy, dz));
     if (mx > 0 && mn < mx * 0.02f) {
-        if (dz == mn) { V.yaw = 0; V.pitch = 0; }
-        else if (dy == mn) { V.yaw = 0; V.pitch = 1.5607f; }
-        else { V.yaw = 1.5708f; V.pitch = 0; }
-        V.dist = fmaxf(dx, fmaxf(dy, dz)) * 1.8f;
+        look_along(dz == mn ? 2 : dy == mn ? 1 : 0);
+        V.O.dist = fmaxf(dx, fmaxf(dy, dz)) * 1.8f;
     }
     V.dirty = true;
 }
 
-static Camera3D camera(void)
-{
-    Vector3 off = { V.dist * cosf(V.pitch) * sinf(V.yaw), V.dist * sinf(V.pitch), V.dist * cosf(V.pitch) * cosf(V.yaw) };
-    Camera3D c = { 0 };
-    c.position = (Vector3){ V.target.x + off.x, V.target.y + off.y, V.target.z + off.z };
-    c.target = V.target;
-    c.up = (Vector3){ 0, 1, 0 };
-    c.fovy = 35;
-    c.projection = CAMERA_PERSPECTIVE;
-    return c;
-}
+static Camera3D camera(void) { return orbit_camera(&V.O); }
 
 static void redraw(Rectangle r)
 {
@@ -121,14 +122,14 @@ static void redraw(Rectangle r)
     rlDrawRenderBatchActive();
     Camera3D cam = camera();
     BeginMode3D(cam);
-    rlSetClipPlanes(V.dist * 0.01, V.dist * 20.0);
+    rlSetClipPlanes(V.O.dist * 0.01, V.O.dist * 20.0);
     rlDisableBackfaceCulling();
     for (int p = 0; p < V.M.nPatch; p++) if (V.hasModel[p] && !V.hidden[p]) DrawModel(V.model[p], (Vector3){ 0, 0, 0 }, 1, WHITE);
     if (V.edges && V.M.edge) {
         /* outlines a hair in front of the faces: drawn after them with a little depth offset toward the camera */
         Color ec = TH.dark ? (Color){ 0, 0, 0, 120 } : (Color){ 20, 30, 50, 90 };
         Vector3 to = { cam.position.x - cam.target.x, cam.position.y - cam.target.y, cam.position.z - cam.target.z };
-        float tl = sqrtf(to.x * to.x + to.y * to.y + to.z * to.z); float k = V.dist * 0.0015f / fmaxf(tl, 1e-12f);
+        float tl = sqrtf(to.x * to.x + to.y * to.y + to.z * to.z); float k = V.O.dist * 0.0015f / fmaxf(tl, 1e-12f);
         to.x *= k; to.y *= k; to.z *= k;
         rlBegin(RL_LINES);
         rlColor4ub(ec.r, ec.g, ec.b, ec.a);
@@ -146,16 +147,7 @@ static void redraw(Rectangle r)
     rlSetClipPlanes(RL_CULL_DISTANCE_NEAR, RL_CULL_DISTANCE_FAR);
     /* the axes, bottom left */
     float ax = 46 * s, ay = h - 46 * s, al = 28 * s;
-    float cy = cosf(V.yaw), sy = sinf(V.yaw), cp = cosf(V.pitch), sp = sinf(V.pitch);
-    /* screen projection of the world axes for this orbit: right = (cos yaw, 0, -sin yaw), up = (-sin p sin y, cos p, -sin p cos y) */
-    struct { float x, y, z; Color c; const char *n; } AX[3] = { { 1, 0, 0, { 230, 80, 70, 255 }, "x" }, { 0, 1, 0, { 90, 190, 90, 255 }, "y" },
-                                                                 { 0, 0, 1, { 80, 140, 240, 255 }, "z" } };
-    for (int i = 0; i < 3; i++) {
-        float sxv = AX[i].x * cy - AX[i].z * sy;
-        float syv = -AX[i].x * sp * sy + AX[i].y * cp - AX[i].z * sp * cy;
-        DrawLineEx((Vector2){ ax, ay }, (Vector2){ ax + sxv * al, ay - syv * al }, 2.5f * s, AX[i].c);
-        DrawTextEx(GetFontDefault(), AX[i].n, (Vector2){ ax + sxv * (al + 8 * s) - 3 * s, ay - syv * (al + 8 * s) - 6 * s }, 12 * s, 1, AX[i].c);
-    }
+    orbit_draw_axes(&V.O, ax, ay, al, s);
     EndTextureMode();
     ui_restore_2d();
     V.dirty = false;
@@ -174,10 +166,11 @@ float meshview_panel(Rectangle r, Case *c)
     char own[PL_PATH]; pl_join(own, sizeof own, dir, "owner");
     time_t mt = pl_mtime(own);
     if (strcmp(V.path, dir) || mt != V.mt) {               /* another case or region, or a new mesh */
+        if (strcmp(V.path, dir)) V.up = -1;                /* another case: its own up */
         pl_strlcpy(V.path, dir, sizeof V.path); V.mt = mt;
         ms_load(&V.M, dir, MAX_EDGES);
         memset(V.hidden, 0, sizeof V.hidden);
-        if (V.M.ok) { build_models(); fit(); }
+        if (V.M.ok) { if (V.up < 0) { int su = stlmesh_up_axis(c); set_up(su >= 0 ? su : 1); } build_models(); fit(); }
         else unload_models();
         V.dirty = true;
     }
@@ -202,7 +195,7 @@ float meshview_panel(Rectangle r, Case *c)
     snprintf(cells, sizeof cells, "%ld", m->nCells); snprintf(faces, sizeof faces, "%ld", m->nFaces); snprintf(pts, sizeof pts, "%ld", m->nPoints);
     pl_fmt_ui(t, sizeof t, "%s cells  ·  %s faces  ·  %s points  ·  %d patches  ·  %.4g x %.4g x %.4g m", cells, faces, pts, m->nPatch,
               m->hi[0] - m->lo[0], m->hi[1] - m->lo[1], m->hi[2] - m->lo[2]);
-    ui_text_clip(F_MED, 13, t, r.x, y + 9, r.width - 300, TH.text2);
+    ui_text_clip(F_MED, 13, t, r.x, y + 9, r.width - 540, TH.text2);   /* clear of the tools at the right */
     /* tools */
     float bx = r.x + r.width;
     float fw = ui_button_width(ICON_REFRESH_CW, "Fit");
@@ -213,9 +206,20 @@ float meshview_panel(Rectangle r, Case *c)
         bx -= 38;
         char lab[8]; snprintf(lab, sizeof lab, "%s", views[k]);
         if (ui_button(ui_idn(ui_id("mv-axis"), k), (Rectangle){ bx, y, 34, 32 }, NULL, lab, BTN_SECONDARY)) {
-            V.yaw = k == 0 ? 1.5708f : 0; V.pitch = k == 1 ? 1.5607f : 0; V.dirty = true;
+            look_along(k);
         }
-        ui_tooltip((Rectangle){ bx, y, 34, 32 }, k == 0 ? "Look along -x" : k == 1 ? "Look down -y" : "Look along -z");
+        ui_tooltip((Rectangle){ bx, y, 34, 32 }, k == 0 ? "Look along x" : k == 1 ? "Look along y" : "Look along z");
+    }
+    ui_text(F_MED, 12, ui_cap("Look"), bx - 34, y + 9, TH.text2);    /* the buttons above: look along an axis */
+    bx -= 34;
+    {   /* which axis is up, turned about */
+        static const char *ax[] = { "X", "Y", "Z" };
+        bx -= 136;
+        int uu = V.up < 0 ? 1 : V.up;
+        ui_text(F_MED, 12, ui_cap("Up"), bx - 26, y + 9, TH.text2);
+        if (ui_segmented(ui_id("mv-up"), (Rectangle){ bx, y, 120, 32 }, ax, 3, &uu) && uu != V.up) { set_up(uu); fit(); }
+        ui_tooltip((Rectangle){ bx, y, 120, 32 }, "The axis that points up in the view");
+        bx -= 30;
     }
     bx -= 120;
     bool ed = V.edges;
@@ -229,7 +233,8 @@ float meshview_panel(Rectangle r, Case *c)
     float lw = fminf(260, r.width * 0.28f);
     Rectangle view = { r.x, y, r.width - lw - 14, fmaxf(360, r.height - (y - r.y)) };
     ui_rect(view, 12, TH.dark ? (Color){ 10, 14, 22, 255 } : (Color){ 236, 240, 247, 255 });
-    bool hov = ui_hovered(view) && A.modal == MD_NONE;
+    Rectangle turnR = { view.x + 12, view.y + 10, orbit_tools_w(false) + 16, 40 };   /* drawn over the view, top left */
+    bool hov = ui_hovered(view) && !ui_hovered(turnR) && A.modal == MD_NONE;
     Vector2 mp = ui_mouse();
     if (hov && ui_pressed(view)) {
         if (ui_time() - V.lastClick < 0.35) { fit(); V.lastClick = 0; }
@@ -244,19 +249,8 @@ float meshview_panel(Rectangle r, Case *c)
         else {
             float dx = mp.x - V.last.x, dy = mp.y - V.last.y;
             if (dx != 0 || dy != 0) {
-                if (V.dragging) {
-                    V.yaw -= dx * 0.008f;
-                    V.pitch += dy * 0.008f;
-                    if (V.pitch > 1.5607f) V.pitch = 1.5607f;
-                    if (V.pitch < -1.5607f) V.pitch = -1.5607f;
-                } else {
-                    float k = V.dist * 0.0016f;
-                    float cy = cosf(V.yaw), sy = sinf(V.yaw), cp = cosf(V.pitch), sp = sinf(V.pitch);
-                    Vector3 right = { cy, 0, -sy }, up = { -sp * sy, cp, -sp * cy };
-                    V.target.x += (-dx * right.x + dy * up.x) * k;
-                    V.target.y += (-dx * right.y + dy * up.y) * k;
-                    V.target.z += (-dx * right.z + dy * up.z) * k;
-                }
+                if (V.dragging) orbit_drag(&V.O, V.last, mp, (Vector2){ view.x + view.width / 2, view.y + view.height / 2 });
+                else orbit_pan(&V.O, dx, dy);
                 V.dirty = true;
             }
             V.last = mp;
@@ -264,8 +258,9 @@ float meshview_panel(Rectangle r, Case *c)
         }
     }
     if (hov) {
+        if (orbit_keys(&V.O)) V.dirty = true;
         float wh = ui_take_wheel();
-        if (wh != 0) { V.dist *= powf(0.88f, wh); V.dirty = true; }
+        if (wh != 0) { V.O.dist *= powf(0.88f, wh); V.dirty = true; }
         ui_cursor(V.panning ? MOUSE_CURSOR_RESIZE_ALL : MOUSE_CURSOR_POINTING_HAND);
     }
     if (V.dirty) redraw(view);
@@ -273,7 +268,12 @@ float meshview_panel(Rectangle r, Case *c)
         DrawTexturePro(V.rt.texture, (Rectangle){ 0, 0, (float)V.rtW, -(float)V.rtH }, view, (Vector2){ 0, 0 }, 0, WHITE);
     }
     ui_rect_lines(view, 12, 1, TH.lineSoft);
-    ui_text(F_REG, 12, "Drag to turn  ·  right-drag or Shift+drag to move  ·  wheel to zoom  ·  double-click to fit", view.x + 14, view.y + view.height - 22,
+    ui_register(ui_id("mv-view"), view, "Mesh view");
+    ui_rect(turnR, 9, ui_alpha(TH.surface, 0.82f));
+    if (orbit_tools(&V.O, "mv", turnR.x + 8, turnR.y + 5, false)) V.dirty = true;
+    char how[200]; snprintf(how, sizeof how, "%s  ·  right-drag or Shift+drag to move  ·  wheel to zoom  ·  double-click to fit", orbit_hint(&V.O));
+    how[0] = (char)(how[0] - 'a' + 'A');
+    ui_text_clip(F_REG, 12, how, view.x + 96, view.y + view.height - 22, view.width - 110,            /* right of the axes */
             TH.dark ? (Color){ 200, 210, 230, 160 } : (Color){ 60, 70, 90, 170 });
     /* legend: click a patch to hide or show it */
     float lx = view.x + view.width + 14, ly = y;

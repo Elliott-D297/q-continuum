@@ -1,0 +1,80 @@
+# Lift and drag (user request 2026-10-26: "force coefficients to monitor lift and drag, both 2-D and 3-D"): the NACA profile
+# meshed 2-D in a wind tunnel, Monitor forces switched on in Physics > Setup (reference from the part: chord 1 m, area
+# chord x depth), the case run, and postProcessing/forceCoeffs written with Cd and Cl, which the Run page plots.
+budget p95 80 max 600
+shell mkdir -p $SB/ws/naca/system && cp "$QC_TESTS/tools/NACA_Airfoil.STL" $SB/ws/NACA_Airfoil.STL && printf 'FoamFile { version 2.0; format ascii; class dictionary; object controlDict; }\napplication simpleFoam;\nstartTime 0;\nendTime 10;\ndeltaT 1;\nwriteControl timeStep;\nwriteInterval 10;\n' > $SB/ws/naca/system/controlDict
+open $SB/ws/naca
+click nav:mesh
+wait-until page Mesh
+click text:STL mesher
+wait 5
+click stl-path
+enter $SB/ws/NACA_Airfoil.STL
+wait 10
+click stl-units#2
+wait 10
+click stl-next
+wait 3
+click stl-domain#1
+wait 10
+click stl-flow#2
+wait 10
+click stl-2d-fix
+wait 10
+click wf-next
+wait-until job running timeout 20
+wait-until job finished timeout 400
+assert log log.checkMesh Mesh OK.
+click nav:physics
+wait-until page Physics
+wait 5
+# External aero (setup plan step 2) switches lift and drag on; they are on the Reports step
+click su-tmpl#0
+wait 10
+assert log simulation.ini template = externalAero
+click su-step#4
+wait 10
+assert text Reference values
+assert log simulation.ini forces = 1
+assert log simulation.ini reference_length = 1
+screenshot $OUT/1_forces.png
+wait 10
+screenshot $OUT/2_forces_ref.png
+# the residual stop (user, 2026-10-26: "why did it stop here?"): its targets are settings, and off means no residualControl
+click su-step#5
+wait 5
+click su-res
+wait 10
+assert log simulation.ini stop_on_residuals = 0
+click su-write
+wait 10
+assert not log system/fvSolution residualControl
+click su-res
+wait 10
+assert log simulation.ini stop_on_residuals = 1
+assert widget su-resp
+screenshot $OUT/2b_residuals.png
+click su-write
+wait 10
+assert log system/controlDict type            forceCoeffs;
+assert log system/controlDict liftDir         (0 0 1);
+assert log system/controlDict dragDir         (0 1 0);
+assert not log system/controlDict patches         ();
+shell foamDictionary system/controlDict -entry endTime -set 60 > /dev/null && foamDictionary system/controlDict -entry writeInterval -set 60 > /dev/null
+wait 20
+click nav:run
+wait-until page Run
+wait 10
+click wf-next
+wait-until job running timeout 30
+wait-until job finished timeout 400
+assert log log.simpleFoam End
+assert not log log.simpleFoam FOAM FATAL
+assert file postProcessing/forceCoeffs/0/coefficient.dat
+assert log postProcessing/forceCoeffs/0/coefficient.dat Cl
+wait 30
+screenshot $OUT/3_run.png
+wait-until widget run-coeffs timeout 30
+click run-coeffs
+wait 20
+screenshot $OUT/4_coeffs.png

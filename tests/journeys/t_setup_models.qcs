@@ -1,0 +1,118 @@
+# Step 1 of the setup plan (user, 2026-10-27: "make sure you can pick rans or multiple types of transient solvers"):
+# on pitzDaily's mesh, Physics > Setup picks the turbulence approach (RANS, LES, DES) and the transient algorithm, keeps
+# them consistent (LES makes the run transient; a steady run gives LES up), writes LES WALE for pisoFoam and runs it.
+# Step 2 (2026-10-27): a new setup asks what is simulated first (template cards), then the step list on the left.
+budget p95 80 max 600
+shell cp -r "$FOAM_TUTORIALS/incompressible/simpleFoam/pitzDaily" $SB/ws/pz && cd $SB/ws/pz && rm -rf 0 constant/transportProperties constant/turbulenceProperties && blockMesh > log.blockMesh 2>&1
+open $SB/ws/pz
+click nav:physics
+wait-until page Physics
+wait 10
+assert text What are you simulating?
+assert widget su-tmpl#9
+assert not widget su-appr
+screenshot $OUT/0_templates.png
+click su-tmpl#1
+wait 10
+assert log simulation.ini template = internalFlow
+assert text Started from
+assert widget su-step#6
+assert widget su-appr#2
+assert widget su-energy#1
+screenshot $OUT/1_steady_rans.png
+# LES from a steady run: the run turns transient, WALE by default
+click su-appr#2
+wait 10
+assert text needs a transient run
+assert log simulation.ini flow = transient
+assert log simulation.ini turbulence = WALE
+assert text follows eddies in 3-D
+assert widget su-algo#0
+screenshot $OUT/2_les_wale.png
+# back to steady: LES gives way to its RANS model
+click su-flow#0
+wait 10
+assert text cannot follow eddies
+assert log simulation.ini turbulence = kOmegaSST
+# DES: transient again, SST-DDES from SST
+click su-appr#3
+wait 10
+assert log simulation.ini turbulence = kOmegaSSTDDES
+click su-turb
+wait 5
+click text:Spalart-Allmaras DDES
+wait 10
+assert log simulation.ini turbulence = SpalartAllmarasDDES
+# large-step PIMPLE shows its outer correctors and per-step targets (on the Solver step)
+click su-algo#2
+wait 10
+assert log simulation.ini algorithm = largeStepPIMPLE
+assert log simulation.ini outer_correctors = 20
+screenshot $OUT/3_des_large.png
+click su-step#5
+wait 10
+assert widget su-oresp
+assert widget su-nouter
+assert not widget su-ncorr
+click su-more#5
+wait 5
+assert widget su-ncorr
+assert widget su-ts
+screenshot $OUT/3b_algorithm_rows.png
+click su-step#0
+wait 5
+# LES WALE with PISO, a short run
+click su-appr#2
+wait 5
+click su-algo#0
+wait 10
+click su-step#5
+wait 5
+assert text Fixed time step
+assert not widget su-adj
+assert not widget su-nouter
+click su-et
+key A ctrl
+enter 0.0002
+wait 5
+click su-dt
+key A ctrl
+enter 0.00002
+wait 5
+click su-wt
+key A ctrl
+enter 0.0001
+wait 5
+screenshot $OUT/4_les_piso.png
+click su-step#6
+wait 5
+assert text pisoFoam
+screenshot $OUT/4b_check.png
+click su-write
+wait 20
+assert log constant/turbulenceProperties LESModel        WALE;
+assert log constant/turbulenceProperties delta           cubeRootVol;
+assert log system/controlDict application     pisoFoam;
+assert log system/fvSolution PISO
+assert log system/fvSchemes backward
+assert log system/fvSchemes Gauss LUST grad(U)
+click nav:run
+wait-until page Run
+wait 10
+click run-go
+wait-until job running timeout 30
+wait-until job finished timeout 300
+assert log log.pisoFoam End
+assert not log log.pisoFoam FOAM FATAL
+screenshot $OUT/5_ran.png
+# a hand edit (foamDictionary drops the setup's comment line) survives the next Write case files, which says so
+shell cd $SB/ws/pz && foamDictionary system/fvSchemes -entry laplacianSchemes/default -set "Gauss linear limited corrected 0.33" > /dev/null
+click nav:physics
+wait-until page Physics
+wait 10
+click su-write
+wait 20
+assert text Kept 1 hand edit
+assert log system/fvSchemes Gauss linear limited corrected 0.33
+assert not log system/fvSchemes.orig limited corrected 0.33
+screenshot $OUT/6_kept.png

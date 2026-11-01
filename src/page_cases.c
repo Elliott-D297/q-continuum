@@ -100,13 +100,21 @@ static void case_card(Rectangle r, const CaseSummary *s, int idx)
     ui_text(F_REG, 12.5f, ago, r.x + r.width - 18 - ui_text_w(F_REG, 12.5f, ago), r.y + r.height - 30, TH.text3);
     Rectangle del = { r.x + r.width - 46, r.y + 44, 30, 30 };
     bool delClicked = false;
+    Rectangle dup = { del.x - 34, del.y, 30, 30 };
+    bool dupClicked = false;
     if (hov) {                                                  /* delete: only while hovering, never by a stray click on the card */
         delClicked = ui_button(ui_idn(ui_id("case-del"), idx), del, ICON_TRASH_2, NULL, BTN_ICON);
         ui_tooltip(del, "Delete this case...");
+        if (s->prog == PROG_OPENFOAM) {
+            dupClicked = ui_button(ui_idn(ui_id("case-dup"), idx), dup, ICON_COPY, NULL, BTN_ICON);
+            ui_tooltip(dup, "Duplicate: its setup and mesh, without results");
+        }
     }
+    bool onBtn = ui_hovered(del) || (s->prog == PROG_OPENFOAM && ui_hovered(dup));
     if (delClicked) app_ask_delete_case(s->path);
-    else if (ui_clicked(r) && !ui_hovered(del)) app_open_case(s->path, PG_OVERVIEW);
-    if (hov && !ui_hovered(del)) ui_cursor(MOUSE_CURSOR_POINTING_HAND);
+    else if (dupClicked) app_duplicate_case(s->path);
+    else if (ui_clicked(r) && !onBtn) app_open_case(s->path, PG_OVERVIEW);
+    if (hov && !onBtn) ui_cursor(MOUSE_CURSOR_POINTING_HAND);
 }
 
 static bool cat_matches(const CaseSummary *s)
@@ -130,9 +138,11 @@ void page_cases(Rectangle r)
     pl_fmt_ui(sub, sizeof sub, "OpenFOAM cases in %s, and the projects of the other programs (DEME, CalculiX, MOOSE, code_aster, "
              "code_saturne, Elmer, SPARTA, Chrono) found there and in your home folder. Open one to set it up, run it and watch it.", ws);
     float bw1 = ui_button_width(ICON_FOLDER_PLUS, "New case"), bw2 = ui_button_width(ICON_FOLDER_OPEN, "Open folder");
-    float bw3 = ui_button_width(ICON_BOX, "Mesh an STL");
-    float hh = page_header(x, y, w - bw1 - bw2 - bw3 - 40, "Cases", sub);
+    float bw3 = ui_button_width(ICON_BOX, "Mesh an STL"), bw4 = ui_button_width(ICON_GRID_3X3, "Import a mesh");
+    float hh = page_header(x, y, w - bw1 - bw2 - bw3 - bw4 - 50, "Cases", sub);
     if (ui_button(ui_id("cases-stl"), (Rectangle){ x + w - bw1 - bw2 - bw3 - 20, y + 2, bw3, 36 }, ICON_BOX, "Mesh an STL", BTN_SECONDARY)) stlmesh_new_case();
+    if (ui_button(ui_id("cases-import"), (Rectangle){ x + w - bw1 - bw2 - bw3 - bw4 - 30, y + 2, bw4, 36 }, ICON_GRID_3X3, "Import a mesh", BTN_SECONDARY))
+        salome_import_new_case();
     if (ui_button(ui_id("cases-new"), (Rectangle){ x + w - bw1, y + 2, bw1, 36 }, ICON_FOLDER_PLUS, "New case", BTN_PRIMARY)) app_go(PG_NEW);
     if (ui_button(ui_id("cases-open"), (Rectangle){ x + w - bw1 - bw2 - 10, y + 2, bw2, 36 }, ICON_FOLDER_OPEN, "Open folder", BTN_SECONDARY)) {
         A.modal = MD_OPEN_FOLDER; A.mText[0] = 0; A.mErr[0] = 0;
@@ -321,6 +331,29 @@ static void do_clone(void)
     app_open_case(open, PG_OVERVIEW);
 }
 
+/* the tour's practice case: OpenFOAM's lid-driven cavity copied into the workspace as tour-cavity and opened */
+bool app_practice_case(void)
+{
+    ensure_tutorials();
+    int k = -1;
+    for (int i = 0; i < A.tut.n && k < 0; i++) {
+        size_t L = strlen(A.tut.t[i].rel);
+        if (L >= 21 && !strcmp(A.tut.t[i].rel + L - 21, "icoFoam/cavity/cavity")) k = i;
+    }
+    if (k < 0) { ui_toast(TOAST_WARN, "OpenFOAM's cavity tutorial wasn't found: check the OpenFOAM installation in Settings"); return false; }
+    select_tutorial(k);
+    pl_strlcpy(A.cloneName, "tour-cavity", sizeof A.cloneName);
+    char ws[PL_PATH], p[PL_PATH]; pl_expand_home(ws, sizeof ws, A.set.workspace);
+    for (int n = 2; n < 100; n++) {                         /* tour-cavity, tour-cavity-2 ... */
+        pl_join(p, sizeof p, ws, A.cloneName);
+        if (!pl_exists(p)) break;
+        snprintf(A.cloneName, sizeof A.cloneName, "tour-cavity-%d", n);
+    }
+    do_clone();
+    if (A.cloneErr[0]) { ui_toast(TOAST_ERR, "%s", A.cloneErr); return false; }
+    return A.cs != NULL;
+}
+
 static void starter_card(Rectangle r, int i, int ti)
 {
     const Starter *s = &STARTERS[i];
@@ -341,6 +374,102 @@ static void starter_card(Rectangle r, int i, int ti)
     ui_badge(r.x + 18, r.y + r.height - 34, NULL, t->solver, TH.lcars ? cc : TH.text2, TH.lineSoft);
     if (hov) ui_cursor(MOUSE_CURSOR_POINTING_HAND);
     if (ui_clicked(r)) select_tutorial(ti);
+}
+
+/* ---------------------------------------------------------------- a blank case (user request, 2026-10-26) */
+/* An OpenFOAM case with nothing in it but what makes it one (controlDict, fvSchemes, fvSolution), and the way to its mesh:
+   an STL to mesh here, a mesh file to import, a blockMesh box, or nothing yet. Physics > Setup writes the rest. */
+enum { BL_STL, BL_IMPORT, BL_BOX, BL_NONE };
+static struct { bool init; char name[96]; int app, start; char err[300]; } BL;
+
+static bool write_blank(const char *dir, bool transient, bool box, char *err, size_t cap)
+{
+    char cd[1200];
+    snprintf(cd, sizeof cd, "FoamFile { version 2.0; format ascii; class dictionary; object controlDict; }\n\napplication     %s;\n"
+             "startFrom       latestTime;\nstartTime       0;\nstopAt          endTime;\nendTime         %s;\ndeltaT          %s;\n"
+             "writeControl    %s;\nwriteInterval   %s;\nwriteFormat     binary;\nrunTimeModifiable true;\n",
+             transient ? "pimpleFoam" : "simpleFoam", transient ? "1" : "1000", transient ? "0.001" : "1",
+             transient ? "adjustable" : "timeStep", transient ? "0.05" : "100");
+    char bm[2400];
+    snprintf(bm, sizeof bm, "FoamFile { version 2.0; format ascii; class dictionary; object blockMeshDict; }\n\n"
+             "// a 1 m box, 20 cells each way: inlet at x = 0, outlet at x = 1, the other four sides walls. Change it here or on\n"
+             "// Mesh > Dictionaries.\nscale 1;\n\nvertices\n(\n    (0 0 0) (1 0 0) (1 1 0) (0 1 0)\n    (0 0 1) (1 0 1) (1 1 1) (0 1 1)\n);\n\n"
+             "blocks\n(\n    hex (0 1 2 3 4 5 6 7) (20 20 20) simpleGrading (1 1 1)\n);\n\nboundary\n(\n"
+             "    inlet  { type patch; faces ((0 4 7 3)); }\n    outlet { type patch; faces ((1 2 6 5)); }\n"
+             "    walls  { type wall;  faces ((0 1 5 4) (3 7 6 2) (0 3 2 1) (4 5 6 7)); }\n);\n");
+    const char *F[][2] = {
+        { "system/controlDict", cd },
+        { "system/fvSchemes", "FoamFile { version 2.0; format ascii; class dictionary; object fvSchemes; }\n\nddtSchemes { default steadyState; }\n"
+          "gradSchemes { default Gauss linear; }\ndivSchemes { default none; }\nlaplacianSchemes { default Gauss linear corrected; }\n"
+          "interpolationSchemes { default linear; }\nsnGradSchemes { default corrected; }\n" },
+        { "system/fvSolution", "FoamFile { version 2.0; format ascii; class dictionary; object fvSolution; }\n\nsolvers {}\nSIMPLE {}\nPIMPLE {}\n" },
+        { "system/blockMeshDict", box ? bm : NULL },
+        { "constant/.keep", "" } };
+    for (size_t i = 0; i < sizeof F / sizeof F[0]; i++) {
+        if (!F[i][1]) continue;
+        char p[PL_PATH], d[PL_PATH]; pl_join(p, sizeof p, dir, F[i][0]);
+        pl_dirname(d, sizeof d, p);
+        if (!pl_mkdirs(d) || !pl_write_file(p, F[i][1], strlen(F[i][1]))) { snprintf(err, cap, "Could not write %.250s", p); return false; }
+    }
+    return true;
+}
+
+void blank_modal(bool *close)
+{
+    char ws[PL_PATH]; pl_expand_home(ws, sizeof ws, A.set.workspace);
+    if (!BL.init) {                                       /* a free name each time it opens */
+        BL.init = true; BL.err[0] = 0;
+        for (int k = 1; k < 100; k++) {
+            char p[PL_PATH]; snprintf(BL.name, sizeof BL.name, k == 1 ? "case" : "case-%d", k);
+            pl_join(p, sizeof p, ws, BL.name);
+            if (!pl_exists(p)) break;
+        }
+    }
+    Rectangle b = ui_modal_begin("New blank case", "An empty OpenFOAM case in your workspace: give it a mesh, then set the flow on Physics > Setup, "
+                                 "which writes the fields and dictionaries for it.", 720, 470, close);
+    float x = b.x, y = b.y + 4, w = b.width;
+    ui_text(F_MED, 13, ui_cap("Name"), x, y, TH.text2);
+    ui_input(ui_id("blank-name"), (Rectangle){ x, y + 20, w, 38 }, BL.name, sizeof BL.name, "folder name", INPUT_MONO);
+    char where[PL_PATH + 32]; pl_fmt_ui(where, sizeof where, "in %s", ws);
+    ui_text_clip(F_MONO, 12, where, x, y + 64, w, TH.text3);
+    y += 92;
+    ui_text(F_MED, 13, ui_cap("The flow"), x, y, TH.text2);
+    static const char *apps[] = { "Steady (simpleFoam)", "Transient (pimpleFoam)" };
+    ui_segmented(ui_id("blank-app"), (Rectangle){ x, y + 20, fminf(440, w), 34 }, apps, 2, &BL.app);
+    y += 70;
+    ui_text(F_MED, 13, ui_cap("Its mesh"), x, y, TH.text2);
+    static const char *starts[] = { "Mesh an STL", "Import a mesh", "A box (blockMesh)", "Later" };
+    ui_segmented(ui_id("blank-start"), (Rectangle){ x, y + 20, w, 34 }, starts, 4, &BL.start);
+    static const char *const SAY[] = {
+        "Opens the STL mesher with the file dialog: snappyHexMesh or SALOME, step by step.",
+        "Opens Mesh > SALOME with the file dialog: a UNV or MED file from SALOME, or a Gmsh .msh.",
+        "A 1 m box of 20 x 20 x 20 cells with an inlet, an outlet and walls, in system/blockMeshDict: change it on Mesh > Dictionaries.",
+        "Just the case: Mesh has the STL mesher, the import and blockMesh when you want them." };
+    y += 62;
+    y += ui_text_wrap(F_REG, 13, SAY[BL.start], (Rectangle){ x, y, w, 60 }, 19, TH.text3, true) + 10;
+    if (BL.err[0]) { ui_text_wrap(F_REG, 13, BL.err, (Rectangle){ x, y, w, 40 }, 19, TH.err, true); }
+    float cw = ui_button_width(ICON_FOLDER_PLUS, "Create case");
+    bool go = ui_button(ui_id("blank-create"), (Rectangle){ b.x + b.width - cw, b.y + b.height - 44, cw, 40 }, ICON_FOLDER_PLUS, "Create case", BTN_PRIMARY)
+              || ui_input_entered(ui_id("blank-name"));
+    if (!go) return;
+    pl_trim_inplace(BL.name);
+    const char *bad = foam_path_problem(BL.name);
+    char dst[PL_PATH]; pl_join(dst, sizeof dst, ws, BL.name);
+    if (!BL.name[0] || strchr(BL.name, '/') || BL.name[0] == '.') { snprintf(BL.err, sizeof BL.err, "Use a plain folder name without '/'."); return; }
+    if (bad) { snprintf(BL.err, sizeof BL.err, "OpenFOAM can't run a case whose name has %s: use letters, digits, - and _.", bad); return; }
+    if ((bad = foam_path_problem(ws))) { snprintf(BL.err, sizeof BL.err, "The workspace's path has %s, which OpenFOAM can't run in: choose another in Settings.", bad); return; }
+    if (pl_exists(dst)) { pl_fmt_ui(BL.err, sizeof BL.err, "%s already exists: pick another name.", BL.name); return; }
+    if (!write_blank(dst, BL.app == 1, BL.start == BL_BOX, BL.err, sizeof BL.err)) return;
+    int start = BL.start;
+    BL.init = false;
+    *close = true;
+    app_rescan_cases(true);
+    app_open_case(dst, start == BL_NONE ? PG_OVERVIEW : PG_MESH);
+    if (!A.cs || strcmp(A.cs->s.path, dst)) return;        /* held up by unsaved edits in the open case: it opens after */
+    if (start == BL_STL) { A.meshTab = 3; stlmesh_choose(); }
+    else if (start == BL_IMPORT) { A.meshTab = 1; salome_choose(); }
+    else if (start == BL_BOX) A.meshTab = 0;
+    ui_toast(TOAST_OK, "Made the blank case %s", pl_basename(dst));
 }
 
 /* ---------------------------------------------------------------- 4.4 the impinging-plume starter */
@@ -621,6 +750,23 @@ void page_new(Rectangle r)
         int f = -1;
         for (int k = 0; k < 3 && STARTERS[i].suffix[k] && f < 0; k++) f = tutorials_find(&A.tut, STARTERS[i].suffix[k]);
         if (f >= 0) { idx[ns] = f; st[ns] = i; ns++; }
+    }
+    {   /* a blank case: the way in for a part of your own */
+        Rectangle br = { x, y, w, 64 };
+        UiId id = ui_id("starter-blank");
+        bool hov = ui_hovered(br);
+        float h = ui_anim(id, hov ? 1.f : 0.f, 7.f);
+        Rectangle rr = br;
+        if (TH.lcars) { lc_panel(rr, TH.accent, h * 0.6f, false); rr.x += 16; rr.width -= 16; }
+        else { ui_rect(rr, 12, TH.surface); ui_rect_lines(rr, 12, 1, ui_mix(TH.lineSoft, TH.line, h)); }
+        ui_icon(ICON_FOLDER_PLUS, rr.x + 26, rr.y + 32, 20, TH.accent);
+        ui_text(F_SEMI, 15, "Blank case", rr.x + 50, rr.y + 12, TH.text);
+        ui_text_clip(F_REG, 13, "Your own geometry: an empty case, then mesh an STL, import a mesh or start from a box. Ctrl+Shift+N",
+                     rr.x + 50, rr.y + 36, rr.width - 70, TH.text2);
+        ui_register(id, br, "Blank case");
+        if (hov) ui_cursor(MOUSE_CURSOR_POINTING_HAND);
+        if (ui_clicked(br)) A.modal = MD_BLANK;
+        y += 64 + 22;
     }
     if (ns) {
         y += section_head(x, y, w, "Good places to start", "One case for each kind of physics this app is set up for.");

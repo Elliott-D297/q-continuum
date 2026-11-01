@@ -17,6 +17,7 @@
 #include "program.h"
 #include "script.h"
 #include "rlgl.h"
+#include "tour.h"
 
 App A;
 
@@ -226,6 +227,13 @@ static int other_jobs(Job **out, int max)
 }
 
 /* may another run start in the open case? */
+void app_clean_then(const char *why, void (*then)(void))
+{
+    pl_strlcpy(A.cleanWhy, why, sizeof A.cleanWhy);
+    A.cleanThen = then;
+    A.modal = MD_CLEAN; A.mFlag = A.mFlag2 = false;
+}
+
 bool app_can_start(void)
 {
     if (A.cj->active) { ui_toast(TOAST_WARN, "This case is already running"); return false; }
@@ -638,6 +646,7 @@ static void reset_case_state(void)
     A.runProcs = 0;
     pl_strlcpy(A.chartRegion, "-", sizeof A.chartRegion);
     A.meshTab = -1;
+    A.physicsTab = -1;
     A.continueRun = false;
     for (int i = 0; i < 24; i++) A.scr[i] = (UiScroll){ 0 };
 }
@@ -676,6 +685,33 @@ void app_copy_case_to_workspace(void)
     else ui_toast(TOAST_OK, "Copied to %s: you're now working on the copy", dst);
     app_rescan_cases(true);
     app_open_case(dst, A.page);
+}
+
+/* Duplicate: the setup and the mesh, not what was computed on them (time folders after 0, processor*, logs, post-processing)
+   nor the history or the trash, which belong to the original. The copy is named <name>-copy (-copy2 ...) next to it. */
+void app_duplicate_case(const char *src)
+{
+    char ws[PL_PATH], name[300], dst[PL_PATH];
+    pl_dirname(ws, sizeof ws, src);
+    for (int i = 1; i < 100; i++) {
+        snprintf(name, sizeof name, i == 1 ? "%s-copy" : "%s-copy%d", pl_basename(src), i);
+        pl_join(dst, sizeof dst, ws, name);
+        if (!pl_exists(dst)) break;
+    }
+    if (pl_exists(dst)) { ui_toast(TOAST_ERR, "Could not find a free name for the copy in %s", ws); return; }
+    if (A.cs && !strcmp(A.cs->s.path, src)) for (int i = 0; i < A.cs->nFiles; i++)   /* what's on disk is what is copied */
+        if (A.cs->files[i].f->dirty) { ui_toast(TOAST_INFO, "Save or undo your edits first: the copy is made from the files on disk"); return; }
+    char qs[PL_PATH + 8], qd[PL_PATH + 8], cmd[PL_PATH * 3 + 600];
+    pl_shell_quote(qs, sizeof qs, src);
+    pl_shell_quote(qd, sizeof qd, dst);
+    if (!pl_fmt(cmd, sizeof cmd, "cp -a %s %s && chmod -R u+w %s && cd %s && rm -rf processor* postProcessing VTK .qc-history .qc-trash log.* *.foam "
+                                 ".qc-step-rc && for d in [0-9]*; do [ -d \"$d\" ] && [ \"$d\" != 0 ] && awk -v t=\"$d\" 'BEGIN { exit !(t + 0 > 0) }' "
+                                 "&& rm -rf \"$d\"; done; true", qs, qd, qd, qd) || pl_run_wait(cmd, NULL, 0) != 0) {
+        ui_toast(TOAST_ERR, "Copying the case to %s failed", dst); return;
+    }
+    ui_toast(TOAST_OK, "Duplicated %s as %s: the setup and mesh, without results", pl_basename(src), name);
+    app_rescan_cases(true);
+    app_open_case(dst, PG_OVERVIEW);
 }
 
 void app_open_case(const char *path, Page page)
@@ -1571,7 +1607,8 @@ static void frame(void)
     ui_crt_begin();                                          /* Alien, Pip-Boy, Severance: through a tube */
     ClearBackground(TH.bg);
     ui_begin_frame();
-    stlmesh_tick();                                         /* the STL file dialog, whichever page is open */
+    stlmesh_tick();
+    salome_tick();                                          /* the mesh-import file dialog */                                         /* the STL file dialog, whichever page is open */
     ui_backdrop(ui_width(), ui_height());
     float W = ui_width(), H = ui_height();
     float sw = 248;
@@ -1616,6 +1653,7 @@ static void frame(void)
     }
     PROF("page+chrome");
     draw_modals();
+    tour_draw();
     PROF("modals");
     ui_end_frame();
     rlDrawRenderBatchActive();                               /* the GPU work counts: drawing is part of the frame */
@@ -1775,7 +1813,10 @@ int main(int argc, char **argv)
         setenv("LIBGL_ALWAYS_SOFTWARE", "1", 1);
     }
     SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_MSAA_4X_HINT | FLAG_VSYNC_HINT | (hidden ? FLAG_WINDOW_HIDDEN : 0));
-    InitWindow(1440, 900, "Q-Continuum");
+    /* QC_WINDOW=WxH: the window's size (tests: layouts at other sizes than the default) */
+    int winW = 1440, winH = 900;
+    { const char *ws = getenv("QC_WINDOW"); int a, b; if (ws && sscanf(ws, "%dx%d", &a, &b) == 2 && a >= 320 && b >= 240) { winW = a; winH = b; } }
+    InitWindow(winW, winH, "Q-Continuum");
     if (!IsWindowReady()) {
         /* WSL / VM GPUs sometimes cannot create a GL context: retry once with Mesa's software renderer */
         if (!getenv("QC_SOFTWARE_GL")) {
@@ -1817,7 +1858,10 @@ int main(int argc, char **argv)
     if (testFile) snprintf(A.filesSel, sizeof A.filesSel, "%s", testFile);
     if (testCpl) { A.cpl = coupling_open(testCpl); A.cplValidateOk = -1; A.cplTab = testTab; A.page = PG_COUPLING; }
 
-    if (!script_active() && !g_settings_readonly && A.set.whatsNewSeen < WHATS_NEW_REV && A.modal == MD_NONE) A.modal = MD_WHATS_NEW;
+    if (!script_active() && !g_settings_readonly && !A.set.tourSeen && A.modal == MD_NONE) {
+        tour_start();                                         /* the first start: the tour, and nothing is new yet */
+        A.set.whatsNewSeen = WHATS_NEW_REV;
+    } else if (!script_active() && !g_settings_readonly && A.set.whatsNewSeen < WHATS_NEW_REV && A.modal == MD_NONE) A.modal = MD_WHATS_NEW;
     int n = 0;
     while (!A.quit) {
         for (int k = 0; k < nInj; k++) if (injF[k] == n) { if (injT[k]) ui_inject_text(injT[k]); else if (injD[k]) ui_inject_drag(injX[k], injY[k], injX2[k], injY2[k]); else ui_inject_click(injX[k], injY[k]); }
@@ -1825,7 +1869,7 @@ int main(int argc, char **argv)
         if (sweep > 0 && n % sweep == 0) {
             /* (page, tab) stops; each is drawn at the top, then scrolled to the end */
             static const int stops[][2] = { {PG_CASES,0}, {PG_NEW,0}, {PG_OVERVIEW,0}, {PG_MESH,0}, {PG_MESH,1}, {PG_MESH,2}, {PG_MESH,3}, {PG_BC,0}, {PG_BC,1},
-                                            {PG_PHYSICS,0}, {PG_PHYSICS,1}, {PG_NUMERICS,0}, {PG_NUMERICS,1},
+                                            {PG_PHYSICS,0}, {PG_PHYSICS,1}, {PG_PHYSICS,2}, {PG_NUMERICS,0}, {PG_NUMERICS,1},
                                             {PG_NUMERICS,2}, {PG_RUN,0}, {PG_FILES,0}, {PG_HISTORY,0}, {PG_HISTORY,1},
                                             {PG_HISTORY,2}, {PG_SETTINGS,0}, {PG_COUPLING,0}, {PG_QUEUE,0}, {PG_STUDIES,0} };
             int nst = (int)(sizeof stops / sizeof stops[0]), k = n / sweep;

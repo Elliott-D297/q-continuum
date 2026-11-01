@@ -313,7 +313,8 @@ static void deme_dir(char *out, int cap)
 {
     out[0] = 0;
     const char *pats[] = { "%s/src/DEM-Engine/build/DEME/DEMEConfig.cmake", "%s/DEM-Engine/build/DEME/DEMEConfig.cmake",
-                           "%s/src/*/build/DEME/DEMEConfig.cmake", "/usr/local/lib/cmake/DEME/DEMEConfig.cmake", NULL };
+                           "%s/src/*/build/DEME/DEMEConfig.cmake", "%s/opt/deme-*/lib/cmake/DEME/DEMEConfig.cmake",
+                           "/usr/local/lib/cmake/DEME/DEMEConfig.cmake", NULL };
     for (int i = 0; pats[i] && !out[0]; i++) {
         char pat[PL_PATH]; snprintf(pat, sizeof pat, pats[i], pl_home());
         glob_t g;
@@ -325,10 +326,12 @@ static void chrono_dir(char *out, int cap)
 {
     out[0] = 0;
     const char *pats[] = { "%s/src/chrono/build/cmake/ChronoConfig.cmake", "%s/chrono/build/cmake/ChronoConfig.cmake",
+                           "%s/src/chrono-*/build/cmake/ChronoConfig.cmake", "%s/opt/chrono-*/lib/cmake/Chrono/ChronoConfig.cmake",
                            "/usr/local/lib/cmake/Chrono/ChronoConfig.cmake", NULL };
     for (int i = 0; pats[i] && !out[0]; i++) {
         char pat[PL_PATH]; snprintf(pat, sizeof pat, pats[i], pl_home());
-        if (pl_is_file(pat)) pl_dirname(out, (size_t)cap, pat);
+        glob_t g;
+        if (glob(pat, 0, NULL, &g) == 0) { if (g.gl_pathc) pl_dirname(out, (size_t)cap, g.gl_pathv[0]); globfree(&g); }
     }
 }
 
@@ -351,7 +354,7 @@ bool prog_exe(int prog, char *out, int cap, char *why, int whyCap)
         return false;
     case PROG_DEME: {
         char d[PL_PATH]; deme_dir(d, sizeof d);
-        if (!d[0]) { if (why) snprintf(why, (size_t)whyCap, "DEME is not built: no DEMEConfig.cmake under ~/src/DEM-Engine/build."); return false; }
+        if (!d[0]) { if (why) snprintf(why, (size_t)whyCap, "DEME is not built: no DEMEConfig.cmake under ~/src/DEM-Engine/build. Install it with: install.sh --with-deme"); return false; }
         char n[PL_PATH]; nvcc_path(n, sizeof n);
         if (!n[0]) { if (why) snprintf(why, (size_t)whyCap, "No CUDA compiler (nvcc): DEME drivers need the CUDA toolkit."); return false; }
         pl_strlcpy(out, d, (size_t)cap);
@@ -359,7 +362,7 @@ bool prog_exe(int prog, char *out, int cap, char *why, int whyCap)
     }
     case PROG_CHRONO: {
         char d[PL_PATH]; chrono_dir(d, sizeof d);
-        if (!d[0]) { if (why) snprintf(why, (size_t)whyCap, "Chrono is not built: no ChronoConfig.cmake under ~/src/chrono/build."); return false; }
+        if (!d[0]) { if (why) snprintf(why, (size_t)whyCap, "Chrono is not built: no ChronoConfig.cmake under ~/src/chrono/build. Install it with: install.sh --with-chrono"); return false; }
         pl_strlcpy(out, d, (size_t)cap);
         return true;
     }

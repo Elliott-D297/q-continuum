@@ -1,0 +1,44 @@
+# The STL mesher's step flow, and a case switch (user report, 2026-10-26: a new case still showed the last case's STL):
+# case b, never given an STL, must start empty; case a keeps its own part and flow.
+budget p95 400 max 4000
+shell mkdir -p $SB/ws/a/system $SB/ws/b/system && cp $QC_TESTS/tools/NACA_Airfoil.STL $SB/ws/naca.stl && for d in a b; do printf 'FoamFile { version 2.0; format ascii; class dictionary; object controlDict; }\napplication simpleFoam;\nstartTime 0;\nendTime 10;\ndeltaT 1;\n' > $SB/ws/$d/system/controlDict; done
+open $SB/ws/a
+click nav:mesh
+wait-until page Mesh
+click text:STL mesher
+wait 5
+screenshot $OUT/00_empty.png
+click stl-path
+enter $SB/ws/naca.stl
+wait 10
+screenshot $OUT/01_geom.png
+click stl-next
+wait 5
+screenshot $OUT/02_flow.png
+click stl-domain#1
+wait 3
+screenshot $OUT/02b_flow_ext.png
+click stl-next
+wait 5
+screenshot $OUT/03_bound.png
+click stl-next
+wait 5
+screenshot $OUT/04_mesh.png
+click stl-next
+wait 5
+screenshot $OUT/05_gen.png
+open $SB/ws/b
+wait 5
+click nav:mesh
+wait-until page Mesh
+click text:STL mesher
+wait 5
+screenshot $OUT/06_b.png
+assert text Start with the part
+open $SB/ws/a
+wait 5
+click nav:mesh
+wait-until page Mesh
+wait 5
+screenshot $OUT/07_a_again.png
+assert text Not generated yet

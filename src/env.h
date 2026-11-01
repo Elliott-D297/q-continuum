@@ -46,6 +46,7 @@ typedef struct {
     float runSplit;             /* Run page: chart share of chart + log (0 = default) */
     bool  logFold;              /* log console: fold finished time steps            */
     int   whatsNewSeen;         /* the What's new revision last shown (app.c WHATS_NEW_REV) */
+    bool  tourSeen;             /* the guided tour (tour.c) was finished or skipped: not shown on starting again */
     int   deleteConfirm;        /* deleting a case: 0 type its name, 1 just confirm, 2 don't ask (it goes to the Trash) */
     bool  history;              /* record each case's setup in its .qc-history (git)  */
     bool  reviewSave;           /* show what a save changes before writing it (ROADMAP 3.5) */

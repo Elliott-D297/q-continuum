@@ -112,7 +112,8 @@ void    case_reload_changed(Case *c);                /* take in files changed ou
 int     case_reload_report(Case *c, char *what, int cap);   /* ... and say which: returns how many reloaded or merged */
 int     case_conflicts(const Case *c, int *first);   /* files changed both here and on disk: the user chooses */
 void    case_drop_file(Case *c, const char *rel);
-enum { TR_LOGS = 1, TR_POST = 2, TR_ZERO = 4, TR_MESH = 8 };   /* times after startTime and processor* always */
+enum { TR_LOGS = 1, TR_POST = 2, TR_ZERO = 4, TR_MESH = 8,   /* times after startTime and processor* always */
+       TR_KEEP_MESH_LOGS = 16 };                             /* with TR_LOGS: the logs of the mesh kept stay with it */
 #define TRASH_KEEP 5                                 /* trash entries kept per case ...  */
 #define TRASH_DAYS 14                                /* ... and for at most this long    */
 int     case_trash_results(Case *c, int what, bool permanent, const char *reason, char *msg, int cap);

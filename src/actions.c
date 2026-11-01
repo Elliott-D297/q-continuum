@@ -12,6 +12,7 @@
 #include "palette.h"
 #include "undo.h"
 #include "safety.h"
+#include "tour.h"
 
 enum { M_CTRL = 1, M_SHIFT = 2, M_ALT = 4 };
 
@@ -57,6 +58,10 @@ static const char *b_away(void) { return !A.cs ? "No case is open" : A.cs->s.pro
 static void a_pv(void) { app_open_paraview(); }
 static void a_pvc(void) { A.modal = MD_PV_CLAUDE; A.mText2[0] = 0; }
 static void a_rescan(void) { app_rescan_cases(true); if (A.cs) case_rescan(A.cs); }
+static void a_blank(void) { A.modal = MD_BLANK; }
+static const char *b_dup(void) { return !A.cs ? "No case is open" : A.cs->s.prog ? "Only OpenFOAM cases" : NULL; }
+static void a_dup(void) { if (A.cs) { char p[PL_PATH]; pl_strlcpy(p, A.cs->s.path, sizeof p); app_duplicate_case(p); } }
+static void a_folder(void) { if (A.cs) launch_folder(&A.env, A.cs->s.path); }
 static void a_log(void) { A.logMax = !A.logMax; A.chartMax = false; }
 static void a_chart(void) { A.chartMax = !A.chartMax; A.logMax = false; }
 static void a_hist(void)
@@ -68,6 +73,7 @@ static void a_hist(void)
 static void a_keys(void) { A.modal = MD_SHORTCUTS; }
 static void a_computer(void) { palette_open(); }
 static void a_news(void) { A.modal = MD_WHATS_NEW; }
+static void a_tour(void) { tour_start(); }
 /* F11: the window over the whole screen and back. Real full screen (_NET_WM_STATE_FULLSCREEN), which WSLg hands on to
    Windows: no caption, taskbar covered. Borderless windowed was not enough there, because WSLg drew its own title bar over it.
    The window takes the monitor's size first so XWayland has no mode to change (or scale), and gets its old size back after */
@@ -143,6 +149,8 @@ static const Action ACTIONS[] = {
       "Search every command, page, case, patch, field and keyword; \"deltaT = 0.001\" sets a value", NULL, a_computer, true },
     { "help.keys",      "Keyboard shortcuts",     "F1",            KEY_F1,        0,              NULL,           NULL,
       "This list", NULL, a_keys, true },
+    { "help.tour",      "Take the tour",          NULL,            0,             0,              "set-tour",     NULL,
+      "A walk through every page: what it is for and how to work it", NULL, a_tour, false },
     { "help.whatsnew",  "What's new",             NULL,            0,             0,              NULL,           NULL,
       "What changed in this update", NULL, a_news, false },
     { "go.cases",       "Cases",                  "Ctrl+0",        KEY_ZERO,      M_CTRL,         "nav:cases",    NULL, "Your cases and the tutorials", NULL, g_cases, false },
@@ -155,6 +163,12 @@ static const Action ACTIONS[] = {
     { "go.files",       "Files",                  "Ctrl+7",        KEY_SEVEN,     M_CTRL,         "nav:files",    NULL, "Every file of the case, with an editor", no_case, g_files, false },
     { "go.history",     "History",                "Ctrl+8",        KEY_EIGHT,     M_CTRL,         "nav:history",  NULL, "Earlier setups, snapshots and the trash", no_case, g_history, false },
     { "go.new",         "New case",               "Ctrl+N",        KEY_N,         M_CTRL,         "nav:new case", NULL, "Start from a tutorial", NULL, g_new, false },
+    { "case.blank",     "New blank case",         "Ctrl+Shift+N",  KEY_N,         M_CTRL | M_SHIFT, "starter-blank", "mkdir -p case/system  # controlDict, fvSchemes, fvSolution",
+      "An empty case for your own geometry: mesh an STL, import a mesh or start from a box", NULL, a_blank, false },
+    { "case.duplicate", "Duplicate case",         NULL,            0,             0,              NULL,           "cp -a case case-copy; rm -rf case-copy/processor* ...",
+      "A copy of the open case's setup and mesh, without results, opened", b_dup, a_dup, false },
+    { "case.folder",    "Open the case folder",   NULL,            0,             0,              NULL,           "explorer.exe . / xdg-open .",
+      "The case's folder in Explorer (or your file manager)", no_case, a_folder, false },
     { "go.queue",       "Queue",                  NULL,            0,             0,              "nav:queue",    NULL, "Runs waiting for free cores", NULL, g_queue, false },
     { "go.studies",     "Studies",                NULL,            0,             0,              "nav:studies",  NULL, "Variants of a case, compared", NULL, g_studies, false },
     { "go.coupling",    "Coupling",               NULL,            0,             0,              "nav:coupling", NULL, "preCICE coupled runs", NULL, g_coupling, false },

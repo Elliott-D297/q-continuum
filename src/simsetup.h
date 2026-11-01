@@ -90,6 +90,25 @@ typedef struct {
                                    on an incompressible setup (sim_far_field) */
 } SimBoundary;
 
+/* reports (user plan step 6): what is measured while the case runs, each a function object in system/controlDict whose
+   postProcessing/<name> file the Run page shows as a monitor. A probe: values at points; a surface: an average (area or
+   mass weighted), the flow rate, the least or greatest value on a boundary; a pressure drop: the area-averaged pressure
+   of one boundary minus another's; a volume: the average, least or greatest value in the whole domain */
+enum { RP_PROBE = 0, RP_SURFACE, RP_DROP, RP_VOLUME, RP__N };
+enum { SO_AVG = 0, SO_MASSAVG, SO_FLOW, SO_MIN, SO_MAX, SO__N };
+enum { VO_AVG = 0, VO_MIN, VO_MAX, VO__N };
+#define SIM_MAX_R 24
+#define SIM_MAX_PROBES 16
+typedef struct {
+    int    kind;                /* RP_*                                                       */
+    char   name[48];            /* the function object's name, and its postProcessing folder  */
+    char   field[32];           /* U (reported as the speed |U|), p (in Pa), T, k ...; not for a flow rate */
+    char   patch[64], patch2[64];   /* a surface's boundary; a pressure drop's from and to    */
+    int    op;                  /* SO_* (surface) or VO_* (volume)                            */
+    int    nPts;
+    double pts[SIM_MAX_PROBES][3];   /* a probe's points, m                                   */
+} SimReport;
+
 /* the force coefficients' reference (forceCoeffs): Cd = drag / (½ rho Uinf² Aref), Cl the same across, Cm over lRef */
 typedef struct SimForceRef {
     double drag[3], lift[3];    /* unit: along the free stream, and square to it (up)         */
@@ -134,6 +153,8 @@ typedef struct {
     SimForceRef fr;
     int    nB;
     SimBoundary b[SIM_MAX_B];
+    int    nR;
+    SimReport r[SIM_MAX_R];
 } SimSetup;
 
 extern const char *const FLOW_NAME[FLOW__N];
@@ -149,6 +170,9 @@ extern const char *const ENERGY_NAME[EN__N];
 extern const char *const HEAT_NAME[HT__N];
 extern const char *const COMP_NAME[COMP__N];
 extern const char *const WALLT_NAME[WT__N];
+extern const char *const REPORT_NAME[RP__N];     /* "Probe points", "Surface", "Pressure drop", "Volume" */
+extern const char *const SURF_OP_NAME[SO__N];
+extern const char *const VOL_OP_NAME[VO__N];
 extern const char *const TI_NAME[TI__N];
 extern const char *const GAS_NAME[GAS__N];
 
@@ -210,6 +234,21 @@ int    sim_layer_count(double y1, double outer, double r, double *total);
 /* an inlet's turbulence as an intensity (%) and a mixing length (m) at speed U, whichever way it was given */
 void   sim_inlet_turbulence(const SimSetup *s, const SimBoundary *b, double U, double *I, double *L);
 double sim_avg_start(const SimSetup *s);           /* the averaging start in effect: typed, else 40 % of the end time  */
+
+/* ---- reports (plan step 6, simsetup.c) */
+/* a new report of that kind with defaults (a probe at centre; a surface on the outlet; a drop from the inlet to the
+   outlet; the domain's greatest speed): its index, -1 when the list is full */
+int    sim_report_add(SimSetup *s, int kind, const double centre[3]);
+void   sim_report_remove(SimSetup *s, int i);
+/* the fields a report can measure, as OpenFOAM names them in this setup (U, p, T, k ...; no turbulence viscosity) */
+int    sim_report_fields(const SimSetup *s, const char *out[SIM_MAX_F]);
+/* what the report's numbers are in: "m/s", "Pa", "K", "m³/s" or "kg/s" (a flow rate: the mass flux with heat or a gas) */
+const char *sim_report_unit(const SimSetup *s, const SimReport *r);
+/* one line saying what it measures: "Speed at 2 points", "Pressure drop from inlet to outlet" */
+void   sim_report_describe(const SimSetup *s, const SimReport *r, char *out, int cap);
+/* the field name the function objects measure: mag(U) for U, pPa (the static pressure in Pa) for an incompressible
+   setup's p, else the field itself */
+const char *sim_report_of(const SimSetup *s, const char *field);
 
 /* ---- the models and what goes with what (simmodels.c) */
 int    sim_approach(int turb);                     /* APPR_* of a model                                     */

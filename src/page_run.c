@@ -9,6 +9,8 @@
 #include <unistd.h>
 #include <sys/wait.h>
 #include "app.h"
+#include "simsetup.h"
+const SimSetup *setup_current(Case *c);            /* page_setup.c: NULL without a simulation.ini */
 #include "physics.h"
 #include "safety.h"
 #include "precheck.h"
@@ -1406,6 +1408,77 @@ static void chart_area(Rectangle r, Case *c, LogMon *pm)
     if (A.chartTab == 1) mon_chart(body, c); else run_chart(body, pm);
 }
 
+/* ---- reports (plan step 6): each one's latest value, a click plots it; Export CSV writes them all to reports/ */
+static MonFile *report_file(const char *name)
+{
+    size_t n = strlen(name);
+    for (int i = 0; i < A.mons.n; i++)
+        if (!strncmp(A.mons.f[i].key, name, n) && A.mons.f[i].key[n] == '/') return &A.mons.f[i];
+    return NULL;
+}
+
+static int export_csv(Case *c, const SimSetup *s, char *dir, size_t cap)
+{
+    pl_join(dir, cap, c->s.path, "reports");
+    pl_mkdirs(dir);
+    int n = 0;
+    for (int i = 0; i < s->nR; i++) {
+        MonFile *f = report_file(s->r[i].name);
+        if (!f || !f->n) continue;
+        Str o; str_init(&o);
+        str_cat(&o, "time");
+        for (int k = 0; k < f->nCols; k++) str_catf(&o, ",%s", f->col[k]);
+        str_cat(&o, "\n");
+        for (int j = 0; j < f->n; j++) {
+            str_catf(&o, "%.9g", f->t[j]);
+            for (int k = 0; k < f->nCols; k++) str_catf(&o, ",%.9g", f->v[k][j]);
+            str_cat(&o, "\n");
+        }
+        char fn[PL_PATH], file[96]; snprintf(file, sizeof file, "%s.csv", s->r[i].name);
+        pl_join(fn, sizeof fn, dir, file);
+        if (pl_write_file(fn, o.s ? o.s : "", o.len)) n++;
+        str_free(&o);
+    }
+    return n;
+}
+
+static float reports_panel(Case *c, float x, float y, float w)
+{
+    const SimSetup *s = setup_current(c);
+    if (!s || !s->nR) return 0;
+    float y0 = y;
+    ui_text(F_MED, 13.5f, "Reports", x, y + 2, TH.text);
+    float bw = ui_button_width(ICON_TABLE, "Export CSV");
+    if (ui_button(ui_id("rep-csv"), (Rectangle){ x + w - bw, y - 4, bw, 30 }, ICON_TABLE, "Export CSV", BTN_GHOST)) {
+        char dir[PL_PATH];
+        int n = export_csv(c, s, dir, sizeof dir);
+        if (n) ui_toast(TOAST_OK, "Wrote %d report%s as CSV to %s", n, n == 1 ? "" : "s", dir);
+        else ui_toast(TOAST_INFO, "No report has values yet: run the case first");
+    }
+    ui_tooltip((Rectangle){ x + w - bw, y - 4, bw, 30 }, "Each report's values, one row per iteration, in the case's reports/ folder");
+    y += 34;
+    for (int i = 0; i < s->nR; i++) {
+        const SimReport *r = &s->r[i];
+        MonFile *f = report_file(r->name);
+        char d[200], v[160] = "";
+        sim_report_describe(s, r, d, sizeof d);
+        if (f && f->n) {
+            for (int k = 0; k < f->nCols && strlen(v) < sizeof v - 20; k++)
+                pl_fmt_ui(v + strlen(v), sizeof v - strlen(v), "%s%.4g", k ? ", " : "", f->v[k][f->n - 1]);
+            pl_fmt_ui(v + strlen(v), sizeof v - strlen(v), " %s", sim_report_unit(s, r));
+        } else pl_strlcpy(v, "not yet", sizeof v);
+        Rectangle row = { x - 6, y - 4, w + 12, 44 };
+        UiId id = ui_idn(ui_id("rep-row"), i);
+        if (f && ui_row(id, row, false)) { A.chartTab = 1; mon_select(c, f); }
+        ui_register(id, row, d);
+        ui_text_clip(F_REG, 12.5f, d, x, y, w, TH.text2);
+        ui_text_clip(F_MONO_MED, 14, v, x, y + 18, w, f && f->n ? TH.text : TH.text3);
+        if (f) ui_tooltip(row, "Click to plot it");
+        y += 46;
+    }
+    return y + 6 - y0;
+}
+
 /* stop the run when a monitored value has settled (left panel) */
 static float converge_panel(Case *c, float x, float y, float w)
 {
@@ -1949,6 +2022,7 @@ void page_run(Rectangle r)
     y += 32;
     ui_divider(x, y, w); y += 20;
     if (!mine) { y += precheck_panel(c, x, y, w); ui_divider(x, y - 4, w); y += 16; }
+    { ui_disable(false); float rh = reports_panel(c, x, y, w); if (rh > 0) { y += rh; ui_divider(x, y - 4, w); y += 16; } ui_disable(mine); }
     { ui_disable(false); float ch = converge_panel(c, x, y, w); if (ch > 0) { y += ch; ui_divider(x, y - 4, w); y += 16; } ui_disable(mine); }
 
     /* pipeline */
@@ -2152,10 +2226,10 @@ void page_run(Rectangle r)
 
     /* kpis: six in a row, or two rows of three when their labels don't fit (bug hunt 2026-11-01: at a large UI scale
        "TIME STEPSCOURANT MAXTIME STEP" ran together) */
-    static const char *const KL[6] = { "Time steps", "Courant max", "Time step", "Solver time", "Remaining", "Sim time per second" };
+    static const char *const KL[6] = { "Time steps", "Courant max", "Time step", "Solver time", "Remaining", "Sim time / s" };
     float kl = 0;
     for (int i = 0; i < 6; i++) kl = fmaxf(kl, ui_text_w(F_REG, 12.5f, KL[i]));
-    bool twoRows = kl > mw / 6 - 10;
+    bool twoRows = kl > mw / 6 - 4;                         /* (one row whenever the labels fit: two cost the chart below its room) */
     float kw = twoRows ? mw / 3 : mw / 6;
     float my2 = twoRows ? my + 58 : my;                      /* the second three's row */
     float kx2 = twoRows ? mx - 3 * kw : mx;                  /* ... and their x, so mx + 3 kw lands at mx */
@@ -2179,7 +2253,7 @@ void page_run(Rectangle r)
     pl_duration(v, sizeof v, eta);
     kpi((Rectangle){ kx2 + 4 * kw, my2, kw, 50 }, "Remaining", mine && eta >= 0 ? v : "-", TH.text);
     snprintf(v, sizeof v, rate > 0 ? "%.3g /s" : "-", rate);
-    kpi((Rectangle){ kx2 + 5 * kw, my2, kw, 50 }, "Sim time per second", v, TH.text);
+    kpi((Rectangle){ kx2 + 5 * kw, my2, kw, 50 }, "Sim time / s", v, TH.text);
     my = my2 + 66;
     my += flavour_run(c, pm, mine, mx, my, mw);              /* the screen and game themes' instrument */
 

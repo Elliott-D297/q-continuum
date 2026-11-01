@@ -99,6 +99,8 @@ static void parse_line(MonFile *f, char *line)
     char prefix[64] = "";
     for (int i = 1; i < n; i++) {
         const char *hn = i < nh ? h[i] : NULL;
+        /* multiFieldValue (a pressure drop) heads its result "Group0": what it is, is a difference */
+        if (hn && pl_starts_with(hn, "Group") && strstr(f->key, "multiFieldValue")) hn = "difference";
         char base[200];                                      /* a column label: clipped when it doesn't fit */
         if (f->nProbes > 0) pl_fmt_ui(base, sizeof base, "probe %s", hn ? hn : "?");
         else if (hn) pl_fmt_ui(base, sizeof base, "%s%s%s", prefix, prefix[0] ? " " : "", hn);

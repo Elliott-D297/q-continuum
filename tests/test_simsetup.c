@@ -75,6 +75,12 @@ static int matrix(int argc, char **argv)
                 for (int i = 0; i < s.nB; i++) if (s.b[i].role == ROLE_WALL) { s.b[i].heat = HT_FIXED; s.b[i].T = s.T0 + 10; }
                 sim_settle(&s);
                 if (s.turb != t || (flow && s.algo != alg)) continue;
+                /* plan step 6: one report of each kind on every combination (probes may fall outside a mesh: a warning) */
+                { double c0[3] = { 0.1, 0.01, 0.0 };
+                  sim_report_add(&s, RP_PROBE, c0); sim_report_add(&s, RP_SURFACE, NULL);
+                  int fr = sim_report_add(&s, RP_SURFACE, NULL); if (fr >= 0) s.r[fr].op = SO_FLOW;
+                  int ma = sim_report_add(&s, RP_SURFACE, NULL); if (ma >= 0) { s.r[ma].op = SO_MASSAVG; pl_strlcpy(s.r[ma].field, "U", sizeof s.r[ma].field); }
+                  sim_report_add(&s, RP_DROP, NULL); sim_report_add(&s, RP_VOLUME, NULL); }
                 s.iterations = 5; s.writeEvery = 1000; s.resStop = false;
                 s.endTime = 5 * dt; s.deltaT = dt; s.adjustDt = false; s.writeTime = 1000 * dt;
                 char name[96]; snprintf(name, sizeof name, "%s%s_%s%s%s", en == EN__N ? "gas_" : en == EN_FORCED ? "heat_" : en == EN_BUOYANT ? "buoyant_" : "", flow ? "transient" : "steady", sim_model_word(t), flow ? "_" : "",
@@ -238,8 +244,39 @@ static int plate(char **argv)
     return 0;
 }
 
+/* test_simsetup reports <caseDir>: pitzDaily's mesh (inlet, outlet, upperWall, lowerWall, frontAndBack) set up from the
+   Internal flow template, 10 m/s in, with one report of each kind: two probes, the outlet's average pressure, the inlet's
+   and the outlet's flow rate, the pressure drop inlet to outlet, the domain's greatest speed (tests/simsetup_reports.sh) */
+static int reports(char **argv)
+{
+    SimPatch p[] = { { "inlet", ROLE_INLET, "patch", false, 0 }, { "outlet", ROLE_OUTLET, "patch", false, 0 },
+                     { "upperWall", ROLE_WALL, "wall", false, 0 }, { "lowerWall", ROLE_WALL, "wall", false, 0 },
+                     { "frontAndBack", ROLE_WALL, "empty", false, 0 } };
+    SimSetup s; sim_defaults(&s, 0.3);
+    sim_set_boundaries(&s, p, 5);
+    sim_template_apply(&s, TMPL_INTERNAL, 0.3);
+    s.b[0].speed = 10; s.U0[0] = 0;
+    s.iterations = 400; s.writeEvery = 400; s.resStop = false;
+    double c[3] = { 0.1, 0, 0 };
+    int i = sim_report_add(&s, RP_PROBE, c);
+    s.r[i].pts[1][0] = 0.2; s.r[i].nPts = 2;
+    sim_report_add(&s, RP_SURFACE, NULL);                                   /* outlet average p */
+    i = sim_report_add(&s, RP_SURFACE, NULL); s.r[i].op = SO_FLOW; pl_strlcpy(s.r[i].patch, "inlet", sizeof s.r[i].patch);
+    i = sim_report_add(&s, RP_SURFACE, NULL); s.r[i].op = SO_FLOW;            /* outlet */
+    sim_report_add(&s, RP_DROP, NULL);
+    sim_report_add(&s, RP_VOLUME, NULL);                                    /* greatest speed */
+    char err[300], chk[2000];
+    int n = sim_check(&s, chk, sizeof chk);
+    if (n) printf("checks: %s\n", chk);
+    if (!sim_save(argv[2], &s) || !sim_write(argv[2], &s, err, sizeof err)) { printf("reports: %s\n", err); return 1; }
+    for (int k = 0; k < s.nR; k++) printf("%s ", s.r[k].name);
+    printf("%.8g\n", s.rho);
+    return 0;
+}
+
 int main(int argc, char **argv)
 {
+    if (argc >= 3 && !strcmp(argv[1], "reports")) return reports(argv);
     if (argc >= 3 && !strcmp(argv[1], "plate")) return plate(argv);
     if (argc >= 6 && !strcmp(argv[1], "yplus")) return yplus(argv);
     if (argc >= 3 && !strcmp(argv[1], "naca")) return naca(argv);
@@ -833,6 +870,49 @@ int main(int argc, char **argv)
         CHECK(r.wallTreat == WT_RESOLVED && r.avgStart == 1.5 && r.b[0].turbSpec == TI_DIAMETER && r.b[0].ratio == 10, "step 5 round trip");
         s.avgStart = -1; sim_save(dir, &s); sim_load(dir, &r, 0.5);
         CHECK(r.avgStart < 0, "automatic averaging start kept");
+    }
+
+
+    /* reports (plan step 6): defaults, names, units, the function objects, the round trip, the checks */
+    {
+        char rerr[300], rmsg[2000];
+        setup(&s);
+        double c0[3] = { 0.1, 0.02, 0 };
+        int a = sim_report_add(&s, RP_PROBE, c0), b = sim_report_add(&s, RP_SURFACE, NULL), d = sim_report_add(&s, RP_DROP, NULL), v = sim_report_add(&s, RP_VOLUME, NULL);
+        int b2 = sim_report_add(&s, RP_SURFACE, NULL);
+        CHECK(a == 0 && b == 1 && d == 2 && v == 3 && b2 == 4 && s.nR == 5, "reports added");
+        CHECK(!strcmp(s.r[0].name, "probes1") && !strcmp(s.r[1].name, "surface1") && !strcmp(s.r[4].name, "surface2"), "report names: %s %s", s.r[1].name, s.r[4].name);
+        CHECK(!strcmp(s.r[1].patch, "outlet") && !strcmp(s.r[2].patch, "inlet") && !strcmp(s.r[2].patch2, "outlet") && s.r[3].op == VO_MAX, "report defaults");
+        s.r[4].op = SO_FLOW;
+        CHECK(!strcmp(sim_report_unit(&s, &s.r[4]), "m³/s") && !strcmp(sim_report_unit(&s, &s.r[2]), "Pa") && !strcmp(sim_report_unit(&s, &s.r[0]), "m/s"), "report units");
+        CHECK(!strcmp(sim_report_of(&s, "U"), "mag(U)") && !strcmp(sim_report_of(&s, "p"), "pPa"), "incompressible p reported in Pa");
+        CHECK(sim_check(&s, rmsg, sizeof rmsg) == 0, "reports pass the checks: %s", rmsg);
+        CHECK(sim_write(dir, &s, rerr, sizeof rerr), "write reports: %s", rerr);
+        FDFile *f = load(dir, "system/controlDict");
+        CHECK(is(f, "functions/probes1/type", "probes") && is(f, "functions/surface1/operation", "areaAverage") && is(f, "functions/surface2/operation", "sum")
+              && is(f, "functions/pressureDrop1/type", "multiFieldValue") && is(f, "functions/pressureDrop1/functions/from/name", "inlet")
+              && is(f, "functions/volume1/operation", "max") && fd_find(f, "functions/magU") && fd_find(f, "functions/pressurePa") && fd_find(f, "functions/yPlus"),
+              "report function objects");
+        fd_free(f);
+        CHECK(sim_save(dir, &s), "save");
+        sim_load(dir, &r, 0.5);
+        CHECK(r.nR == 5 && r.r[0].nPts == 1 && fabs(r.r[0].pts[0][1] - 0.02) < 1e-12 && r.r[4].op == SO_FLOW && !strcmp(r.r[2].patch2, "outlet"), "reports round trip");
+        /* a gas setup: p already in Pa, a flow rate in kg/s */
+        sim_set_comp(&s, COMP_GAS);
+        CHECK(!strcmp(sim_report_of(&s, "p"), "p") && !strcmp(sim_report_unit(&s, &s.r[4]), "kg/s"), "gas reports: p, kg/s");
+        sim_set_comp(&s, COMP_INCOMP);
+        /* the checks: a missing boundary, the same boundary twice, a field not solved */
+        pl_strlcpy(s.r[1].patch, "nowhere", sizeof s.r[1].patch);
+        pl_strlcpy(s.r[2].patch2, "inlet", sizeof s.r[2].patch2);
+        pl_strlcpy(s.r[3].field, "T", sizeof s.r[3].field);
+        CHECK(sim_check(&s, rmsg, sizeof rmsg) >= 3 && strstr(rmsg, "nowhere is not a boundary") && strstr(rmsg, "two different") && strstr(rmsg, "doesn't solve T"),
+              "report checks: %s", rmsg);
+        sim_report_remove(&s, 0);
+        CHECK(s.nR == 4 && !strcmp(s.r[0].name, "surface1"), "report removed");
+        /* laminar: yPlus all the same (plan step 6: always on) */
+        setup(&s); s.turb = TURB_LAMINAR; sim_settle(&s);
+        CHECK(sim_write(dir, &s, rerr, sizeof rerr), "write laminar: %s", rerr);
+        f = load(dir, "system/controlDict"); CHECK(fd_find(f, "functions/yPlus") != NULL, "yPlus on a laminar run"); fd_free(f);
     }
 
     return fails ? 1 : 0;

@@ -255,6 +255,9 @@ set_tests_properties(simsetup_naca PROPERTIES LABELS full TIMEOUT 1800)
 # step 5 (turbulence and walls): k-omega SST with transition on the T3A flat plate finds the onset
 add_test(NAME simsetup_transition COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tests/simsetup_transition.sh $<TARGET_FILE:test_simsetup> ${QC_BASHRC} ${QC_SCRATCH})
 set_tests_properties(simsetup_transition PROPERTIES LABELS full TIMEOUT 2400)
+# step 6 (reports): pitzDaily's flow rates, outlet pressure and pressure drop against hand calculations from its fields
+add_test(NAME simsetup_reports COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tests/simsetup_reports.sh $<TARGET_FILE:test_simsetup> ${QC_BASHRC} ${QC_SCRATCH})
+set_tests_properties(simsetup_reports PROPERTIES LABELS full TIMEOUT 1800)
 add_test(NAME stlmesh_layers COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tests/stlmesh_layers.sh $<TARGET_FILE:test_stlmesh> ${QC_BASHRC} ${QC_SCRATCH} ${CMAKE_CURRENT_SOURCE_DIR}/tests/tools/NACA_Airfoil.STL)
 # the STL mesher's SALOME route: NETGEN on the STL's triangles and on CAD, Body Fitting, polyhedra (skipped without SALOME)
 add_test(NAME stlmesh_salome COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tests/stlmesh_salome.sh $<TARGET_FILE:test_stlmesh> ${QC_BASHRC} ${QC_SCRATCH} ${CMAKE_CURRENT_SOURCE_DIR}/assets/salome/stl_mesher.py)

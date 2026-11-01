@@ -401,6 +401,15 @@ float setup_boundary_editor(Case *c, const char *name, float x, float y, float w
     return y - y0;
 }
 
+/* the open case's setup, for the Run page's reports (plan step 6); NULL without a simulation.ini */
+const SimSetup *setup_current(Case *c)
+{
+    char ini[PL_PATH]; sim_ini_path(c->s.path, ini, sizeof ini);
+    if (!pl_is_file(ini)) return NULL;
+    sync(c);
+    return &P.s;
+}
+
 /* ============================================================================ the walls' y+ after a run (plan step 5) */
 int setup_yplus_advice(Case *c, double avg, double max, char *out, size_t cap)
 {
@@ -881,7 +890,13 @@ static void ss_status(Case *c, SsStatus st[SS__N])
     if (s->energy != EN_OFF) pl_fmt_ui(st[SS_START].sub + strlen(st[SS_START].sub), sizeof st[0].sub - strlen(st[SS_START].sub), ", %.4g °C", s->T0 - 273.15);
     /* Reports */
     bool heatRep = s->energy != EN_OFF && s->heatReport;
-    pl_strlcpy(st[SS_REPORTS].sub, s->forces && heatRep ? "Lift and drag, wall heat" : s->forces ? "Lift and drag" : heatRep ? "Wall heat, Nusselt" : "None yet", sizeof st[0].sub);
+    {
+        char t[160] = "";
+        if (s->nR) pl_fmt_ui(t, sizeof t, "%d report%s", s->nR, s->nR == 1 ? "" : "s");
+        if (s->forces) pl_fmt_ui(t + strlen(t), sizeof t - strlen(t), "%sLift and drag", t[0] ? ", " : "");
+        if (heatRep) pl_fmt_ui(t + strlen(t), sizeof t - strlen(t), "%swall heat", t[0] ? ", " : "");
+        pl_strlcpy(st[SS_REPORTS].sub, t[0] ? t : "Wall y+ only", sizeof st[0].sub);
+    }
     /* Solver */
     if (s->flow == FLOW_STEADY) pl_fmt_ui(st[SS_SOLVER].sub, sizeof st[0].sub, "%.6g iterations%s", s->iterations, s->resStop ? ", stops when converged" : "");
     else pl_fmt_ui(st[SS_SOLVER].sub, sizeof st[0].sub, "%s to %.4g s%s", ALG_NAME[s->algo], s->endTime, s->algo != ALG_PISO && s->adjustDt ? TextFormat(", Courant %.3g", s->maxCo) : "");
@@ -1301,11 +1316,138 @@ static float boundaries_step(Case *c, float x, float y, float w)
     return y - y0;
 }
 
+/* ---------------------------------------------------------------------------- 5 Reports: what is measured (plan step 6)
+ * Each report added from a menu, with only its own rows: a probe's field and points, a surface's boundary and measure,
+ * a pressure drop's two boundaries, a volume's measure and field. Each becomes a function object, and a Run-page monitor. */
+static const char *field_label(const char *f)
+{
+    return !strcmp(f, "U") ? "Speed |U|" : !strcmp(f, "p") ? "Pressure" : !strcmp(f, "T") ? "Temperature" : !strcmp(f, "k") ? "Turbulent energy k" :
+           !strcmp(f, "omega") ? "omega" : !strcmp(f, "epsilon") ? "epsilon" : !strcmp(f, "nuTilda") ? "nuTilda" : f;
+}
+
+/* a select of the setup's fields (r->field), and of its open boundaries (into dst); true when changed */
+static bool field_select(UiId id, Rectangle r, SimReport *rp)
+{
+    const char *f[SIM_MAX_F], *lab[SIM_MAX_F];
+    int n = sim_report_fields(&P.s, f), sel = 0;
+    for (int i = 0; i < n; i++) { lab[i] = field_label(f[i]); if (!strcmp(f[i], rp->field)) sel = i; }
+    if (!ui_select(id, r, lab, n, &sel) || !strcmp(f[sel], rp->field)) return false;
+    pl_strlcpy(rp->field, f[sel], sizeof rp->field);
+    return true;
+}
+
+static bool patch_select(UiId id, Rectangle r, char *dst, size_t cap)
+{
+    const char *names[SIM_MAX_B]; int n = 0, sel = -1;
+    for (int i = 0; i < P.s.nB; i++) {
+        if (sim_constraint(P.s.b[i].meshType)) continue;
+        if (!strcmp(P.s.b[i].name, dst)) sel = n;
+        names[n++] = P.s.b[i].name;
+    }
+    if (!n) return false;
+    int was = sel; if (sel < 0) sel = 0;
+    if (!ui_select(id, r, names, n, &sel) || (sel == was && was >= 0)) return false;
+    pl_strlcpy(dst, names[sel], cap);
+    return true;
+}
+
+static float measurements(Case *c, float x, float y, float w)
+{
+    float y0 = y;
+    SimSetup *s = &P.s;
+    y += section_head(x, y, w, "Measured while it runs", "Each report is worked out every iteration and shown on the Run page as it settles (Monitors), "
+                                                         "where it can stop the run once it stops changing. The walls' y+ is always measured.");
+    /* add one */
+    static const char *ADD[RP__N + 1] = { "Add a report ...", "Probe points: values at points", "Surface: an average, a flow rate, the least or greatest on a boundary",
+                                          "Pressure drop between two boundaries", "Volume: the average, least or greatest in the domain" };
+    int pick = 0;
+    ui_disable(s->nR >= SIM_MAX_R);
+    if (ui_select(ui_id("su-rep-add"), (Rectangle){ x, y, fminf(420, w), 36 }, ADD, RP__N + 1, &pick) && pick > 0) {
+        double lo[3], hi[3], mid[3] = { 0, 0, 0 };
+        if (mesh_bounds(c->s.path, lo, hi)) for (int k = 0; k < 3; k++) mid[k] = 0.5 * (lo[k] + hi[k]);
+        if (sim_report_add(s, pick - 1, mid) >= 0) save();
+    }
+    ui_disable(false);
+    y += 50;
+    int del = -1;
+    for (int i = 0; i < s->nR; i++) {
+        SimReport *r = &s->r[i];
+        ui_push_id(ui_idn(ui_id("su-rep"), i));
+        float cy = y + 12;
+        char d[200]; sim_report_describe(s, r, d, sizeof d);
+        ui_text_clip(F_SEMI, 14, d, x + 16, cy + 2, w - 80, TH.text);
+        char sub[120]; pl_fmt_ui(sub, sizeof sub, "%s  ·  %s  ·  postProcessing/%s", REPORT_NAME[r->kind], sim_report_unit(s, r), r->name);
+        ui_text_clip(F_MONO, 12, sub, x + 16, cy + 22, w - 80, TH.text3);
+        if (ui_button(ui_id("del"), (Rectangle){ x + w - 46, cy, 34, 34 }, ICON_X, NULL, BTN_ICON)) del = i;
+        ui_tooltip((Rectangle){ x + w - 46, cy, 34, 34 }, "Remove this report");
+        cy += 50;
+        float ix = x + 16, iw = w - 32;
+        bool ch = false;
+        Rectangle cr;
+        switch (r->kind) {
+        case RP_PROBE:
+            cr = prop_row(ix, &cy, iw, "Field", NULL, 34);
+            ch |= field_select(ui_id("field"), (Rectangle){ cr.x, cr.y, fminf(240, cr.width), 34 }, r);
+            for (int k = 0; k < r->nPts; k++) {
+                char id[32], lab[32]; snprintf(id, sizeof id, "pt%d", k); pl_fmt_ui(lab, sizeof lab, "Point %d", k + 1);
+                ch |= row_vec(ix, &cy, iw, true, id, lab, k == 0 ? "In the mesh's axes, m." : NULL, r->pts[k], "m");
+            }
+            {
+                float bw = ui_button_width(ICON_PLUS, "Add a point");
+                ui_disable(r->nPts >= SIM_MAX_PROBES);
+                if (ui_button(ui_id("pt-add"), (Rectangle){ ix, cy + 4, bw, 32 }, ICON_PLUS, "Add a point", BTN_GHOST)) {
+                    memcpy(r->pts[r->nPts], r->pts[r->nPts - 1], sizeof r->pts[0]); r->nPts++; ch = true;
+                }
+                ui_disable(r->nPts <= 1);
+                float rw = ui_button_width(ICON_X, "Remove the last");
+                if (ui_button(ui_id("pt-del"), (Rectangle){ ix + bw + 8, cy + 4, rw, 32 }, ICON_X, "Remove the last", BTN_GHOST)) { r->nPts--; ch = true; }
+                ui_disable(false);
+                cy += 44;
+            }
+            break;
+        case RP_SURFACE:
+            cr = prop_row(ix, &cy, iw, "Boundary", NULL, 34);
+            ch |= patch_select(ui_id("patch"), (Rectangle){ cr.x, cr.y, fminf(240, cr.width), 34 }, r->patch, sizeof r->patch);
+            cr = prop_row(ix, &cy, iw, "Measure", r->op == SO_MASSAVG ? "Weighted by the flow through each face: the mixed-out value." :
+                                                  r->op == SO_FLOW ? "Out of the domain positive, into it negative." : NULL, 34);
+            { int op = r->op; if (ui_select(ui_id("op"), (Rectangle){ cr.x, cr.y, fminf(240, cr.width), 34 }, SURF_OP_NAME, SO__N, &op) && op != r->op) { r->op = op; ch = true; } }
+            if (r->op != SO_FLOW) {
+                cr = prop_row(ix, &cy, iw, "Field", NULL, 34);
+                ch |= field_select(ui_id("field"), (Rectangle){ cr.x, cr.y, fminf(240, cr.width), 34 }, r);
+            }
+            break;
+        case RP_DROP:
+            cr = prop_row(ix, &cy, iw, "From", "Usually the inlet: its area-averaged pressure ...", 34);
+            ch |= patch_select(ui_id("from"), (Rectangle){ cr.x, cr.y, fminf(240, cr.width), 34 }, r->patch, sizeof r->patch);
+            cr = prop_row(ix, &cy, iw, "To", "... minus this one's (the outlet).", 34);
+            ch |= patch_select(ui_id("to"), (Rectangle){ cr.x, cr.y, fminf(240, cr.width), 34 }, r->patch2, sizeof r->patch2);
+            break;
+        default:
+            cr = prop_row(ix, &cy, iw, "Measure", NULL, 34);
+            { int op = r->op; if (ui_select(ui_id("op"), (Rectangle){ cr.x, cr.y, fminf(240, cr.width), 34 }, VOL_OP_NAME, VO__N, &op) && op != r->op) { r->op = op; ch = true; } }
+            cr = prop_row(ix, &cy, iw, "Field", NULL, 34);
+            ch |= field_select(ui_id("field"), (Rectangle){ cr.x, cr.y, fminf(240, cr.width), 34 }, r);
+            break;
+        }
+        if (ch) save();
+        Rectangle card = { x, y, w, cy - y + 6 };
+        ui_rect_lines(card, 10, 1, TH.lineSoft);
+        ui_pop_id();
+        y += card.height + 12;
+    }
+    if (del >= 0) { sim_report_remove(s, del); save(); }
+    if (!s->nR) y += note(x, y, w, "None yet. \"What is my pressure drop?\" Add a Pressure drop. \"What is the speed here?\" Add Probe points there.") + 4;
+    y += 12;
+    return y - y0;
+}
+
 /* ---------------------------------------------------------------------------- 5 Reports: lift and drag (user request, 2026-10-26) */
 static float reports_step(Case *c, float x, float y, float w)
 {
     float y0 = y;
     SimSetup *s = &P.s;
+    y += issues_callout(SS_REPORTS, x, y, w);
+    y += measurements(c, x, y, w);
     if (s->energy != EN_OFF) {
         y += section_head(x, y, w, "Heat through the walls", "The heat each wall passes into the fluid (W; negative: out of it), and its least and greatest "
                                                              "flux (W/m²), at each write; for each heated or cooled wall, its mean flux, temperature and Nusselt number every "
@@ -1344,11 +1486,7 @@ static float reports_step(Case *c, float x, float y, float w)
                                                 "coefficients, Cd = drag / (½ ρ U² A) and Cl the same with the lift. The Run page plots them as they settle.");
     Rectangle cr = prop_row(x, &y, w, "Monitor forces", "Adds the forces and forceCoeffs function objects to system/controlDict.", 24);
     if (ui_switch(ui_id("su-forces"), cr.x, cr.y + 2, &s->forces)) save();
-    y += issues_callout(SS_REPORTS, x, y + 8, w);
-    if (!s->forces) {
-        y += note(x, y + 8, w, s->energy != EN_OFF ? "Probes, pressure drop and flow rate come in a later update." : "Probes, surface averages, pressure drop and flow rate come in a later update; Lift and drag is the report for now.") + 8;
-        return y - y0;
-    }
+    if (!s->forces) return y + 8 - y0;
     /* the walls they are summed over */
     float cw[SIM_MAX_B]; int nw = 0; float lineW = 0, lines = 1, room = w - fminf(300, w * 0.38f);
     for (int i = 0; i < s->nB; i++) {

@@ -38,6 +38,12 @@ static const char *const ROLE_WORD[ROLE__N] = { "wall", "opening", "inlet", "out
 static const char *const INLET_WORD[IN__N] = { "speed", "vector", "flowRate", "massFlowRate", "totalPressure", "mach" };
 static const char *const WALLT_WORD[WT__N] = { "auto", "wallFunctions", "resolved" };
 static const char *const TI_WORD[TI__N] = { "length", "viscosityRatio", "hydraulicDiameter" };
+const char *const REPORT_NAME[RP__N] = { "Probe points", "Surface", "Pressure drop", "Volume" };
+const char *const SURF_OP_NAME[SO__N] = { "Average", "Mass-weighted average", "Flow rate", "Least", "Greatest" };
+const char *const VOL_OP_NAME[VO__N] = { "Average", "Least", "Greatest" };
+static const char *const REPORT_WORD[RP__N] = { "probes", "surface", "pressureDrop", "volume" };
+static const char *const SURF_OP_WORD[SO__N] = { "areaAverage", "weightedAreaAverage", "flowRate", "min", "max" };
+static const char *const VOL_OP_WORD[VO__N] = { "volAverage", "min", "max" };
 static const char *const COMP_WORD[COMP__N] = { "incompressible", "idealGas" };
 static const char *const GAS_WORD[GAS__N] = { "air", "nitrogen", "CO2", "custom" };
 static const char *const WALL_WORD[WL__N] = { "noSlip", "slip", "moving" };
@@ -121,11 +127,20 @@ bool sim_load(const char *casePath, SimSetup *s, double size)
     sim_defaults(s, size);
     if (!ini) return false;
     SimBoundary *b = NULL;
+    SimReport *rp = NULL;
     for (char *line = strtok(ini, "\n"); line; line = strtok(NULL, "\n")) {
         pl_trim_inplace(line);
         if (!line[0] || line[0] == '#') continue;
         if (line[0] == '[') {
-            b = NULL;
+            b = NULL; rp = NULL;
+            char rname[48] = "";
+            if (sscanf(line, "[report %47[^]]]", rname) == 1 && s->nR < SIM_MAX_R) {
+                pl_trim_inplace(rname);
+                rp = &s->r[s->nR++];
+                memset(rp, 0, sizeof *rp);
+                pl_strlcpy(rp->name, rname, sizeof rp->name);
+                continue;
+            }
             char name[64] = "";
             if (sscanf(line, "[boundary %63[^]]]", name) == 1 && s->nB < SIM_MAX_B) {
                 pl_trim_inplace(name);
@@ -142,6 +157,15 @@ bool sim_load(const char *casePath, SimSetup *s, double size)
         *eq = 0;
         char *k = line, *v = eq + 1;
         pl_trim_inplace(k); pl_trim_inplace(v);
+        if (rp) {
+            if (!strcmp(k, "kind")) rp->kind = word_index(REPORT_WORD, RP__N, v, RP_SURFACE);
+            else if (!strcmp(k, "field")) pl_strlcpy(rp->field, v, sizeof rp->field);
+            else if (!strcmp(k, "patch")) pl_strlcpy(rp->patch, v, sizeof rp->patch);
+            else if (!strcmp(k, "patch2")) pl_strlcpy(rp->patch2, v, sizeof rp->patch2);
+            else if (!strcmp(k, "operation")) rp->op = rp->kind == RP_VOLUME ? word_index(VOL_OP_WORD, VO__N, v, VO_AVG) : word_index(SURF_OP_WORD, SO__N, v, SO_AVG);
+            else if (!strcmp(k, "point") && rp->nPts < SIM_MAX_PROBES) { vec_parse(v, rp->pts[rp->nPts]); rp->nPts++; }
+            continue;
+        }
         if (!b) {
             if (!strcmp(k, "template")) s->tmpl = !strcmp(v, "none") ? -2 : word_index(TMPL_WORD, TMPL__N, v, TMPL_BLANK);
             else if (!strcmp(k, "flow")) s->flow = word_index(FLOW_WORD, FLOW__N, v, FLOW_STEADY);
@@ -276,6 +300,16 @@ bool sim_save(const char *casePath, const SimSetup *s)
         str_catf(&o, "mach = %.8g\nnon_reflecting = %d\nfar_field = %d\n", b->mach, b->nonRefl, b->farField);
         str_catf(&o, "turbulence_by = %s\nviscosity_ratio = %.8g\nhydraulic_diameter = %.8g\n", TI_WORD[b->turbSpec], b->ratio, b->dh);
     }
+    for (int i = 0; i < s->nR; i++) {
+        const SimReport *r = &s->r[i];
+        str_catf(&o, "\n[report %s]\nkind = %s\n", r->name, REPORT_WORD[r->kind]);
+        if (r->field[0]) str_catf(&o, "field = %s\n", r->field);
+        if (r->patch[0]) str_catf(&o, "patch = %s\n", r->patch);
+        if (r->patch2[0]) str_catf(&o, "patch2 = %s\n", r->patch2);
+        if (r->kind == RP_SURFACE) str_catf(&o, "operation = %s\n", SURF_OP_WORD[r->op]);
+        if (r->kind == RP_VOLUME) str_catf(&o, "operation = %s\n", VOL_OP_WORD[r->op]);
+        for (int k = 0; k < r->nPts; k++) str_catf(&o, "point = %.8g %.8g %.8g\n", r->pts[k][0], r->pts[k][1], r->pts[k][2]);
+    }
     char p[PL_PATH]; sim_ini_path(casePath, p, sizeof p);
     char *old = pl_read_file(p, NULL);                  /* unchanged: left alone, so its time says when the setup changed */
     bool same = old && !strcmp(old, o.s);
@@ -333,6 +367,117 @@ void sim_rename(SimSetup *s, const char *from, const char *to)
 {
     SimBoundary *b = sim_find(s, from);
     if (b && !sim_find(s, to)) pl_strlcpy(b->name, to, sizeof b->name);
+}
+
+/* ============================================================================ reports (plan step 6) */
+static bool open_patch(const SimBoundary *b) { return !sim_constraint(b->meshType); }
+
+int sim_report_add(SimSetup *s, int kind, const double centre[3])
+{
+    if (s->nR >= SIM_MAX_R || kind < 0 || kind >= RP__N) return -1;
+    SimReport *r = &s->r[s->nR];
+    memset(r, 0, sizeof *r);
+    r->kind = kind;
+    /* a name of its own: probes1, surface2 ... (the function object's name and its postProcessing folder) */
+    for (int n = 1; ; n++) {
+        snprintf(r->name, sizeof r->name, "%s%d", REPORT_WORD[kind], n);
+        bool used = false;
+        for (int i = 0; i < s->nR; i++) if (!strcmp(s->r[i].name, r->name)) used = true;
+        if (!used) break;
+    }
+    const char *in = NULL, *out = NULL, *any = NULL;
+    for (int i = 0; i < s->nB; i++) {
+        const SimBoundary *b = &s->b[i];
+        if (!open_patch(b)) continue;
+        if (!any) any = b->name;
+        if (b->role == ROLE_INLET && !in) in = b->name;
+        if ((b->role == ROLE_OUTLET || b->role == ROLE_OPENING) && !out) out = b->name;
+    }
+    switch (kind) {
+    case RP_PROBE:
+        pl_strlcpy(r->field, "U", sizeof r->field);
+        r->nPts = 1;
+        for (int k = 0; k < 3; k++) r->pts[0][k] = centre ? centre[k] : 0;
+        break;
+    case RP_SURFACE:
+        pl_strlcpy(r->field, "p", sizeof r->field);
+        pl_strlcpy(r->patch, out ? out : in ? in : any ? any : "", sizeof r->patch);
+        r->op = SO_AVG;
+        break;
+    case RP_DROP:
+        pl_strlcpy(r->field, "p", sizeof r->field);
+        pl_strlcpy(r->patch, in ? in : any ? any : "", sizeof r->patch);
+        pl_strlcpy(r->patch2, out ? out : any ? any : "", sizeof r->patch2);
+        break;
+    default:
+        pl_strlcpy(r->field, "U", sizeof r->field);
+        r->op = VO_MAX;
+        break;
+    }
+    return s->nR++;
+}
+
+void sim_report_remove(SimSetup *s, int i)
+{
+    if (i < 0 || i >= s->nR) return;
+    memmove(&s->r[i], &s->r[i + 1], sizeof s->r[0] * (size_t)(s->nR - i - 1));
+    s->nR--;
+}
+
+int sim_report_fields(const SimSetup *s, const char *out[SIM_MAX_F])
+{
+    const char *f[SIM_MAX_F];
+    int nf = sim_fields(s, f), n = 0;
+    for (int i = 0; i < nf; i++) {
+        if (!strcmp(f[i], "nut") || !strcmp(f[i], "alphat") || !strcmp(f[i], "p_rgh") || !strcmp(f[i], "ReThetat") || !strcmp(f[i], "gammaInt")) continue;
+        out[n++] = f[i];
+    }
+    return n;
+}
+
+static bool flow_is_mass(const SimSetup *s) { return sim_is_gas(s) || s->energy != EN_OFF; }   /* phi is a mass flux there */
+
+const char *sim_report_unit(const SimSetup *s, const SimReport *r)
+{
+    if (r->kind == RP_SURFACE && r->op == SO_FLOW) return flow_is_mass(s) ? "kg/s" : "m³/s";
+    if (r->kind == RP_DROP || !strcmp(r->field, "p")) return "Pa";
+    if (!strcmp(r->field, "U")) return "m/s";
+    if (!strcmp(r->field, "T")) return "K";
+    if (!strcmp(r->field, "k")) return "m²/s²";
+    if (!strcmp(r->field, "omega")) return "1/s";
+    if (!strcmp(r->field, "epsilon")) return "m²/s³";
+    if (!strcmp(r->field, "nuTilda")) return "m²/s";
+    return "";
+}
+
+static const char *field_word(const char *f, bool first)
+{
+    if (!strcmp(f, "U")) return first ? "Speed" : "speed";
+    if (!strcmp(f, "p")) return first ? "Pressure" : "pressure";
+    if (!strcmp(f, "T")) return first ? "Temperature" : "temperature";
+    if (!strcmp(f, "k")) return first ? "Turbulent energy k" : "turbulent energy k";
+    return f;
+}
+
+void sim_report_describe(const SimSetup *s, const SimReport *r, char *out, int cap)
+{
+    (void)s;
+    switch (r->kind) {
+    case RP_PROBE: snprintf(out, (size_t)cap, "%s at %d point%s", field_word(r->field, true), r->nPts, r->nPts == 1 ? "" : "s"); break;
+    case RP_SURFACE:
+        if (r->op == SO_FLOW) snprintf(out, (size_t)cap, "Flow rate through %s (out positive)", r->patch);
+        else snprintf(out, (size_t)cap, "%s %s on %s", SURF_OP_NAME[r->op], field_word(r->field, false), r->patch);
+        break;
+    case RP_DROP: snprintf(out, (size_t)cap, "Pressure drop from %s to %s", r->patch, r->patch2); break;
+    default: snprintf(out, (size_t)cap, "%s %s in the domain", VOL_OP_NAME[r->op], field_word(r->field, false)); break;
+    }
+}
+
+const char *sim_report_of(const SimSetup *s, const char *field)
+{
+    if (!strcmp(field, "U")) return "mag(U)";
+    if (!strcmp(field, "p") && !sim_is_gas(s) && s->energy == EN_OFF) return "pPa";
+    return field;
 }
 
 bool sim_far_field(const SimSetup *s, const SimBoundary *b)
@@ -508,6 +653,27 @@ int sim_check(const SimSetup *s, char *out, int cap)
                 || (b->heat == HT_POWER && b->Q != 0) || (b->heat == HT_CONVECT && b->Ta != s->T0)))) heats = true;
         }
         if (!heats && s->nB && !sim_is_gas(s)) { AREA(SA_BOUNDARIES); pl_fmt_ui(out + strlen(out), (size_t)cap - strlen(out), "Nothing heats or cools the fluid: give a wall a temperature or a heat flux, or an inlet a temperature other than the start's.\n"); }
+    }
+    /* reports: each on a boundary the mesh has, a field the setup solves, a probe with a point */
+    {
+        const char *rf[SIM_MAX_F]; int nrf = sim_report_fields(s, rf);
+        for (int i = 0; i < s->nR; i++) {
+            const SimReport *r = &s->r[i];
+            const char *ps[2] = { r->patch, r->kind == RP_DROP ? r->patch2 : NULL };
+            for (int k = 0; k < 2; k++) {
+                if (!ps[k] || (r->kind != RP_SURFACE && r->kind != RP_DROP)) continue;
+                bool ok = false;
+                for (int j = 0; j < s->nB; j++) if (!strcmp(s->b[j].name, ps[k]) && open_patch(&s->b[j])) ok = true;
+                if (!ok) { AREA(SA_REPORTS); pl_fmt_ui(out + strlen(out), (size_t)cap - strlen(out), "Report %s: %s is not a boundary of the mesh.\n", r->name, ps[k][0] ? ps[k] : "(none)"); }
+            }
+            if (r->kind == RP_DROP && !strcmp(r->patch, r->patch2)) {
+                AREA(SA_REPORTS); pl_fmt_ui(out + strlen(out), (size_t)cap - strlen(out), "Report %s: a pressure drop needs two different boundaries.\n", r->name);
+            }
+            bool fok = r->kind == RP_DROP || (r->kind == RP_SURFACE && r->op == SO_FLOW);
+            for (int j = 0; j < nrf && !fok; j++) if (!strcmp(rf[j], r->field)) fok = true;
+            if (!fok) { AREA(SA_REPORTS); pl_fmt_ui(out + strlen(out), (size_t)cap - strlen(out), "Report %s: this setup doesn't solve %s.\n", r->name, r->field); }
+            if (r->kind == RP_PROBE && r->nPts < 1) { AREA(SA_REPORTS); pl_fmt_ui(out + strlen(out), (size_t)cap - strlen(out), "Report %s: no points to probe.\n", r->name); }
+        }
     }
     /* compressibility: how fast against the speed of sound */
     bool gas = sim_is_gas(s);
@@ -1167,7 +1333,7 @@ bool sim_write(const char *casePath, const SimSetup *s, char *err, int cap)
     str_cat(&o, pn);
     for (int i = 0; i < ne; i++) str_catf(&o, " %s", eq[i]);
     str_cat(&o, ");\n        writeControl    timeStep;\n        writeInterval   1;\n    }\n");
-    if (turb) {
+    {   /* plan step 6: always, laminar too */
         /* every wall's y+ at each write (postProcessing/yPlus: min, max, average per wall): the Run page holds it against
            the wall treatment (plan step 5) */
         str_cat(&o, "\n    // the walls' y+ (wall functions want 30 to 300 at the first cell, resolved walls about 1)\n    yPlus\n    {\n        type            yPlus;\n"
@@ -1179,6 +1345,54 @@ bool sim_write(const char *casePath, const SimSetup *s, char *err, int cap)
                      "        type            fieldAverage;\n        libs            (fieldFunctionObjects);\n        timeStart       %.6g;\n        writeControl    writeTime;\n"
                      "        fields\n        (\n            U { mean on; prime2Mean on; base time; }\n            %s { mean on; prime2Mean off; base time; }\n        );\n    }\n",
                  sim_avg_start(s), sim_avg_start(s), pn);
+    }
+    /* ---- reports (plan step 6): the speed |U| and the pressure in Pa worked out first, then each report */
+    bool needMag = false, needPa = false;
+    for (int i = 0; i < s->nR; i++) {
+        const SimReport *r = &s->r[i];
+        if (r->kind == RP_DROP || !strcmp(r->field, "p")) needPa |= !strcmp(sim_report_of(s, "p"), "pPa");
+        if (!strcmp(r->field, "U") && !(r->kind == RP_SURFACE && r->op == SO_FLOW)) needMag = true;
+    }
+    if (needMag)
+        str_cat(&o, "\n    // the speed |U|, for the reports (and written with the results)\n    magU\n    {\n        type            mag;\n"
+                    "        libs            (fieldFunctionObjects);\n        field           U;\n        result          mag(U);\n"
+                    "        executeControl  timeStep;\n        writeControl    writeTime;\n    }\n");
+    if (needPa)
+        str_catf(&o, "\n    // the static pressure in Pa (p here is per unit density), for the reports\n    pressurePa\n    {\n        type            pressure;\n"
+                     "        libs            (fieldFunctionObjects);\n        mode            static;\n        rho             rhoInf;\n        rhoInf          %.8g;\n"
+                     "        result          pPa;\n        executeControl  timeStep;\n        writeControl    writeTime;\n    }\n", s->rho);
+    for (int i = 0; i < s->nR; i++) {
+        const SimReport *r = &s->r[i];
+        char d[200]; sim_report_describe(s, r, d, sizeof d);
+        const char *fo = sim_report_of(s, r->field);
+        const char *every = "        writeControl    timeStep;\n        writeInterval   1;\n";
+        str_catf(&o, "\n    // %s (Physics > Setup, Reports)\n    %s\n    {\n", d, r->name);
+        if (r->kind == RP_PROBE) {
+            str_catf(&o, "        type            probes;\n        libs            (sampling);\n        fields          (%s);\n        probeLocations\n        (\n", fo);
+            for (int k = 0; k < r->nPts; k++) str_catf(&o, "            (%.8g %.8g %.8g)\n", r->pts[k][0], r->pts[k][1], r->pts[k][2]);
+            str_catf(&o, "        );\n%s", every);
+        } else if (r->kind == RP_SURFACE) {
+            static const char *const OPW[SO__N] = { "areaAverage", "weightedAreaAverage", "sum", "min", "max" };
+            str_catf(&o, "        type            surfaceFieldValue;\n        libs            (fieldFunctionObjects);\n        regionType      patch;\n"
+                         "        name            %s;\n        operation       %s;\n        fields          (%s);\n%s        writeFields     false;\n%s",
+                     r->patch, OPW[r->op], r->op == SO_FLOW ? "phi" : fo, r->op == SO_MASSAVG ? "        weightField     phi;\n" : "", every);
+        } else if (r->kind == RP_DROP) {
+            const char *pf = sim_report_of(s, "p");
+            str_catf(&o, "        type            multiFieldValue;\n        libs            (fieldFunctionObjects);\n        operation       subtract;\n"
+                         "        functions\n        {\n");
+            const char *pp[2] = { r->patch, r->patch2 };
+            for (int k = 0; k < 2; k++)
+                str_catf(&o, "            %s\n            {\n                type            surfaceFieldValue;\n                operation       areaAverage;\n"
+                             "                regionType      patch;\n                name            %s;\n                fields          (%s);\n"
+                             "                writeFields     no;\n                writeToFile     no;\n                log             no;\n            }\n",
+                         k ? "to" : "from", pp[k], pf);
+            str_catf(&o, "        }\n%s", every);
+        } else {
+            static const char *const OPV[VO__N] = { "volAverage", "min", "max" };
+            str_catf(&o, "        type            volFieldValue;\n        libs            (fieldFunctionObjects);\n        regionType      all;\n"
+                         "        operation       %s;\n        fields          (%s);\n        writeFields     false;\n%s", OPV[r->op], fo, every);
+        }
+        str_cat(&o, "    }\n");
     }
     if (gas)                                            /* the Mach number as a field, with the results */
         str_cat(&o, "\n    // the Mach number, |U| / sqrt(gamma R T), written with the results (Ma)\n    MachNo\n    {\n        type            MachNo;\n"

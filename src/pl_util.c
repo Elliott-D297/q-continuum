@@ -511,17 +511,40 @@ static char *run_capture_(const char *script, size_t maxBytes, int *status)
     if (!b.s) str_cat(&b, "");
     return b.s;
 }
+/* bug hunt 2026-11-01: on WSL the PATH holds Windows folders (/mnt/c over 9p), so one lookup took ~80 ms and the
+   Environment panel's dozen of them froze it for ~0.9 s on every opening. Answers (found or not) are kept for 60 s, for
+   the same PATH; pl_which_cache_clear (env_detect, "Check again") forgets them, so a program just installed shows up */
+#define WC_N 64
+static struct { char exe[64]; char path[PL_PATH]; bool ok; double at; unsigned long pathHash; } WC[WC_N];
+static int wcNext;
+void pl_which_cache_clear(void) { memset(WC, 0, sizeof WC); wcNext = 0; }
+
 bool pl_which(const char *exe, char *out, size_t cap)
 {
     const char *path = getenv("PATH");
     if (!path) return false;
+    unsigned long h = 5381; for (const char *c = path; *c; c++) h = h * 33 + (unsigned char)*c;
+    struct timespec ts; clock_gettime(CLOCK_MONOTONIC, &ts);
+    double now = ts.tv_sec + ts.tv_nsec * 1e-9;
+    for (int i = 0; i < WC_N; i++)
+        if (WC[i].exe[0] && WC[i].pathHash == h && now - WC[i].at < 60 && !strcmp(WC[i].exe, exe)) {
+            if (WC[i].ok && out) pl_strlcpy(out, WC[i].path, cap);
+            return WC[i].ok;
+        }
     char *dup = pl_strdup(path), *save = NULL;
     bool ok = false;
+    char found[PL_PATH] = "";
     for (char *d = strtok_r(dup, ":", &save); d; d = strtok_r(NULL, ":", &save)) {
         char c[PL_PATH]; pl_join(c, sizeof c, d, exe);
-        if (access(c, X_OK) == 0 && pl_is_file(c)) { if (out) pl_strlcpy(out, c, cap); ok = true; break; }
+        if (access(c, X_OK) == 0 && pl_is_file(c)) { pl_strlcpy(found, c, sizeof found); ok = true; break; }
     }
     free(dup);
+    if (ok && out) pl_strlcpy(out, found, cap);
+    if (strlen(exe) < sizeof WC[0].exe) {
+        int i = wcNext++ % WC_N;
+        pl_strlcpy(WC[i].exe, exe, sizeof WC[i].exe); pl_strlcpy(WC[i].path, found, sizeof WC[i].path);
+        WC[i].ok = ok; WC[i].at = now; WC[i].pathHash = h;
+    }
     return ok;
 }
 bool pl_is_wsl(void)

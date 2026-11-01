@@ -56,6 +56,7 @@ static void glob_installs(Env *e, const char *pattern)
 
 void env_detect(Env *e)
 {
+    pl_which_cache_clear();                              /* a fresh look: programs installed since show up */
     memset(e, 0, sizeof *e);
     const char *only = getenv("QC_TEST_FOAM_ROOTS");    /* testing: search just these (":"-separated; "" = none installed) */
     if (only) {

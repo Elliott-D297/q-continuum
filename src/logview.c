@@ -350,7 +350,16 @@ void run_console(Rectangle r, LogSet *ls, int sel)
 
     /* tool row: search, first error, folding */
     float by = r.y + 53, bx = r.x + 12;
-    float fw = fminf(260, r.width * 0.3f);
+    /* the buttons on the right measured first, so the search box never runs under them (bug hunt 2026-11-01: at a large
+       UI scale "Search the log" sat over First error); short of room they show only their icons */
+    if (V.selFor != m) { V.selFor = m; V.selA = V.selB = -1; V.selDrag = false; }
+    const char *cl0 = V.selA >= 0 ? "Copy lines" : "Copy log";
+    float fdw0 = ui_text_w(F_REG, 13, "Fold time steps") + 34;
+    float rightW = fdw0 + 12 + ui_button_width(ICON_COPY, cl0) + 8 + ui_button_width(ICON_TRIANGLE_ALERT, "First error") + 12;
+    float extra = find[0] ? 160 : 0;                         /* the match count and its arrows */
+    bool iconsOnly = r.width - 24 - rightW - extra < 140;
+    if (iconsOnly) rightW = fdw0 + 12 + 30 + 8 + 30 + 12;
+    float fw = fmaxf(90, fminf(fminf(260, r.width * 0.3f), r.width - 24 - rightW - extra));
     UiId fid = ui_id("log-find");
     ui_input(fid, (Rectangle){ bx, by, fw, 30 }, find, sizeof find, "Search the log", INPUT_LIVE | INPUT_SEARCH | INPUT_MONO | INPUT_KEEP);
     rebuild(m, A.set.logFold);
@@ -387,27 +396,26 @@ void run_console(Rectangle r, LogSet *ls, int sel)
     ui_tooltip((Rectangle){ rx - fdw, by + 3, fdw, 24 }, find[0] ? "Searching shows every line" :
                "Show each finished time step as its Time = line; steps with a warning or an error stay open");
     rx -= fdw + 12;
-    if (V.selFor != m) { V.selFor = m; V.selA = V.selB = -1; V.selDrag = false; }
     {
         bool sel = V.selA >= 0;
         const char *cl = sel ? "Copy lines" : "Copy log";
-        float cw = ui_button_width(ICON_COPY, cl);
-        if (ui_button(ui_id("log-copy"), (Rectangle){ rx - cw, by, cw, 30 }, ICON_COPY, cl, BTN_GHOST)) {
+        float cw = iconsOnly ? 30 : ui_button_width(ICON_COPY, cl);
+        if (ui_button(ui_id("log-copy"), (Rectangle){ rx - cw, by, cw, 30 }, ICON_COPY, iconsOnly ? NULL : cl, iconsOnly ? BTN_ICON : BTN_GHOST)) {
             if (sel) copy_lines(m, V.selA, V.selB); else copy_lines(m, 0, m->nLines - 1);
         }
         ui_tooltip((Rectangle){ rx - cw, by, cw, 30 }, sel ? "Copy the selected lines (Ctrl+C)" :
                    "Copy the whole log. Drag over lines (or click one, Shift+click another) to copy just those");
         rx -= cw + 8;
     }
-    float ew = ui_button_width(ICON_TRIANGLE_ALERT, "First error");
+    float ew = iconsOnly ? 30 : ui_button_width(ICON_TRIANGLE_ALERT, "First error");
     ui_disable(V.firstErr < 0);
-    if (ui_button(ui_id("log-err"), (Rectangle){ rx - ew, by, ew, 30 }, ICON_TRIANGLE_ALERT, "First error", BTN_GHOST)) {
+    if (ui_button(ui_id("log-err"), (Rectangle){ rx - ew, by, ew, 30 }, ICON_TRIANGLE_ALERT, iconsOnly ? NULL : "First error", iconsOnly ? BTN_ICON : BTN_GHOST)) {
         V.scrollRow = row_of_line(V.firstErr);
         V.flashLine = V.firstErr; V.flashT = GetTime();
         A.runFollow = false;
     }
     ui_disable(false);
-    ui_tooltip((Rectangle){ rx - ew, by, ew, 30 }, V.firstErr < 0 ? "No error lines in this log" : "Scroll to the first line that reports an error");
+    ui_tooltip((Rectangle){ rx - ew, by, ew, 30 }, V.firstErr < 0 ? "First error: no error lines in this log" : "First error: scroll to the first line that reports an error");
 
     Rectangle body = { r.x + 4, r.y + 90, r.width - 8, r.height - 94 };
     DrawRectangleRec((Rectangle){ r.x + 1, r.y + 88, r.width - 2, 1 }, TH.lineSoft);

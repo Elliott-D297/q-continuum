@@ -332,7 +332,15 @@ const char *sim_settle(SimSetup *s)
         s->energy = EN_FORCED;
         if (!(s->pOp > 0)) s->pOp = SIM_POP;
         sim_gas_props(s);
-    }
+    } else
+        /* bug hunt 2026-11-01: a Mach inlet left from a gas setup was written as a pressure inlet with no pressure (no flow
+           in): it becomes the speed it stood for, at the gas's speed of sound before the switch (air's if unknown) */
+        for (int i = 0; i < s->nB; i++) {
+            SimBoundary *b = &s->b[i];
+            if (b->inlet != IN_MACH) continue;
+            double T = b->T > 0 ? b->T : 293.15, a = s->molW > 0 && s->gamma > 1 ? sqrt(s->gamma * SIM_R / s->molW * T) : sqrt(1.4 * SIM_R / 28.96 * T);
+            b->inlet = IN_SPEED; b->speed = b->mach * a;
+        }
     if (s->energy != EN_OFF && s->algo == ALG_PISO) s->algo = ALG_PIMPLE;   /* buoyantPimpleFoam: PIMPLE with one outer corrector */
     int a = sim_approach(s->turb);
     if (s->flow == FLOW_STEADY && (a == APPR_LES || a == APPR_DES)) {

@@ -1,0 +1,25 @@
+# The run queue (bug hunt 2026-11-01): two cases queued while it is paused, the open one last; unpaused, both run to
+# their end. Before the fix the queued case took the open case's job slot, so the open one failed with "no free run slot".
+shell cp -a "$SB/ws/cavity" "$SB/ws/cav2" && sed -i 's/^endTime .*/endTime         2;/' "$SB/ws/cav2/system/controlDict"
+open $SB/ws/cavity
+click nav:queue
+wait-until page Queue
+click q-pause
+wait 3
+click q-add-open
+wait 5
+open $SB/ws/cav2
+click nav:queue
+wait-until page Queue
+click q-add-open
+wait 5
+assert text Waiting (2)
+screenshot $OUT/queue_waiting.png
+click q-pause
+wait-until file $SB/ws/cavity/0.5/U timeout 120
+wait-until file $SB/ws/cav2/2/U timeout 120
+wait 30
+assert text Waiting (0)
+assert not text Could not start
+assert not text no free run slot
+screenshot $OUT/queue_done.png

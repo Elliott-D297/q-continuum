@@ -758,8 +758,9 @@ int main(int argc, char **argv)
         CHECK(sim_check(&s, gmsg, sizeof gmsg) && strstr(gmsg, "Ideal gas"), "Mach 0.5 incompressible: %s", gmsg);
         sim_set_comp(&s, COMP_GAS); s.b[0].inlet = IN_MACH; s.b[0].mach = 2;
         CHECK(sim_check(&s, gmsg, sizeof gmsg) && strstr(gmsg, "supersonic") && !strstr(gmsg, "Nothing heats"), "supersonic steady: %s", gmsg);
-        /* back to incompressible: the gas's files go */
+        /* back to incompressible: the gas's files go, and the Mach inlet becomes its speed (bug hunt 2026-11-01) */
         sim_set_comp(&s, COMP_INCOMP);
+        CHECK(s.b[0].inlet == IN_SPEED && fabs(s.b[0].speed - 2 * sqrt(1.4 * SIM_R / 28.96 * s.b[0].T)) < 1e-6, "Mach inlet to speed: %d %g", s.b[0].inlet, s.b[0].speed);
         CHECK(s.energy == EN_OFF && s.rho > 1.1 && s.rho < 1.3 && !strcmp(sim_app(&s), "simpleFoam"), "back to incompressible");
         CHECK(sim_write(dir, &s, gerr, sizeof gerr), "write: %s", gerr);
         pl_join(gp, sizeof gp, dir, "system/fvOptions"); CHECK(!pl_exists(gp), "gas fvOptions removed");

@@ -1,10 +1,10 @@
 # J5: stop a running case cleanly with fields written, change deltaT, restart from latestTime.
-# Target: no lost time steps, no terminal.
+# Target: no lost time steps, no terminal. (endTime 100: a 20 s cavity ran in 0.76 s here, done before Pause; much longer and the log passes the 64 MB a journey reads.)
 open $SB/ws/cavity
 click nav:run
 wait-until page Run
 click dict:system/controlDict:endTime
-enter 20
+enter 100
 click dict:system/controlDict:writeInterval
 enter 400
 click np-in
@@ -24,7 +24,7 @@ click run-resume
 wait-until job running timeout 10
 screenshot $OUT/j5_resumed.png
 # B-01: the restored stopAt must survive the deltaT edit, so the resumed run reaches the end time
-wait-until job idle timeout 120
+wait-until job idle timeout 300
 wait 10
 assert job finished
 assert log log.icoFoam continuing from t =

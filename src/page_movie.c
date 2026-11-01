@@ -9,6 +9,7 @@
 
 static struct {
     char path[PL_PATH];               /* the case the dialog was set up for */
+    char latest[64];                  /* ... and its latest result then (the fields are read again when it changes) */
     char fields[64][64]; int nFields;
     char field[64];
     int  style;                       /* 0 surface, 1 middle slice */
@@ -108,9 +109,17 @@ void app_movie_modal(bool *close)
     if (!c) { *close = true; return; }
     if (strcmp(M.path, c->s.path)) {                     /* set up for this case */
         pl_strlcpy(M.path, c->s.path, sizeof M.path);
-        read_fields(c);
+        M.latest[0] = 1;                                  /* (read below) */
         pl_join(M.dest, sizeof M.dest, env_videos_dir(&A.env), c->s.name);
         M.useClaude = app_claude_view_exists();
+    }
+    /* bug hunt 2026-11-01: the fields were read only when the case changed, so a dialog first opened before the run had
+       none afterwards and Make the movie stayed greyed out */
+    if (strcmp(M.latest, case_latest_result(&c->s))) {
+        char keep[64]; pl_strlcpy(keep, M.field, sizeof keep);
+        read_fields(c);
+        for (int i = 0; i < M.nFields && keep[0]; i++) if (!strcmp(M.fields[i], keep)) pl_strlcpy(M.field, keep, sizeof M.field);   /* the pick stays */
+        pl_strlcpy(M.latest, case_latest_result(&c->s), sizeof M.latest);
     }
     bool missing = !A.env.pvbatch[0] || !A.env.ffmpeg[0];
     char sub[400];

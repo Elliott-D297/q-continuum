@@ -1046,20 +1046,25 @@ static void draw_topbar(Rectangle r)
             if (A.page != PG_OVERVIEW) { crumbs[nc] = page_label(A.page); target[nc++] = A.page; }
         }
     }
-    for (int i = 0; i < nc; i++) {
-        bool last = i == nc - 1;
-        const char *C = ui_cap_words(crumbs[i]);
-        float w = ui_text_w(last ? F_MED : F_REG, 14, C);
-        Rectangle cr = { x - 4, cy - 14, w + 8, 28 };
-        bool hov = !last && ui_hovered(cr);
-        if (hov) ui_cursor(MOUSE_CURSOR_POINTING_HAND);
-        ui_text(last ? F_MED : F_REG, 14, C, x, cy - 9, last ? TH.text : (hov ? TH.text : TH.text3));
-        if (A.cs && target[i] == PG_OVERVIEW && strstr(crumbs[i], "…")) ui_tooltip(cr, A.cs->s.name);
-        if (!last && ui_clicked(cr)) crumb_go(target[i]);
-        x += w + 10;
-        if (!last) { ui_icon(ICON_CHEVRON_RIGHT, x + 4, cy, 14, TH.text3); x += 18; }
+    /* bug hunt 2026-11-01: at a large UI scale the buttons ran over the breadcrumb ("CAVIT CLERUN"). Measured first: when
+       the crumbs and the buttons don't both fit, ParaView + Claude, ParaView, Save and Clean show only their icons (their
+       words in the tooltips), and the crumbs are cut to the room left */
+    float crumbW = 0;
+    for (int i = 0; i < nc; i++) crumbW += ui_text_w(i == nc - 1 ? F_MED : F_REG, 14, ui_cap_words(crumbs[i])) + 10 + (i < nc - 1 ? 18 : 0);
+    bool compact = false;
+    if (A.cs && A.page >= PG_OVERVIEW && A.page <= PG_HISTORY) {
+        bool mine0 = (A.cj->active && !strcmp(A.cj->casePath, A.cs->s.path)) || coupled_running();
+        int dirty0 = case_dirty_count(A.cs) + (prog_setup_dirty() ? 1 : 0);
+        char lab0[48]; snprintf(lab0, sizeof lab0, dirty0 ? "Save %d" : "Saved", dirty0);
+        float full = mine0 ? ui_button_width(ICON_SQUARE, "Stop") + (app_can_pause() && !A.cj->pausing ? ui_button_width(ICON_PAUSE, "Pause") + 10 : 0)
+                           : ui_button_width(ICON_PLAY, app_resumable(NULL) ? "Resume" : A.cs->s.prog ? term(T_RUN_GO) : "Run case");
+        full += 10 + ui_button_width(ICON_EXTERNAL_LINK, "ParaView") + 10 + (A.cs->s.prog ? 0 : ui_button_width(ICON_SPARKLES, "ParaView + Claude") + 10)
+              + ui_button_width(ICON_SAVE, lab0) + 6 + 2 * 36 + 8 + ui_button_width(ICON_TRASH_2, "Clean");
+        compact = full + crumbW + 24 > r.width - 2 * PAGE_PAD;
     }
-
+#define TOP_W(icon, label) (compact ? 34.f : ui_button_width(icon, label))
+#define TOP_LABEL(label) (compact ? NULL : label)
+#define TOP_STYLE(style) (compact ? BTN_ICON : style)
     /* actions, right to left */
     float rx = r.x + r.width - PAGE_PAD;
     if (A.cs && A.page >= PG_OVERVIEW && A.page <= PG_HISTORY) {
@@ -1091,26 +1096,28 @@ static void draw_topbar(Rectangle r)
             if (app_jobs_active() >= MAX_JOBS) ui_tooltip((Rectangle){ rx, cy - 17, w, 34 }, "The most runs at once are going");
         }
         rx -= 10;
-        float w = ui_button_width(ICON_EXTERNAL_LINK, "ParaView");
+        float w = TOP_W(ICON_EXTERNAL_LINK, "ParaView");
         rx -= w;
-        if (ui_button(ui_id("top-pv"), (Rectangle){ rx, cy - 17, w, 34 }, ICON_EXTERNAL_LINK, "ParaView", BTN_SECONDARY)) app_open_paraview();
-        ui_tooltip((Rectangle){ rx, cy - 17, w, 34 }, paraview_description(&A.env, &A.set));
+        if (ui_button(ui_id("top-pv"), (Rectangle){ rx, cy - 17, w, 34 }, ICON_EXTERNAL_LINK, TOP_LABEL("ParaView"), TOP_STYLE(BTN_SECONDARY))) app_open_paraview();
+        ui_tooltip((Rectangle){ rx, cy - 17, w, 34 }, compact ? TextFormat("ParaView: %s", paraview_description(&A.env, &A.set)) : paraview_description(&A.env, &A.set));
         rx -= 10;
         if (!A.cs->s.prog) {
-            w = ui_button_width(ICON_SPARKLES, "ParaView + Claude");
+            w = TOP_W(ICON_SPARKLES, "ParaView + Claude");
             rx -= w;
-            if (ui_button(ui_id("top-pvc"), (Rectangle){ rx, cy - 17, w, 34 }, ICON_SPARKLES, "ParaView + Claude", BTN_SECONDARY)) { A.modal = MD_PV_CLAUDE; A.mText2[0] = 0; }
-            ui_tooltip((Rectangle){ rx, cy - 17, w, 34 }, "Claude Code builds a ParaView view for this case");
+            if (ui_button(ui_id("top-pvc"), (Rectangle){ rx, cy - 17, w, 34 }, ICON_SPARKLES, TOP_LABEL("ParaView + Claude"), TOP_STYLE(BTN_SECONDARY))) { A.modal = MD_PV_CLAUDE; A.mText2[0] = 0; }
+            ui_tooltip((Rectangle){ rx, cy - 17, w, 34 }, compact ? "ParaView + Claude: Claude Code builds a ParaView view for this case" : "Claude Code builds a ParaView view for this case");
             rx -= 10;
         }
         int dirty = case_dirty_count(A.cs) + (prog_setup_dirty() ? 1 : 0);
         char lab[48]; snprintf(lab, sizeof lab, dirty ? "Save %d" : "Saved", dirty);
-        w = ui_button_width(ICON_SAVE, lab);
+        /* compact and edited: the icon keeps a primary look, so unsaved edits still show */
+        w = TOP_W(ICON_SAVE, lab);
         rx -= w;
         ui_disable(dirty == 0);
-        if (ui_button(ui_id("top-save"), (Rectangle){ rx, cy - 17, w, 34 }, ICON_SAVE, lab, BTN_SECONDARY)) app_save_request();
+        if (ui_button(ui_id("top-save"), (Rectangle){ rx, cy - 17, w, 34 }, ICON_SAVE, TOP_LABEL(lab), compact ? (dirty ? BTN_PRIMARY : BTN_ICON) : BTN_SECONDARY)) app_save_request();
         ui_disable(false);
-        if (dirty) ui_tooltip((Rectangle){ rx, cy - 17, w, 34 }, "Save all edited dictionaries (Ctrl+S)");
+        if (dirty) ui_tooltip((Rectangle){ rx, cy - 17, w, 34 }, compact ? TextFormat("%s: save all edited dictionaries (Ctrl+S)", lab) : "Save all edited dictionaries (Ctrl+S)");
+        else if (compact) ui_tooltip((Rectangle){ rx, cy - 17, w, 34 }, "Saved: no unsaved edits");
         rx -= 6;
         for (int k = 1; k >= 0; k--) {                    /* redo, then undo to its left */
             const char *what = undo_label(k);
@@ -1124,13 +1131,35 @@ static void draw_topbar(Rectangle r)
             rx -= 2;
         }
         rx -= 8;
-        w = ui_button_width(ICON_TRASH_2, "Clean");
+        w = TOP_W(ICON_TRASH_2, "Clean");
         rx -= w;
         ui_disable(mine);
-        if (ui_button(ui_id("top-clean"), (Rectangle){ rx, cy - 17, w, 34 }, ICON_TRASH_2, "Clean", BTN_GHOST)) { A.modal = A.cs->s.prog ? MD_PROG_CLEAN : MD_CLEAN; A.mFlag = A.mFlag2 = false; }
+        if (ui_button(ui_id("top-clean"), (Rectangle){ rx, cy - 17, w, 34 }, ICON_TRASH_2, TOP_LABEL("Clean"), TOP_STYLE(BTN_GHOST))) { A.modal = A.cs->s.prog ? MD_PROG_CLEAN : MD_CLEAN; A.mFlag = A.mFlag2 = false; }
         ui_disable(false);
-        ui_tooltip((Rectangle){ rx, cy - 17, w, 34 }, mine ? "Stop the run first" : "Delete the results and logs (asks first)");
+        ui_tooltip((Rectangle){ rx, cy - 17, w, 34 }, mine ? "Stop the run first" : compact ? "Clean: delete the results and logs (asks first)" : "Delete the results and logs (asks first)");
     }
+#undef TOP_W
+#undef TOP_LABEL
+#undef TOP_STYLE
+    /* the breadcrumb, in the room the buttons leave */
+    float maxX = rx - 16;
+    for (int i = 0; i < nc; i++) {
+        bool last = i == nc - 1;
+        const char *C = ui_cap_words(crumbs[i]);
+        float w = ui_text_w(last ? F_MED : F_REG, 14, C);
+        Rectangle cr = { x - 4, cy - 14, w + 8, 28 };
+        bool hov = !last && ui_hovered(cr);
+        if (hov) ui_cursor(MOUSE_CURSOR_POINTING_HAND);
+        if (maxX - x < 24) break;                         /* no room left at all */
+        if (x + w > maxX) { w = maxX - x; cr.width = w + 8; ui_tooltip(cr, C); }
+        ui_text_clip(last ? F_MED : F_REG, 14, C, x, cy - 9, w, last ? TH.text : (hov ? TH.text : TH.text3));
+        if (A.cs && target[i] == PG_OVERVIEW && strstr(crumbs[i], "…")) ui_tooltip(cr, A.cs->s.name);
+        if (!last && ui_clicked(cr)) crumb_go(target[i]);
+        x += w + 10;
+        if (!last) { ui_icon(ICON_CHEVRON_RIGHT, x + 4, cy, 14, TH.text3); x += 18; }
+    }
+
+
     DrawRectangleRec((Rectangle){ r.x, r.y + r.height - 1, r.width, 1 }, TH.lineSoft);
 }
 
@@ -1530,7 +1559,8 @@ float app_fit_scale(void)
 
 double g_frame_work_ms;                                  /* the last frame's own work, without the wait for vsync */
 
-/* QC_FRAME_PROF=1: a frame over 300 ms prints how long each part took (stderr), to find what froze it */
+/* QC_FRAME_PROF=1: a frame over 300 ms prints how long each part took (stderr), to find what froze it; QC_FRAME_PROF=<ms>
+   (above 1) sets the threshold */
 static double profT[16]; static const char *profN[16]; static int profK;
 #define PROF(name) do { if (profOn) { profT[profK] = GetTime(); profN[profK] = name; if (profK < 15) profK++; } } while (0)
 static int profOn = -1;
@@ -1661,7 +1691,9 @@ static void frame(void)
     ui_crt_end();
     EndDrawing();
     PROF("end");
-    if (profOn && profT[profK - 1] - profT[0] > 0.3) {
+    static double profMs = -1;
+    if (profMs < 0) { const char *e = getenv("QC_FRAME_PROF"); profMs = e && atof(e) > 1 ? atof(e) : 300; }
+    if (profOn && profT[profK - 1] - profT[0] > profMs / 1000) {
         fprintf(stderr, "slow frame %.0f ms:", (profT[profK - 1] - profT[0]) * 1000);
         for (int k = 1; k < profK; k++) fprintf(stderr, " %s %.0f", profN[k], (profT[k] - profT[k - 1]) * 1000);
         fprintf(stderr, "\n");

@@ -129,7 +129,7 @@ static void reg_text(const char *s, Rectangle r)
 {
     if (!g_ui_no_input || nRegT[regCur] >= TXT_MAX) return;
     RegText *t = &regT[regCur][nRegT[regCur]++];
-    snprintf(t->s, sizeof t->s, "%s", s);
+    { size_t n = strlen(s); if (n >= sizeof t->s) n = sizeof t->s - 1; memcpy(t->s, s, n); t->s[n] = 0; }   /* journeys match the first 96 characters */
     Rectangle win = { 0, 0, (float)GetScreenWidth(), (float)GetScreenHeight() };
     t->r = to_screen(r); t->vis = intersect(intersect(t->r, to_screen(ui_clip_rect())), win); t->layer = U.layer;
 }
@@ -729,7 +729,8 @@ const char *ui_cap_prose(const char *s) { return U.th.lcars && prose(s) ? ui_upp
    backticks go. */
 static bool ident_word(const char *w, int n)
 {
-    if (n == 1 && w[0] >= 'a' && w[0] <= 'z') return true;
+    /* (but "a", the article: "Make a movie" read "MAKE a MOVIE"; a field named a can be backticked) */
+    if (n == 1 && w[0] >= 'a' && w[0] <= 'z' && w[0] != 'a') return true;
     for (int i = 0; i < n; i++) {
         char c = w[i];
         if (strchr("._/()[]$#<>=:", c) || (c >= '0' && c <= '9')) return true;

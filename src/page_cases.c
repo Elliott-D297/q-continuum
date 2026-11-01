@@ -202,9 +202,13 @@ void page_cases(Rectangle r)
         ui_icon(ICON_FOLDER_OPEN, e.x + e.width / 2, e.y + 56, 34, TH.text3);
         ui_text_center(F_SEMI, 17, ui_cap_words("No cases here yet"), (Rectangle){ e.x, e.y + 86, e.width, 24 }, TH.text);
         float dw = fminf(560, e.width - 40);
-        ui_text_wrap(F_REG, 13.5f, "Start from an OpenFOAM tutorial (the lid-driven cavity is a good first case) or a starter for DEME, "
-                     "CalculiX, MOOSE, Elmer, SPARTA or code_aster, or open a folder you already have.",
-                     (Rectangle){ e.x + (e.width - dw) / 2, e.y + 118, dw, 60 }, 20, TH.text2, true);
+        /* bug hunt 2026-11-01: a cases folder that doesn't exist (moved, a typo in Settings) looked just like an empty one */
+        char wsx[PL_PATH]; pl_expand_home(wsx, sizeof wsx, A.set.workspace);
+        const char *msg = pl_is_dir(wsx) ? "Start from an OpenFOAM tutorial (the lid-driven cavity is a good first case) or a starter for DEME, "
+                                           "CalculiX, MOOSE, Elmer, SPARTA or code_aster, or open a folder you already have."
+                                         : TextFormat("The cases folder %s doesn't exist (Settings > Workspace): it is made with the first new case, "
+                                                      "or pick another one in Settings.", wsx);
+        ui_text_wrap(F_REG, 13.5f, msg, (Rectangle){ e.x + (e.width - dw) / 2, e.y + 118, dw, 60 }, 20, pl_is_dir(wsx) ? TH.text2 : TH.warn, true);
         float b1 = ui_button_width(ICON_LIBRARY, "Start a new case"), b2 = ui_button_width(ICON_FOLDER_OPEN, "Open a case folder");
         float bx = e.x + (e.width - b1 - b2 - 12) / 2;
         if (ui_button(ui_id("empty-new"), (Rectangle){ bx, e.y + 168, b1, 36 }, ICON_LIBRARY, "Start a new case", BTN_PRIMARY)) app_go(PG_NEW);

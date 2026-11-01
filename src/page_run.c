@@ -571,14 +571,10 @@ static void start_run(void)
         if (A.bgStart) { ui_toast(TOAST_WARN, "%s has results now: open it and choose Continue or Start over", c->s.name); return; }
         A.modal = MD_RUN_RESULTS; return;
     }
-    if (A.runConfirmed && !A.continueRun) {
-        /* "Delete and start over" / "Delete and run Allrun": with the old times gone, startFrom latestTime means the
-           initial time again (left in place, a tutorial Allrun started at the old end time and ran no steps) */
-        char msg[160];
-        /* the built-in steps keep the mesh (and so its logs) unless it is out of date; an Allrun makes everything again */
-        case_trash_results(c, TR_LOGS | (A.runMode == 0 ? TR_KEEP_MESH_LOGS : 0), false, A.runMode == 1 ? "Delete and run Allrun" : "Delete and start over", msg, sizeof msg);
-        ui_toast(TOAST_INFO, "%s", msg);
-    }
+    /* the results of "Delete and start over" go to the trash only once nothing below can refuse the run (bug hunt
+       2026-11-01: they went first, so a run the precheck or the missing-condition gate then stopped had cost them, and
+       starting again after the precheck trashed a second time: "Removed 0 items") */
+    bool startOver = A.runConfirmed && !A.continueRun;
     /* will it fit in memory, is the time step stable, are there cores: ask before anything is deleted or started */
     if (!A.precheckOk && !A.bgStart) {
         PreCheck pc;
@@ -586,8 +582,9 @@ static void start_run(void)
         precheck_run(&cs, procs(), app_jobs_procs(), A.env.nCpu, &pc);
         if (pc.worst >= PC_WARN || run_sweep(c, true)->ask) { A.modal = MD_PRECHECK; return; }
     }
+    bool anyway = A.precheckOk;                             /* the precheck showed its problems and the user said Run anyway */
     A.precheckOk = false;
-    A.runConfirmed = false;
+    A.runConfirmed = false;                                 /* a refusal below asks again next time (startOver keeps it now) */
     if (case_pause_pending(c->s.path)) case_pause_settle(c->s.path, false, NULL);   /* a pause that never reached a solver */
     /* continuing on a mesh that is about to change would ignore the change */
     char meshWhy[300];
@@ -675,7 +672,8 @@ static void start_run(void)
             return;
         }
     }
-    if (A.runMode == 0 && !A.continueRun && !remesh && c->s.nRegions == 0 && c->patchSource == 1) {
+    /* a missing condition the precheck already showed, run anyway: OpenFOAM's own error follows, and the error translator */
+    if (A.runMode == 0 && !A.continueRun && !remesh && c->s.nRegions == 0 && c->patchSource == 1 && !anyway) {
         char miss[600];
         int n = bc_missing_report(c, miss, sizeof miss);
         if (n > 0) {
@@ -684,6 +682,14 @@ static void start_run(void)
             if (!A.bgStart) app_go(PG_BC);
             return;
         }
+    }
+    if (startOver) {
+        /* "Delete and start over" / "Delete and run Allrun": with the old times gone, startFrom latestTime means the
+           initial time again (left in place, a tutorial Allrun started at the old end time and ran no steps) */
+        char msg[160];
+        /* the built-in steps keep the mesh (and so its logs) unless it is out of date; an Allrun makes everything again */
+        case_trash_results(c, TR_LOGS | (A.runMode == 0 ? TR_KEEP_MESH_LOGS : 0), false, A.runMode == 1 ? "Delete and run Allrun" : "Delete and start over", msg, sizeof msg);
+        ui_toast(TOAST_INFO, "%s", msg);
     }
     job_reset(A.cj, c->s.app[0] ? c->s.app : "Allrun");
     build_steps(c, A.cj, np, false);
@@ -1715,8 +1721,12 @@ bool run_start_queued(const char *path, int mode, int procs, bool cont, bool fre
     bool open = A.cs && !strcmp(A.cs->s.path, path);
     Case *c = open ? A.cs : case_open(path);
     if (!c) { ui_toast(TOAST_ERR, "Queue: %s is no longer an OpenFOAM case", path); return false; }
+    /* bug hunt 2026-11-01: the slot is picked while A.cs is still the open case: job_slot_for keeps the open case's slot
+       for it only when it can tell them apart. Picked after the swap, a queued case took the open case's slot, and the
+       open case, queued next, found "no free run slot" (and its Run page showed the other case's run) */
+    Job *slot = open ? A.cj : job_slot_for(path);
     A.cs = c;
-    if (!open) A.cj = job_slot_for(path);
+    A.cj = slot;
     bool ok = false;
     if (A.cj == &A.jobs[MAX_JOBS] || A.cj->active) ui_toast(TOAST_WARN, "Queue: no free run slot for %s", c->s.name);
     else {
@@ -1771,7 +1781,7 @@ void run_case_script(const char *name, const char *args)
 /* ============================================================================ page */
 static void kpi(Rectangle r, const char *label, const char *value, Color vc)
 {
-    ui_text(F_REG, 12.5f, label, r.x, r.y, TH.text3);
+    ui_text_clip(F_REG, 12.5f, label, r.x, r.y, r.width - 6, TH.text3);
     ui_text_clip(F_SEMI, 19, value, r.x, r.y + 20, r.width - 6, vc);
 }
 
@@ -2140,8 +2150,15 @@ void page_run(Rectangle r)
     time_ruler((Rectangle){ mx, my, mw, 60 }, c->s.startTime, c->s.endTime, tNow, barC);
     my += 74;
 
-    /* kpis */
-    float kw = mw / 6;
+    /* kpis: six in a row, or two rows of three when their labels don't fit (bug hunt 2026-11-01: at a large UI scale
+       "TIME STEPSCOURANT MAXTIME STEP" ran together) */
+    static const char *const KL[6] = { "Time steps", "Courant max", "Time step", "Solver time", "Remaining", "Sim time per second" };
+    float kl = 0;
+    for (int i = 0; i < 6; i++) kl = fmaxf(kl, ui_text_w(F_REG, 12.5f, KL[i]));
+    bool twoRows = kl > mw / 6 - 10;
+    float kw = twoRows ? mw / 3 : mw / 6;
+    float my2 = twoRows ? my + 58 : my;                      /* the second three's row */
+    float kx2 = twoRows ? mx - 3 * kw : mx;                  /* ... and their x, so mx + 3 kw lands at mx */
     char v[64];
     snprintf(v, sizeof v, "%d", pm ? pm->steps : 0);
     kpi((Rectangle){ mx, my, kw, 50 }, "Time steps", v, TH.text);
@@ -2151,7 +2168,7 @@ void page_run(Rectangle r)
     snprintf(v, sizeof v, pm && pm->deltaT > 0 ? "%.3g" : "%g", pm && pm->deltaT > 0 ? pm->deltaT : c->s.deltaT);
     kpi((Rectangle){ mx + 2 * kw, my, kw, 50 }, "Time step", v, TH.text);
     pl_duration(v, sizeof v, pm ? pm->execTime : 0);
-    kpi((Rectangle){ mx + 3 * kw, my, kw, 50 }, "Solver time", pm && pm->execTime > 0 ? v : "-", TH.text);
+    kpi((Rectangle){ kx2 + 3 * kw, my2, kw, 50 }, "Solver time", pm && pm->execTime > 0 ? v : "-", TH.text);
     double eta = -1, rate = -1;
     /* wall-clock time when the log has it (ClockTime: what you wait), CPU time early on (ClockTime counts whole seconds) */
     double el = pm && pm->clockTime >= 5 ? pm->clockTime : pm ? pm->execTime : 0;
@@ -2160,10 +2177,10 @@ void page_run(Rectangle r)
         eta = (c->s.endTime - pm->time) / rate;
     }
     pl_duration(v, sizeof v, eta);
-    kpi((Rectangle){ mx + 4 * kw, my, kw, 50 }, "Remaining", mine && eta >= 0 ? v : "-", TH.text);
+    kpi((Rectangle){ kx2 + 4 * kw, my2, kw, 50 }, "Remaining", mine && eta >= 0 ? v : "-", TH.text);
     snprintf(v, sizeof v, rate > 0 ? "%.3g /s" : "-", rate);
-    kpi((Rectangle){ mx + 5 * kw, my, kw, 50 }, "Sim time per second", v, TH.text);
-    my += 66;
+    kpi((Rectangle){ kx2 + 5 * kw, my2, kw, 50 }, "Sim time per second", v, TH.text);
+    my = my2 + 66;
     my += flavour_run(c, pm, mine, mx, my, mw);              /* the screen and game themes' instrument */
 
     /* RED ALERT (3.3): the running solver is diverging, or may be */

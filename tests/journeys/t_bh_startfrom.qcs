@@ -1,10 +1,10 @@
 # Bug hunt H-16: a resumed (continued) run sets startFrom latestTime for itself only; the case's own startFrom is back
-# when it pauses, stops or ends. Real icoFoam.
+# when it pauses, stops or ends. Real icoFoam. (endTime 400: a 20 s cavity ends before Pause on a fast machine.)
 open $SB/ws/cavity
 click nav:run
 wait-until page Run
 click dict:system/controlDict:endTime
-enter 20
+enter 400
 click dict:system/controlDict:writeInterval
 enter 200
 key S ctrl

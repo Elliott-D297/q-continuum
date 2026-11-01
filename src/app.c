@@ -1608,7 +1608,9 @@ static void frame(void)
         logset_poll(&A.logs, now, false);
         static double monAt;
         if (now - monAt > 0.5) { monAt = now; monset_poll(&A.mons, now); }
-        if (now - A.lastDiskCheck > 1.5) {
+        /* every 1.5 s, or 3 s on a Windows drive (slow frames, 2026-11-01: the check stats every dictionary and, with a run
+           going, rescans the case; over 9p that is the slowest frame in twenty, which set the /mnt/c run's p95) */
+        if (now - A.lastDiskCheck > (pl_slow_fs(A.cs->s.path) ? 3.0 : 1.5)) {
             A.lastDiskCheck = now;
             /* 2.7: say when a file changed outside the app, unless a run in the case is the one writing (Allrun scripts edit
                their dictionaries) */

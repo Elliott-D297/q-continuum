@@ -10,6 +10,8 @@
 #include "rlgl.h"
 #include "xsection.h"
 #include "stlmesh.h"
+#include <pthread.h>
+#include <stdatomic.h>
 
 static struct {
     XSection X;
@@ -142,6 +144,28 @@ static void list_fields(const Case *c)
             }
 }
 
+/* a big mesh is read on a worker thread (slow frames bug, 2026-11-01: an 800 k-cell mesh froze the STL mesher's page for
+   0.9 s when Generate finished): the old picture stays meanwhile, then the new one swaps in on the UI thread. While it
+   reads, nothing else here touches the mesh (xs_load_slice keeps the whole mesh in a static the worker fills) */
+#define XS_BIG_FACES (8L << 20)                     /* a faces file this big (bytes, ~200 k cells) goes to the worker */
+static struct {
+    pthread_t th;
+    atomic_int state;                               /* 0 idle, 1 reading, 2 read: waiting to be taken */
+    XSection X;
+    char path[PL_PATH], dir[PL_PATH];
+    bool twoD, newCase, otherCase;
+    int axis; float frac;
+} WK;
+
+static void *wk_main(void *arg)
+{
+    (void)arg;
+    memset(&WK.X, 0, sizeof WK.X);
+    if (WK.twoD) xs_load(&WK.X, WK.path); else xs_load_slice(&WK.X, WK.dir, WK.axis, WK.frac);
+    atomic_store(&WK.state, 2);
+    return NULL;
+}
+
 /* a 2-D case: its own plane; a 3-D one (or a region): the cut at V.axis, V.frac */
 static void load_mesh(const Case *c)
 {
@@ -150,8 +174,24 @@ static void load_mesh(const Case *c)
     else xs_load_slice(&V.X, dir, V.axis, V.frac);
 }
 
+static void after_load(const Case *c, bool newCase, bool otherCase);
+static void field_refresh(const Case *c, const char *was);
+
 static void refresh(const Case *c)
 {
+    /* the worker: reading, nothing else may touch the mesh; read, the new one swaps in (if still this case's) */
+    int ws = atomic_load(&WK.state);
+    if (ws == 1) return;
+    if (ws == 2) {
+        pthread_join(WK.th, NULL);
+        atomic_store(&WK.state, 0);
+        if (!strcmp(WK.path, c->s.path) && !strcmp(V.path, c->s.path)) {
+            xs_free(&V.X);
+            V.X = WK.X;
+            after_load(c, WK.newCase, WK.otherCase);
+        } else xs_free(&WK.X);
+        memset(&WK.X, 0, sizeof WK.X);
+    }
     char owner[PL_PATH]; pl_join(owner, sizeof owner, c->s.path, case_rpath((Case *)c, "constant/polyMesh/owner"));
     bool newCase = strcmp(V.path, c->s.path) != 0 || strcmp(V.region, c->region) != 0;
     bool otherCase = strcmp(V.path, c->s.path) != 0;          /* another region keeps the field when it has one too */
@@ -170,7 +210,33 @@ static void refresh(const Case *c)
         if (newCase) { V.frac = 0.5f; V.axis = 2; }
         pl_strlcpy(V.path, c->s.path, sizeof V.path);
         pl_strlcpy(V.region, c->region, sizeof V.region);
+        char faces[PL_PATH]; pl_join(faces, sizeof faces, c->s.path, case_rpath((Case *)c, "constant/polyMesh/faces"));
+        if (pl_file_size(faces) > XS_BIG_FACES) {
+            /* big: read on the worker; this frame and the next ones go on with the old picture (or "Reading the mesh") */
+            WK.twoD = !c->region[0] && xs_is_2d(c->s.path);
+            pl_strlcpy(WK.path, c->s.path, sizeof WK.path);
+            pl_join(WK.dir, sizeof WK.dir, c->s.path, case_rpath((Case *)c, "constant/polyMesh"));
+            WK.axis = V.axis; WK.frac = V.frac; WK.newCase = newCase; WK.otherCase = otherCase;
+            if (newCase || otherCase) { xs_free(&V.X); snprintf(V.X.err, sizeof V.X.err, "Reading the mesh ..."); }
+            V.X.meshTime = pl_mtime(owner);               /* asked again only once this one is in */
+            atomic_store(&WK.state, 1);
+            if (pthread_create(&WK.th, NULL, wk_main, NULL) != 0) { atomic_store(&WK.state, 0); load_mesh(c); after_load(c, newCase, otherCase); }
+            return;
+        }
         load_mesh(c);
+        after_load(c, newCase, otherCase);
+    }
+    if (!V.X.ok) return;
+    char was[32]; pl_strlcpy(was, V.time, sizeof was);
+    list_fields(c);
+    field_refresh(c, was);
+}
+
+/* the rest of a (re)load once the mesh is in: a new case's 3-D cut turned across its longest two directions and through
+   the part, the view fitted again, the field forgotten for another case */
+static void after_load(const Case *c, bool newCase, bool otherCase)
+{
+    {
         /* a 3-D cut: across the longest two directions, through the middle */
         if (V.X.slice && newCase) {
             float e[3]; for (int k = 0; k < 3; k++) e[k] = 0;
@@ -183,9 +249,11 @@ static void refresh(const Case *c)
         if (otherCase) V.field[0] = 0;
         V.fieldMtime = 0;
     }
-    char was[32]; pl_strlcpy(was, V.time, sizeof was);
-    list_fields(c);
-    /* a field: (re)load when chosen, when a newer time is written, or when its file changes */
+}
+
+/* a field: (re)load when chosen, when a newer time is written, or when its file changes */
+static void field_refresh(const Case *c, const char *was)
+{
     if (V.field[0]) {
         char fp[PL_PATH], rel[PL_PATH]; pl_fmt_ui(rel, sizeof rel, "%s/%s%s%s", V.time, c->region, c->region[0] ? "/" : "", V.field);
         pl_join(fp, sizeof fp, c->s.path, rel);

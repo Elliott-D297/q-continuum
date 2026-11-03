@@ -70,3 +70,24 @@ assert text already exists
 screenshot $OUT/5_exists.png
 key ESCAPE
 wait 3
+# delete (user request 2026-11-03): the selected file goes to the case's trash, restorable on History
+click 0/Uextra
+wait 3
+click f-del
+wait 3
+assert text goes to the case's Trash
+screenshot $OUT/6_delete.png
+click m-df-go
+wait 5
+assert not file 0/Uextra
+assert toast Moved 0/Uextra to the Trash
+shell ls $SB/ws/c2/.qc-trash/*/0/Uextra
+# controlDict: warned, and Cancel keeps it
+click system/controlDict
+wait 3
+click f-del
+wait 3
+assert text can't run the case without a controlDict
+click m-df-cancel
+wait 3
+assert file system/controlDict

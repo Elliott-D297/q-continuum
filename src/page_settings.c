@@ -11,6 +11,7 @@
 #include "precheck.h"
 #include "program.h"
 #include "fieldinfo.h"
+#include "safety.h"
 
 static float code_block(float x, float y, float w, const char *text, const char *id)
 {
@@ -559,6 +560,41 @@ void draw_modals(void)
                 ui_toast(TOAST_OK, A.mFlag ? "Deleted %s" : "Moved %s to the Trash", pl_basename(path));
                 A.modal = MD_NONE;
             } else pl_fmt_ui(A.mErr, sizeof A.mErr, "%s", err);
+        }
+        ui_disable(false);
+        break;
+    }
+    case MD_DEL_FILE: {                                   /* Files tab: a file to the case's trash */
+        if (!A.cs) { close = true; break; }
+        char rel[PL_PATH]; pl_strlcpy(rel, A.mPath, sizeof rel);
+        const char *nm = pl_basename(rel);
+        static const char *const NEED[] = { "system/controlDict", "system/fvSchemes", "system/fvSolution", NULL };
+        bool needed = false;
+        for (int i = 0; NEED[i]; i++) if (!strcmp(rel, NEED[i])) needed = true;
+        FDFile *f = NULL;
+        for (int i = 0; i < A.cs->nFiles; i++) if (!strcmp(A.cs->files[i].rel, rel)) f = A.cs->files[i].f;
+        char sub[PL_PATH + 400];
+        snprintf(sub, sizeof sub, "%s goes to the case's Trash: History > Trash puts it back.", rel);
+        b = ui_modal_begin("Delete this file?", sub, 560, 180 + (needed ? 26 : 0) + (f && f->dirty ? 26 : 0) + (A.mErr[0] ? 24 : 0), &close);
+        float wy = b.y + 4;
+        if (needed) { char t[160]; snprintf(t, sizeof t, "OpenFOAM can't run the case without a %s.", nm);
+                      wy += ui_text_wrap(F_REG, 13, t, (Rectangle){ b.x, wy, b.width, 40 }, 19, TH.warn, true) + 4; }
+        if (f && f->dirty) wy += ui_text_wrap(F_REG, 13, "Its unsaved edits are lost.", (Rectangle){ b.x, wy, b.width, 40 }, 19, TH.warn, true) + 4;
+        if (A.mErr[0]) ui_text_wrap(F_REG, 12.5f, A.mErr, (Rectangle){ b.x, wy, b.width, 60 }, 17, TH.err, true);
+        if (ui_button(ui_id("m-df-cancel"), (Rectangle){ b.x + b.width - 280, b.y + b.height - 38, 110, 38 }, NULL, "Cancel", BTN_GHOST)) close = true;
+        float bw = ui_button_width(ICON_TRASH_2, "Move to Trash");
+        ui_disable(A.cj->active);
+        if (ui_button(ui_id("m-df-go"), (Rectangle){ b.x + b.width - bw, b.y + b.height - 38, bw, 38 }, ICON_TRASH_2, "Move to Trash", BTN_DANGER) ||
+            (!A.cj->active && inp_key_pressed(KEY_ENTER))) {
+            const char *items[1] = { rel };
+            case_drop_file(A.cs, rel);                    /* its edits (if any) and its cached copy go with it */
+            if (trash_items(A.cs->s.path, TextFormat("Deleted %s (Files)", rel), "", items, 1) == 1) {
+                if (!strcmp(A.filesSel, rel)) A.filesSel[0] = 0;
+                case_rescan(A.cs);
+                history_invalidate();
+                ui_toast(TOAST_OK, "Moved %s to the Trash", rel);
+                A.modal = MD_NONE;
+            } else pl_fmt_ui(A.mErr, sizeof A.mErr, "Could not move %s to the Trash.", rel);
         }
         ui_disable(false);
         break;

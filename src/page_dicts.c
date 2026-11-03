@@ -796,7 +796,7 @@ void page_files(Rectangle r)
 
     /* a name that doesn't fit beside the buttons gets its own line above them */
     float btns = ui_button_width(ICON_EXTERNAL_LINK, "Open in editor") + ui_button_width(ICON_REFRESH_CW, "Reload") + 190 +
-                 ui_button_width(ICON_SAVE, "Save") + 30;
+                 ui_button_width(ICON_SAVE, "Save") + ui_button_width(ICON_TRASH_2, "Delete") + 38;
     bool ownLine = ui_text_w(F_SEMI, 20, A.filesSel) > w - btns;
     if (ownLine) { ui_text_clip(F_SEMI, 20, A.filesSel, x, y, w, TH.text); y += 42; }
 
@@ -819,6 +819,16 @@ void page_files(Rectangle r)
         if (fd_save(f)) ui_toast(TOAST_OK, "Saved %s", A.filesSel); else ui_toast(TOAST_ERR, "Could not write %s", A.filesSel);
     }
     ui_disable(false);
+    /* delete (user request, 2026-11-03): to the case's trash, restorable on History; not while the case's job runs */
+    float b4 = ui_button_width(ICON_TRASH_2, "Delete");
+    rx -= b4 + 8;
+    ui_disable(A.cj->active);
+    if (ui_button(ui_id("f-del"), (Rectangle){ rx, y - 4, b4, 34 }, ICON_TRASH_2, "Delete", BTN_GHOST)) {
+        A.modal = MD_DEL_FILE; A.mErr[0] = 0;
+        pl_strlcpy(A.mPath, A.filesSel, sizeof A.mPath);
+    }
+    ui_disable(false);
+    if (A.cj->active) ui_tooltip((Rectangle){ rx, y - 4, b4, 34 }, "Wait for the case's job to finish first");
     if (!ownLine) ui_text_clip(F_SEMI, 20, A.filesSel, x, y, rx - x - 14, TH.text);
     y += 50;
     if (!f) {

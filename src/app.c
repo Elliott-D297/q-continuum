@@ -1506,6 +1506,8 @@ static void on_job_finished(Job *j)
     }
     restore_start_from(j->casePath, here);
     if (here) { case_rescan(A.cs); case_reload_changed(A.cs); }
+    /* a mesh imported: its boundary condition files at once (the setup writes 0/ for its patches) */
+    if (here && !j->failed && !j->stopped && !strcmp(j->title, "Mesh") && setup_after_import(A.cs)) case_rescan(A.cs);
     app_movie_finished(j);
     app_rescan_cases(true);
     /* a desktop notification for a long run, when the window isn't in front (or always, by the setting) */

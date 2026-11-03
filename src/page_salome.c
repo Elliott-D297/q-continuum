@@ -135,16 +135,18 @@ static const char MED2UNV[] =
     "m.ExportUNV(dst)\n"
     "print('wrote %s' % dst)\n";
 
+/* the setup's marker line (simsetup.c MARK_START): these stand-ins are its to replace when it writes the case files */
+#define STANDIN "// Written by Q-Continuum's simulation setup: a stand-in until the setup writes this file\n"
 static void least_case(const char *dir)
 {
     static const char *const F[][2] = {
-        { "system/controlDict", "FoamFile { version 2.0; format ascii; class dictionary; object controlDict; }\n\napplication     simpleFoam;\n"
+        { "system/controlDict", STANDIN "FoamFile { version 2.0; format ascii; class dictionary; object controlDict; }\n\napplication     simpleFoam;\n"
           "startFrom       latestTime;\nstartTime       0;\nstopAt          endTime;\nendTime         1000;\ndeltaT          1;\nwriteControl    timeStep;\n"
           "writeInterval   100;\nwriteFormat     binary;\nrunTimeModifiable true;\n" },
-        { "system/fvSchemes", "FoamFile { version 2.0; format ascii; class dictionary; object fvSchemes; }\n\nddtSchemes { default steadyState; }\n"
+        { "system/fvSchemes", STANDIN "FoamFile { version 2.0; format ascii; class dictionary; object fvSchemes; }\n\nddtSchemes { default steadyState; }\n"
           "gradSchemes { default Gauss linear; }\ndivSchemes { default none; }\nlaplacianSchemes { default Gauss linear corrected; }\n"
           "interpolationSchemes { default linear; }\nsnGradSchemes { default corrected; }\n" },
-        { "system/fvSolution", "FoamFile { version 2.0; format ascii; class dictionary; object fvSolution; }\n\nsolvers {}\nSIMPLE {}\n" } };
+        { "system/fvSolution", STANDIN "FoamFile { version 2.0; format ascii; class dictionary; object fvSolution; }\n\nsolvers {}\nSIMPLE {}\n" } };
     for (size_t i = 0; i < sizeof F / sizeof F[0]; i++) {
         char p[PL_PATH], d[PL_PATH]; pl_join(p, sizeof p, dir, F[i][0]);
         if (pl_exists(p)) continue;
@@ -191,7 +193,7 @@ static bool import_mesh(Case *c, const char *src)
     else job_add(A.cj, "ideasUnvToFoam", "ideasUnvToFoam", "ideasUnvToFoam salome/imported.unv && echo && {\n" WALLS "}", "log.ideasUnvToFoam", false);
     job_add(A.cj, "checkMesh", "checkMesh", "checkMesh", "log.checkMesh", false);
     if (!job_start(A.cj, c->s.path, app_bashrc(), GetTime())) { ui_toast(TOAST_ERR, "Could not start the import"); return false; }
-    ui_toast(TOAST_INFO, "Importing %s: set each patch's role on Physics > Setup when it is done", pl_basename(src));
+    ui_toast(TOAST_INFO, "Importing %s: its boundary condition files (0/) are written when it is done", pl_basename(src));
     return true;
 }
 
@@ -283,8 +285,9 @@ static float import_section(Case *c, float x, float y, float w, bool running)
 {
     float y0 = y;
     y += section_head(x, y, w, "Import a mesh", "A mesh made in SALOME (Mesh > Export > MED or UNV file) or Gmsh (.msh). It is copied into the "
-                                               "case's salome/ folder and converted; its face groups become the patches. Set what each one is "
-                                               "(wall, inlet, outlet ...) on Physics > Setup.");
+                                               "case's salome/ folder and converted; its face groups become the patches, and 0/ gets a boundary "
+                                               "condition file per field with each patch's role guessed from its name. Change them on "
+                                               "Boundary conditions or Physics > Setup.");
     char imp[PL_PATH], src[PL_PATH] = "", kind[16] = "";
     pl_join(imp, sizeof imp, c->s.path, IMPORTED);
     char *t = pl_read_file(imp, NULL);

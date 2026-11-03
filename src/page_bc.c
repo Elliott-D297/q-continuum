@@ -708,6 +708,18 @@ void page_bc(Rectangle r)
         float ch = callout_height(w, NULL, msg);
         callout((Rectangle){ x, y, w, ch }, TOAST_WARN, ICON_TRIANGLE_ALERT, NULL, msg);
         y += ch;
+        if (setup_can_write_fields(c)) {                  /* a mesh with patches and no fields (an import): write them */
+            y += 18;
+            const char *lab = "Write boundary condition files";
+            float bw = ui_button_width(ICON_PLUS, lab);
+            ui_disable(A.cj->active);
+            if (ui_button(ui_id("bc-write-fields"), (Rectangle){ x, y, bw, 40 }, ICON_PLUS, lab, BTN_PRIMARY)) setup_write_fields(c);
+            ui_disable(false);
+            char t[200]; snprintf(t, sizeof t, "One file per field in 0/ for the %d patch%s of the mesh, each patch's role guessed from its "
+                                  "name (wall, inlet, outlet ...). Physics > Setup changes the flow and the models.", c->nPatches, c->nPatches == 1 ? "" : "es");
+            y += 52;
+            y += ui_text_wrap(F_REG, 13, t, (Rectangle){ x, y, w, 200 }, 19, TH.text3, true);
+        }
         ui_scroll_end(sc, y - top + 40);
         return;
     }

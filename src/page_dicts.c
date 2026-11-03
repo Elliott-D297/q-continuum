@@ -654,8 +654,24 @@ static bool root_file_listed(const char *dir, const char *n)
     return true;
 }
 
-static float file_group(Rectangle r, float y, const char *label, int colorIdx)
+/* New file, its path started in dir ("" the case folder) */
+static void new_file_in(const char *dir)
 {
+    A.modal = MD_NEW_FILE; A.mErr[0] = 0; A.mFlag2 = false; A.mSel = 0;
+    snprintf(A.mText, sizeof A.mText, "%s%s", dir, dir[0] ? "/" : "");
+}
+
+/* a folder's heading; newDir: a + button on its right that starts a new file there (NULL: none) */
+static float file_group(Rectangle r, float y, const char *label, int colorIdx, const char *newDir)
+{
+    if (newDir) {
+        char tip[200]; snprintf(tip, sizeof tip, "New file in %s", newDir[0] ? newDir : "the case folder");
+        Rectangle b = { r.x + r.width - 44, y - 3, 26, 26 };
+        if (ui_button(ui_idn(ui_id(newDir[0] ? newDir : "."), 0x4e46), b, ICON_PLUS, NULL, BTN_ICON)) new_file_in(newDir);
+        ui_tooltip(b, tip);
+        r.width -= 34;
+    }
+    {
     if (TH.lcars) {
         Color fc = TH.lc[colorIdx % 8];
         ui_rect((Rectangle){ r.x + 14, y + 1, 18, 18 }, 9, fc);
@@ -664,6 +680,7 @@ static float file_group(Rectangle r, float y, const char *label, int colorIdx)
     } else {
         ui_icon(ICON_FOLDER, r.x + 22, y + 10, 15, TH.text3);
         ui_text_clip(F_SEMI, 13, label, r.x + 38, y + 2, r.width - 52, TH.text2);
+    }
     }
     return 28;
 }
@@ -697,7 +714,7 @@ static void file_list(Rectangle r)
     float y = ui_scroll_begin(sc, r) + 10;
     float bw = ui_button_width(ICON_PLUS, "New file");
     if (ui_button(ui_id("f-new"), (Rectangle){ r.x + 14, y, bw, 30 }, ICON_PLUS, "New file", BTN_GHOST)) {
-        A.modal = MD_NEW_FILE; A.mErr[0] = 0;
+        new_file_in("");
         snprintf(A.mText, sizeof A.mText, "%s", c->s.prog ? "" : c->region[0] ? case_rpath(c, "system/") : "system/");
     }
     y += 42;
@@ -712,7 +729,7 @@ static void file_list(Rectangle r)
             if (strcmp(dir, cur)) {
                 if (cur[0] != '-') y += 8;
                 pl_strlcpy(cur, dir, sizeof cur);
-                y += file_group(r, y, dir[0] ? dir : c->s.name, 1 + (int)(strlen(dir) % 6));
+                y += file_group(r, y, dir[0] ? dir : c->s.name, 1 + (int)(strlen(dir) % 6), dir);
             }
             Rectangle rr = { r.x + 10, y, r.width - 24, 32 };
             if (ui_row(ui_id(rel), rr, !strcmp(A.filesSel, rel))) snprintf(A.filesSel, sizeof A.filesSel, "%s", rel);
@@ -731,12 +748,12 @@ static void file_list(Rectangle r)
         const NameList *root = pl_list_dir_cached(c->s.path, false, true);
         int shown = 0;
         for (int i = 0; i < root->n; i++) if (root_file_listed(c->s.path, root->names[i])) shown++;
-        if (shown) { y += file_group(r, y, "case", 0); y += file_rows(r, y, "", 0) + 12; }
+        if (shown) { y += file_group(r, y, "case", 0, ""); y += file_rows(r, y, "", 0) + 12; }
     }
     /* system and constant, with their sub-folders (regions); the fields folder of the selected region */
     const char *tops[2] = { "system", "constant" };
     for (int d = 0; d < 2; d++) {
-        y += file_group(r, y, tops[d], d * 3 + 1);
+        y += file_group(r, y, tops[d], d * 3 + 1, tops[d]);
         y += file_rows(r, y, tops[d], 0);
         NameList sub = { 0 };
         char p[PL_PATH]; pl_join(p, sizeof p, c->s.path, tops[d]);
@@ -754,7 +771,7 @@ static void file_list(Rectangle r)
         names_free(&sub);
         y += 12;
     }
-    y += file_group(r, y, c->fieldDir, 7);
+    y += file_group(r, y, c->fieldDir, 7, c->fieldDir);
     y += file_rows(r, y, c->fieldDir, 0);
     ui_scroll_end(sc, y - (r.y - roundf(sc->y)) + 10);
 }

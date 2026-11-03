@@ -10,6 +10,7 @@
 #include "sweep.h"
 #include "precheck.h"
 #include "program.h"
+#include "fieldinfo.h"
 
 static float code_block(float x, float y, float w, const char *text, const char *id)
 {
@@ -328,6 +329,99 @@ static void finish_unsaved(void)
     }
 }
 
+/* ============================================================================ New file (Files tab): templates */
+enum { NF_DICT = 0, NF_SCALAR, NF_VECTOR, NF_EMPTY, NF__N };
+
+/* a fields folder: 0, 0.orig, any time (and their region sub-folders) */
+static bool nf_in_fields(const char *rel)
+{
+    char top[64]; size_t n = strcspn(rel, "/");
+    if (!rel[n] || n >= sizeof top) return false;
+    memcpy(top, rel, n); top[n] = 0;
+    return !strcmp(top, "0.orig") || pl_is_number(top);
+}
+
+static bool nf_vector_name(const char *name)
+{
+    if (!strcmp(name, "U") || !strcmp(name, "D") || !strcmp(name, "pointDisplacement")) return true;
+    return name[0] == 'U' && (name[1] == '_' || name[1] == '.' || name[1] == '0' || (name[1] >= 'A' && name[1] <= 'Z'));
+}
+
+static int new_file_guess(Case *c, const char *rel)
+{
+    (void)c;
+    if (nf_in_fields(rel)) return nf_vector_name(pl_basename(rel)) ? NF_VECTOR : NF_SCALAR;
+    if (pl_starts_with(rel, "system/") || pl_starts_with(rel, "constant/")) return NF_DICT;
+    return NF_EMPTY;
+}
+
+static const char *nf_dims(Case *c, const char *name, bool vec)
+{
+    if (vec && !strcmp(name, "U")) return "[0 1 -1 0 0 0 0]";
+    const char *d = field_expected_dims(name);
+    if (d) return d;
+    if (!strcmp(name, "p") || !strcmp(name, "p_rgh")) {        /* kinematic, unless the case solves for density */
+        char tp[PL_PATH]; pl_join(tp, sizeof tp, c->s.path, "constant/thermophysicalProperties");
+        return pl_is_file(tp) || !strcmp(name, "p_rgh") ? "[1 -1 -2 0 0 0 0]" : "[0 2 -2 0 0 0 0]";
+    }
+    return vec ? "[0 1 -1 0 0 0 0]" : "[0 0 0 0 0 0 0]";
+}
+
+/* a constraint patch type the field must repeat; NULL for the rest */
+static const char *nf_constraint(const char *type)
+{
+    static const char *const K[] = { "empty", "symmetryPlane", "symmetry", "wedge", "cyclic", "cyclicAMI", "cyclicACMI", "cyclicSlip", NULL };
+    for (int i = 0; K[i]; i++) if (!strcmp(type, K[i])) return K[i];
+    return NULL;
+}
+
+static int nf_patches(Case *c)
+{
+    int n = 0;
+    for (int i = 0; c && i < c->nPatches; i++) if (strcmp(c->patches[i].type, "processor")) n++;
+    return n;
+}
+
+static void new_file_describe(Case *c, const char *rel, int kind, char *out, int cap)
+{
+    int np = nf_patches(c);
+    const char *name = rel[0] ? pl_basename(rel) : "the file";
+    switch (kind) {
+    case NF_DICT:   snprintf(out, (size_t)cap, "An OpenFOAM dictionary: the header with class dictionary and object %s, then an empty body.", name); break;
+    case NF_SCALAR:
+    case NF_VECTOR:
+        snprintf(out, (size_t)cap, "A %s: dimensions %s, internalField uniform %s, and a boundaryField entry for each of the %d patch%s "
+                 "(zeroGradient%s; empty, symmetry, wedge and cyclic patches keep their type).",
+                 kind == NF_VECTOR ? "volVectorField" : "volScalarField", nf_dims(c, name, kind == NF_VECTOR), kind == NF_VECTOR ? "(0 0 0)" : "0",
+                 np, np == 1 ? "" : "es", kind == NF_VECTOR ? ", noSlip on walls" : "");
+        if (!np) snprintf(out + strlen(out), (size_t)cap - strlen(out), " The mesh has no patches yet, so boundaryField starts empty.");
+        break;
+    default:        snprintf(out, (size_t)cap, "An empty file, no header: for a script, notes or anything that isn't an OpenFOAM dictionary."); break;
+    }
+}
+
+static bool new_file_create(Case *c, const char *rel, int kind)
+{
+    char full[PL_PATH]; pl_join(full, sizeof full, c->s.path, rel);
+    if (kind == NF_EMPTY) { char dir[PL_PATH]; pl_dirname(dir, sizeof dir, full); pl_mkdirs(dir); return pl_write_file(full, "", 0); }
+    if (kind == NF_DICT) return case_create_dict(c, rel, "dictionary", "\n") != NULL;
+    bool vec = kind == NF_VECTOR;
+    const char *name = pl_basename(rel);
+    Str b; str_init(&b);
+    str_catf(&b, "dimensions      %s;\n\ninternalField   uniform %s;\n\nboundaryField\n{\n", nf_dims(c, name, vec), vec ? "(0 0 0)" : "0");
+    for (int i = 0; i < c->nPatches; i++) {
+        const PatchInfo *p = &c->patches[i];
+        if (!strcmp(p->type, "processor")) continue;
+        const char *k = nf_constraint(p->type);
+        str_catf(&b, "    %s\n    {\n        type            %s;\n    }\n", p->name,
+                 k ? k : vec && !strcmp(p->type, "wall") ? "noSlip" : "zeroGradient");
+    }
+    str_cat(&b, "}\n");
+    bool ok = case_create_dict(c, rel, vec ? "volVectorField" : "volScalarField", b.s) != NULL;
+    str_free(&b);
+    return ok;
+}
+
 void draw_modals(void)
 {
     if (A.modal == MD_NONE) return;
@@ -570,24 +664,31 @@ void draw_modals(void)
         break;
     }
     case MD_NEW_FILE: {
-        b = ui_modal_begin("New file", "Path inside the case. Files under system/, constant/ and 0* get an OpenFOAM header; "
-                           "anything else (a script, notes) starts empty.", 560, 250, &close);
-        ui_input(ui_id("m-nf-path"), (Rectangle){ b.x, b.y + 4, b.width, 38 }, A.mText, sizeof A.mText, "system/myDict", INPUT_MONO);
-        if (A.mErr[0]) ui_text(F_REG, 12.5f, A.mErr, b.x, b.y + 50, TH.err);
+        if (!A.cs) { close = true; break; }
+        static const char *const NF_ITEMS[NF__N] = { "Dictionary", "Scalar field", "Vector field", "Empty" };
+        char rel[PL_PATH]; pl_strlcpy(rel, A.mText, sizeof rel); pl_trim_inplace(rel);
+        if (!A.mFlag2) A.mSel = new_file_guess(A.cs, rel);   /* follows the path until a template is picked */
+        b = ui_modal_begin("New file", "A path inside the case, and what the file starts as. OpenFOAM files get the standard header "
+                           "(FoamFile with its class, location and object).", 600, 330, &close);
+        ui_input(ui_id("m-nf-path"), (Rectangle){ b.x, b.y + 4, b.width, 38 }, A.mText, sizeof A.mText, "system/myDict", INPUT_MONO | INPUT_LIVE);
+        bool enter = ui_input_entered(ui_id("m-nf-path"));      /* the path typed: the template follows it as it is typed */
+        int sel = A.mSel;
+        if (ui_segmented(ui_id("m-nf-kind"), (Rectangle){ b.x, b.y + 54, b.width, 34 }, (const char **)NF_ITEMS, NF__N, &sel)) { A.mSel = sel; A.mFlag2 = true; }
+        char what[300];
+        new_file_describe(A.cs, rel, A.mSel, what, sizeof what);
+        float wh = ui_text_wrap(F_REG, 13, what, (Rectangle){ b.x, b.y + 98, b.width, b.height - 98 - 66 }, 19, TH.text3, true);
+        if (A.mErr[0]) ui_text_clip(F_REG, 12.5f, A.mErr, b.x, fminf(b.y + 98 + wh + 6, b.y + b.height - 62), b.width, TH.err);
         if (ui_button(ui_id("m-nf-cancel"), (Rectangle){ b.x + b.width - 240, b.y + b.height - 38, 110, 38 }, NULL, "Cancel", BTN_GHOST)) close = true;
-        if (ui_button(ui_id("m-nf-go"), (Rectangle){ b.x + b.width - 120, b.y + b.height - 38, 120, 38 }, ICON_PLUS, "Create", BTN_PRIMARY) && A.cs) {
-            char rel[PL_PATH]; pl_strlcpy(rel, A.mText, sizeof rel); pl_trim_inplace(rel);
+        if ((ui_button(ui_id("m-nf-go"), (Rectangle){ b.x + b.width - 120, b.y + b.height - 38, 120, 38 }, ICON_PLUS, "Create", BTN_PRIMARY) || enter) && A.cs) {
+            pl_strlcpy(rel, A.mText, sizeof rel); pl_trim_inplace(rel);
             char full[PL_PATH]; pl_join(full, sizeof full, A.cs->s.path, rel);
             if (!rel[0] || rel[strlen(rel) - 1] == '/' || strstr(rel, "..") || rel[0] == '/') snprintf(A.mErr, sizeof A.mErr, "Give a file name inside the case, e.g. system/myDict.");
             else if (pl_exists(full)) pl_fmt_ui(A.mErr, sizeof A.mErr, "%s already exists.", rel);
-            else {
-                bool dict = pl_starts_with(rel, "system/") || pl_starts_with(rel, "constant/") || rel[0] == '0';
-                bool ok;
-                if (dict) ok = case_create_dict(A.cs, rel, "dictionary", "\n") != NULL;
-                else { char dir[PL_PATH]; pl_dirname(dir, sizeof dir, full); pl_mkdirs(dir); ok = pl_write_file(full, "", 0); }
-                if (ok) { snprintf(A.filesSel, sizeof A.filesSel, "%s", rel); A.filesRaw = true; A.modal = MD_NONE; ui_toast(TOAST_OK, "Created %s", rel); }
-                else pl_fmt_ui(A.mErr, sizeof A.mErr, "Could not create %s.", rel);
-            }
+            else if (new_file_create(A.cs, rel, A.mSel)) {
+                snprintf(A.filesSel, sizeof A.filesSel, "%s", rel); A.filesRaw = true; A.modal = MD_NONE;
+                case_rescan(A.cs);
+                ui_toast(TOAST_OK, "Created %s", rel);
+            } else pl_fmt_ui(A.mErr, sizeof A.mErr, "Could not create %s.", rel);
         }
         break;
     }

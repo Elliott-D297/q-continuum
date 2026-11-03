@@ -1,5 +1,6 @@
 # Import a mesh (user request 2026-10-26): a UNV as SALOME exports it (groups inlet, outlet, walls) imported on the SALOME
 # tab, its roles guessed from the group names, walls made wall patches when the case files are written, then run.
+# 2026-11-02: the boundary condition files (0/) are written as soon as the import finishes (user request).
 budget p95 60 max 400
 shell mkdir -p $SB/ws/imp/system && python3 "$QC_TESTS/tools/gen_unv.py" $SB/ws/duct.unv && printf 'FoamFile { version 2.0; format ascii; class dictionary; object controlDict; }\napplication simpleFoam;\nstartTime 0;\nendTime 10;\ndeltaT 1;\nwriteControl timeStep;\nwriteInterval 10;\n' > $SB/ws/imp/system/controlDict
 open $SB/ws/imp
@@ -15,10 +16,17 @@ assert log log.checkMesh Mesh OK.
 assert file salome/imported.unv
 assert log constant/polyMesh/boundary walls
 wait 5
-assert text Write case files
+assert log 0/U surfaceNormalFixedValue
+assert log 0/p walls
 screenshot $OUT/1_imported.png
-click wf-next
-wait 10
+click nav:boundary conditions
+wait-until page Boundary
+wait 5
+assert text walls
+screenshot $OUT/1b_bc.png
+click nav:mesh
+wait-until page Mesh
+wait 5
 assert log constant/polyMesh/boundary type            wall;
 assert log 0/U surfaceNormalFixedValue
 assert log 0/k kqRWallFunction

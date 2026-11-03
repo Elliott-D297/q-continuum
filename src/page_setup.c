@@ -528,6 +528,7 @@ bool setup_refresh_files(Case *c)
         if (!ours) return false;
     }
     sync(c);
+    refresh(c);                                            /* sync runs once a frame: a mesh just made may be newer than it */
     if (!P.s.nB || !files_stale(c)) return false;
     /* a write that failed (and said why) isn't tried again until the setup or the mesh changes */
     static char failedCase[PL_PATH]; static double failedAt;
@@ -537,6 +538,36 @@ bool setup_refresh_files(Case *c)
     if (write_files(c, false)) { failedCase[0] = 0; return true; }
     pl_strlcpy(failedCase, c->s.path, sizeof failedCase); failedAt = at;
     return false;
+}
+
+/* a mesh just imported (SALOME, Gmsh: user request, 2026-11-02): 0/ written at once, one boundary condition per patch with
+   the role its name suggests, so Boundary conditions has fields to show without a trip to Physics > Setup. A case the setup
+   already owns is brought up to date as before; one with field files of its own keeps them. */
+bool setup_after_import(Case *c)
+{
+    if (!c || !wf_imported(c) || !c->s.meshed || c->s.nRegions > 0) return false;
+    char ini[PL_PATH]; sim_ini_path(c->s.path, ini, sizeof ini);
+    if (pl_is_file(ini)) return setup_refresh_files(c);
+    if (c->fields.n > 0 || case_dirty_count(c) > 0 || A.cj->active) return false;
+    sync(c);
+    refresh(c);                                            /* sync runs once a frame: this one's may be from before the mesh */
+    return P.s.nB > 0 && write_files(c, false);
+}
+
+/* Boundary conditions with no field files: can the setup write them (a case it owns, or one it can start owning: any mesh
+   with patches and no fields), and do it */
+bool setup_can_write_fields(Case *c)
+{
+    return c && c->s.meshed && c->s.nRegions == 0 && !c->s.prog && c->fields.n == 0 && c->nPatches > 0 && c->patchSource == 1;
+}
+
+bool setup_write_fields(Case *c)
+{
+    if (!setup_can_write_fields(c)) return false;
+    sync(c);
+    refresh(c);
+    if (!P.s.nB) { ui_toast(TOAST_ERR, "The mesh has no patches to write boundary conditions for"); return false; }
+    return write_files(c, false);
 }
 
 /* ============================================================================ the steps, STL to run (user request, 2026-10-26)

@@ -113,6 +113,7 @@ typedef struct {
     char     mErr[256];
     bool     mFlag;
     bool     mFlag2;
+    int      mSel;                      /* New file: its template (NF_*)         */
     void   (*cleanThen)(void);          /* Clean results opened for something that needs it: done after the clean */
     char     cleanWhy[200];             /* ... and why, said at the top of the dialog                            */
     char     mPath[1024];               /* dict path for "add entry" */
@@ -342,6 +343,9 @@ int   stlmesh_up_axis(Case *c);                              /* page_stlmesh.c: 
 void  stlmesh_focus(Case *c, int step);                      /* page_stlmesh.c: open a step of its flow (0 geometry, 2 boundaries, 4 generate) */
 float stl_workflow(Case *c, float x, float y, float w);
 bool  setup_refresh_files(Case *c);                         /* page_setup.c: the setup's case files rewritten if out of date (before a run) */      /* page_setup.c: STL > boundaries > mesh > physics > run; returns height (0: not an STL case) */
+bool  setup_after_import(Case *c);                         /* page_setup.c: an imported mesh's 0/ (and setup files) written at once */
+bool  setup_can_write_fields(Case *c);
+bool  setup_write_fields(Case *c);                          /* Boundary conditions with no fields: the setup writes them */
 void  stlmesh_tick(void);                                   /* page_stlmesh.c: follows the file dialog, every frame */   /* page_salome.c: returns height */
 struct SimPatch;
 struct SimForceRef;

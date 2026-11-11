@@ -78,10 +78,10 @@ wait 5
 wheel 0 text:Ra ≈
 assert text Ra ≈ 1e+05
 screenshot $OUT/05b_models_ra.png
-click su-step#3
+click su-step#4
 wait 5
 assert widget su-T0
-click su-step#4
+click su-step#5
 wait 5
 assert widget su-heat
 note the Nusselt number's length is the mesh's height along gravity (0.1 m), its dT the walls' 0.962 K
@@ -92,7 +92,7 @@ assert log simulation.ini nusselt_length = 0.1
 assert text 0: the span the boundaries set
 screenshot $OUT/06_reports.png
 wheel 0 su-heat
-click su-step#6
+click su-step#7
 wait 5
 assert text thermophysicalProperties, g
 screenshot $OUT/07_check.png

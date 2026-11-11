@@ -93,6 +93,16 @@ static void parse_line(MonFile *f, char *line)
     if (n < 2 || !is_number(g[0], &t)) return;
     static char h[MON_MAX_COLS + 8][96];
     int nh = f->lastHeader[0] ? split_groups(f->lastHeader, h, MON_MAX_COLS + 8) : 0;   /* h[0] = "Time" */
+    if (nh > 1 && nh < n && !strchr(line, '\t')) {
+        /* forces in v2606: the header groups its names with tabs ("total_x total_y total_z"), the rows are plain
+           space-separated numbers: the header's words one by one, when they match the row in number */
+        static char w[MON_MAX_COLS + 8][96];
+        char flat[sizeof f->lastHeader];
+        pl_strlcpy(flat, f->lastHeader, sizeof flat);
+        for (char *q = flat; *q; q++) if (*q == '\t') *q = ' ';
+        int nw = split_groups(flat, w, MON_MAX_COLS + 8);
+        if (nw == n) { memcpy(h, w, sizeof w); nh = nw; }
+    }
     /* a row per field (fieldMinMax) or per patch (wallHeatFlux) at each time: one row for the time, a column per name */
     bool named = nh > 1 && (!strcmp(h[1], "field") || !strcmp(h[1], "patch"));
     if (!(named && f->n > 0 && f->t[f->n - 1] == (float)t)) push_row(f, t);
@@ -115,6 +125,31 @@ static void parse_line(MonFile *f, char *line)
                 char nm[112]; snprintf(nm, sizeof nm, "%.90s_%s", base, cn[k]);
                 set_cell(f, nm, v);
                 q = e;
+            }
+        } else if (strchr(g[i], ' ') && (isdigit((unsigned char)g[i][0]) || g[i][0] == '-' || g[i][0] == '+' || g[i][0] == '.')) {
+            /* a tab-separated group of numbers ("tx ty tz": forces' force.dat and moment.dat in v2606): one column each,
+               named by the header group's words when they match in number ("total_x total_y total_z") */
+            char hw[9][96]; int nhw = 0;
+            if (hn) {
+                const char *q = hn;
+                while (*q && nhw < 9) {
+                    while (*q == ' ') q++;
+                    int k = 0; while (*q && *q != ' ' && k < 95) hw[nhw][k++] = *q++;
+                    hw[nhw][k] = 0; if (k) nhw++;
+                }
+            }
+            double vals[9]; int nv = 0;
+            const char *q = g[i];
+            while (nv < 9) { char *e; double x = strtod(q, &e); if (e == q) break; vals[nv++] = x; q = e; }
+            while (*q == ' ') q++;
+            if (nv > 1 && !*q) {
+                static const char *cn[] = { "x", "y", "z", "4", "5", "6", "7", "8", "9" };
+                for (int k = 0; k < nv; k++) {
+                    char nm[112];
+                    if (nhw == nv) snprintf(nm, sizeof nm, "%s%s%.90s", prefix, prefix[0] ? " " : "", hw[k]);
+                    else snprintf(nm, sizeof nm, "%.90s_%s", base, cn[k]);
+                    set_cell(f, nm, vals[k]);
+                }
             }
         } else if (is_number(g[i], &v)) set_cell(f, base, v);
         else if (hn && (!strcmp(hn, "field") || !strcmp(hn, "patch"))) pl_strlcpy(prefix, g[i], sizeof prefix);   /* rows per field or patch */

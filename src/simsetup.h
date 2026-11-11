@@ -85,10 +85,38 @@ typedef struct {
     int    turbSpec;            /* TI_*: an inlet's (and a free stream's) turbulence          */
     double ratio;               /* ... its turbulent viscosity ratio nut / nu                 */
     double dh;                  /* ... its hydraulic diameter, m (0: worked out from its area) */
+    int    phaseIn;             /* free surface: what an inlet brings in, PI_*                 */
     bool   farField;            /* an opening that is the free stream far from a body: vec its velocity, p its static
                                    pressure, T its temperature (freestreamVelocity, freestreamPressure); not with heat
                                    on an incompressible setup (sim_far_field) */
 } SimBoundary;
+
+/* free surface (plan step 8): two phases, water and air, and the surface between them (VOF, interFoam): alpha.water is
+   the share of water in a cell. The water at the start: boxes, or all below a height (setFields, run before the solver) */
+enum { PH_SINGLE = 0, PH_VOF, PH__N };
+enum { PI_WATER = 0, PI_AIR, PI_EITHER, PI__N };
+enum { FL_BOX = 0, FL_BELOW, FL_ZONE, FL__N };          /* FL_ZONE: a zone's cells (plan step 9) */
+enum { LIQ_WATER = 0, LIQ_SEAWATER, LIQ_OIL, LIQ_CUSTOM, LIQ__N };
+#define SIM_MAX_FILL 4
+typedef struct {
+    int    kind;                /* FL_*                                                       */
+    double a[3], b[3];          /* a box's least and greatest corners, m                      */
+    double h;                   /* below this height (along up, against gravity), m           */
+    /* plan step 9: a region of a single fluid starts at its own temperature or velocity (a hot block, a jet), of a free
+       surface it is water; FL_ZONE: the cells of a zone of the Zones step or of the mesh (zoneToCell) */
+    char   zone[48];
+    bool   setT, setU;
+    double T, U[3];             /* K, m/s                                                     */
+} SimFill;
+
+/* starting values (plan step 9): uniform (the values typed in), a potential-flow solution (potentialFoam, run before the
+   solver: a flow that already goes round the part), or another case's last results (mapFields, interpolated onto this mesh:
+   the boundaries keep this setup's conditions) */
+enum { SV_UNIFORM = 0, SV_POTENTIAL, SV_MAP, SV__N };
+/* the numerics (plan step 9): schemes, linear solvers and relaxation set together. Robust: first order, firmly relaxed
+   SIMPLE (gets a hard case going); Balanced: second order for the velocity, SIMPLEC (the default); Accurate: second order
+   everywhere, little limiting (a good mesh) */
+enum { NUM_ROBUST = 0, NUM_BALANCED, NUM_ACCURATE, NUM__N };
 
 /* reports (user plan step 6): what is measured while the case runs, each a function object in system/controlDict whose
    postProcessing/<name> file the Run page shows as a monitor. A probe: values at points; a surface: an average (area or
@@ -108,6 +136,33 @@ typedef struct {
     int    nPts;
     double pts[SIM_MAX_PROBES][3];   /* a probe's points, m                                   */
 } SimReport;
+
+/* zones (plan step 7): cells marked by a shape (a cylinder, box or sphere: topoSet, run before the solver) or a cellZone
+   the mesh has, that rotate (a moving reference frame, MRF: the flow in the zone is solved in its turning frame, its
+   walls turn with it) or resist the flow (a porous medium, Darcy-Forchheimer: dp/L = mu d U + rho f U² / 2) */
+enum { ZN_ROTATE = 0, ZN_POROUS, ZN__N };
+enum { ZS_CYLINDER = 0, ZS_BOX, ZS_SPHERE, ZS_MESH, ZS__N };
+enum { PD_ISO = 0, PD_X, PD_Y, PD_Z, PD__N };   /* porous: the same resistance every way, or the flow passes along one axis */
+#define SIM_MAX_Z 8
+typedef struct {
+    int    kind;                /* ZN_*                                                       */
+    char   name[48];            /* the cellZone's name (and the MRF or porosity entry's)      */
+    int    shape;               /* ZS_*                                                       */
+    char   zone[64];            /* ZS_MESH: the mesh's cellZone                               */
+    double a[3], b[3], r;       /* cylinder: the end centres and radius; box: least and greatest corners; sphere: centre, radius; m */
+    /* rotating */
+    double axis[3], origin[3];  /* the axis it turns about (right hand) and a point on it     */
+    bool   axisAuto;            /* cylinder: the axis and origin are the cylinder's            */
+    double rpm;                 /* revolutions per minute                                     */
+    char   still[256];          /* walls in the zone that stay still (nonRotatingPatches), space separated */
+    char   torque[256];         /* walls whose torque about the axis is reported, space separated ("": none) */
+    /* porous */
+    int    pdir;                /* PD_*: across it the resistance is 1000 times                */
+    bool   coeffs;              /* d and f typed in, not fitted                                */
+    double U1, dp1, U2, dp2;    /* pressure drops (Pa) at speeds (m/s) through the thickness; U2 0: one point (inertial only) */
+    double thick;               /* the thickness those drops were measured over, m            */
+    double d, f;                /* Darcy (1/m²) and Forchheimer (1/m) coefficients            */
+} SimZone;
 
 /* the force coefficients' reference (forceCoeffs): Cd = drag / (½ rho Uinf² Aref), Cl the same across, Cm over lRef */
 typedef struct SimForceRef {
@@ -155,6 +210,25 @@ typedef struct {
     SimBoundary b[SIM_MAX_B];
     int    nR;
     SimReport r[SIM_MAX_R];
+    int    nZ;
+    SimZone z[SIM_MAX_Z];
+    /* free surface (plan step 8) */
+    int    phase;               /* PH_*                                                       */
+    int    liquid;              /* LIQ_*: the water phase's preset (custom keeps its values)  */
+    double rhoL, nuL, rhoG, nuG;   /* the liquid's ("water") and the gas's ("air") density and viscosity */
+    double sigma;               /* surface tension, N/m                                       */
+    int    nFill;
+    SimFill fill[SIM_MAX_FILL];
+    double Uw[3];               /* the starting water's velocity, m/s                         */
+    double maxAlphaCo;          /* the interface's Courant limit                              */
+    int    nAlphaCorr, nAlphaSub;   /* MULES: alpha correctors, sub-cycles                   */
+    double cAlpha;              /* interface compression                                      */
+    bool   iso;                 /* interIsoFoam (geometric isoAdvector): a sharper surface    */
+    /* plan step 9 */
+    int    start;               /* SV_*                                                       */
+    char   mapFrom[512];        /* SV_MAP: the other case's folder                            */
+    double ramp;                /* steady: the inlets rise from a tenth to their value over this many iterations (0: off) */
+    int    numerics;            /* NUM_*                                                      */
 } SimSetup;
 
 extern const char *const FLOW_NAME[FLOW__N];
@@ -175,6 +249,8 @@ extern const char *const SURF_OP_NAME[SO__N];
 extern const char *const VOL_OP_NAME[VO__N];
 extern const char *const TI_NAME[TI__N];
 extern const char *const GAS_NAME[GAS__N];
+extern const char *const START_NAME[SV__N];      /* "Uniform", "Potential flow", "Another case's results" */
+extern const char *const NUM_NAME[NUM__N];       /* "Robust", "Balanced", "Accurate" */
 
 void sim_defaults(SimSetup *s, double size);       /* size: the part's length, m (sets the turbulence length) */
 void sim_fluid(SimSetup *s, int fluid);            /* the fluid's density and viscosity (custom keeps them) */
@@ -250,6 +326,39 @@ void   sim_report_describe(const SimSetup *s, const SimReport *r, char *out, int
    setup's p, else the field itself */
 const char *sim_report_of(const SimSetup *s, const char *field);
 
+/* ---- zones (plan step 7, simsetup.c) */
+extern const char *const ZONE_KIND_NAME[ZN__N];  /* "Rotating zone", "Porous zone" */
+extern const char *const ZONE_SHAPE_NAME[ZS__N]; /* "Cylinder", "Box", "Sphere", "Mesh cell zone" */
+extern const char *const PDIR_NAME[PD__N];
+/* a new zone of that kind: a cylinder (rotating) or box (porous) a fifth of the mesh's size about its centre, or the mesh's
+   first cellZone when it has one (meshZone, NULL: none); its index, -1 when the list is full */
+int    sim_zone_add(SimSetup *s, int kind, const double lo[3], const double hi[3], const char *meshZone);
+void   sim_zone_remove(SimSetup *s, int i);
+/* the rotation's axis (unit) and origin in effect: the cylinder's own when axisAuto */
+void   sim_zone_axis(const SimZone *z, double axis[3], double origin[3]);
+double sim_zone_omega(const SimZone *z);           /* rad/s                                                  */
+/* the porous coefficients in effect: typed, or fitted to the pressure drops (two points: both; one: inertial only).
+   Returns NULL, or why the fit is off (a drop that falls with speed: a coefficient came out below zero, set to 0) */
+const char *sim_zone_porous(const SimSetup *s, const SimZone *z, double *d, double *f);
+/* the pressure drop through the zone's thickness at speed U with those coefficients, Pa */
+double sim_zone_drop(const SimSetup *s, const SimZone *z, double U);
+bool   sim_has_rotation(const SimSetup *s);
+/* the cellZone names of a case's mesh (constant/polyMesh/cellZones), up to max; returns the count */
+int    sim_mesh_cell_zones(const char *casePath, char (*out)[64], int max);
+
+/* ---- free surface (plan step 8, simsetup.c) */
+extern const char *const PHASE_NAME[PH__N];       /* "Single fluid", "Free surface (water and air)" */
+extern const char *const PHASEIN_NAME[PI__N];     /* "Water", "Air", "Either" */
+extern const char *const FILL_NAME[FL__N];        /* "Box", "Below a height" */
+extern const char *const LIQ_NAME[LIQ__N];
+bool   sim_is_vof(const SimSetup *s);
+void   sim_liquid(SimSetup *s, int liq);          /* the preset's density and viscosity (custom keeps them) */
+void   sim_set_phase(SimSetup *s, int ph);        /* and what goes with it: transient, PIMPLE, no heat, gravity; returns via sim_settle */
+const char *sim_phase_why_not(const SimSetup *s, int ph);
+int    sim_up_axis(const SimSetup *s);            /* the axis most against gravity (0 x, 1 y, 2 z) */
+/* the water's volume at the start, m³ (boxes clipped to the mesh's box lo..hi, overlaps counted twice) */
+double sim_fill_volume(const SimSetup *s, const double lo[3], const double hi[3]);
+
 /* ---- the models and what goes with what (simmodels.c) */
 int    sim_approach(int turb);                     /* APPR_* of a model                                     */
 const char *sim_approach_label(const SimSetup *s, int appr);   /* "RANS", or "URANS" on a transient run       */
@@ -278,9 +387,22 @@ bool   sim_constraint(const char *meshType);       /* empty, wedge, cyclic ...: 
 bool   sim_force_on(const SimSetup *s, const SimBoundary *b);   /* the boundary's forces count (the default: the part's walls) */
 double sim_force_speed(const SimSetup *s);         /* fr.Uinf, else the inflow speed */
 /* what will not work or is likely wrong (no way out for the flow, nothing coming in): one line each, returns count */
+/* starting values (plan step 9) */
+const char *sim_start_why_not(const SimSetup *s, int sv);   /* NULL: it can start that way */
+bool   sim_map_source(const char *src, char *time, size_t tcap, char *why, size_t wcap);   /* a case with results to start from: its latest time */
+/* the Run page's "Starting values" step for the case's simulation.ini: the shell command (potentialFoam ..., mapFields ...),
+   false when it starts uniform or has no setup. The fields of 0/ as the setup wrote them are kept first (in .qc-setup/0.before),
+   so writing the setup again merges with them, not with the tool's output */
+bool   sim_start_command(const char *casePath, char *label, size_t lcap, char *cmd, size_t ccap);
+const char *sim_keep_fields_cmd(void);             /* the shell line that keeps them (the setFields step's too) */
+bool   sim_regions_set(const SimSetup *s);         /* a single fluid's regions set a temperature or velocity (setFields) */
+/* the numerics preset's files edited by hand since the setup wrote them (the preset then shows as Custom), and back to the preset */
+bool   sim_numerics_edited(const char *casePath);
+int    sim_numerics_of(const char *casePath);       /* NUM_* the setup wrote system/fvSchemes with, -1: not the setup's */
+void   sim_numerics_reset(const char *casePath);   /* the hand edits to system/fvSchemes and fvSolution dropped: the next write is the preset's */
 int    sim_check(const SimSetup *s, char *out, int cap);
 /* the Setup step line i of the last sim_check is about */
-enum { SA_MODELS = 0, SA_MATERIALS, SA_BOUNDARIES, SA_START, SA_REPORTS, SA_SOLVER };
+enum { SA_MODELS = 0, SA_MATERIALS, SA_BOUNDARIES, SA_ZONES, SA_START, SA_REPORTS, SA_SOLVER };
 int    sim_check_area(int i);
 
 /* every file sim_write may write or remove, case-relative (NULL-terminated) */

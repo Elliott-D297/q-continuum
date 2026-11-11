@@ -26,7 +26,7 @@ wait 5
 click su-tmpl#0
 wait 10
 assert log simulation.ini template = externalAero
-click su-step#4
+click su-step#5
 wait 10
 assert log simulation.ini forces = 1
 assert log simulation.ini reference_length = 0.1

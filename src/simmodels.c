@@ -82,11 +82,14 @@ const char *sim_algo_why_not(const SimSetup *s, int algo)
     if (s->flow == FLOW_STEADY) return "A steady run always uses SIMPLE; the algorithm is for transient runs";
     if (algo == ALG_PISO && sim_is_gas(s)) return "A compressible gas runs on rhoPimpleFoam: PIMPLE (one outer corrector is PISO's way)";
     if (algo == ALG_PISO && s->energy != EN_OFF) return "With heat on, buoyantPimpleFoam runs it: PIMPLE (one outer corrector is PISO's way)";
+    if (algo == ALG_PISO && sim_is_vof(s)) return "interFoam runs PIMPLE (one outer corrector is PISO's way)";
+    if (algo == ALG_PISO && sim_has_rotation(s)) return "pisoFoam has no rotating zones: pimpleFoam runs them (PIMPLE, one outer corrector is PISO's way)";
     return NULL;
 }
 
 const char *sim_energy_why_not(const SimSetup *s, int en)
 {
+    if (sim_is_vof(s) && en != EN_OFF) return "A free surface here is isothermal (interFoam): water and air at one temperature";
     if (sim_is_gas(s) && en == EN_OFF) return "A compressible gas always carries its temperature: its density follows it and the pressure";
     if (sim_is_gas(s) && en == EN_BUOYANT) return "rhoSimpleFoam and rhoPimpleFoam leave gravity out. For warm gas rising, pick Incompressible "
                                                   "with buoyancy: air is an ideal gas there too";
@@ -211,12 +214,17 @@ double sim_pabs(const SimSetup *s, double gauge) { return (sim_is_gas(s) ? s->pO
 bool sim_transonic(const SimSetup *s) { return sim_is_gas(s) && sim_mach(s) > 0.8; }
 
 /* nothing rules a gas out yet; kept for the motion and multiphase models to come (VOF is incompressible) */
-const char *sim_comp_why_not(const SimSetup *s, int comp) { (void)s; (void)comp; return NULL; }
+const char *sim_comp_why_not(const SimSetup *s, int comp)
+{
+    if (comp == COMP_GAS && sim_is_vof(s)) return "A free surface here is incompressible: water and air each at their own density";
+    return NULL;
+}
 
 void sim_set_comp(SimSetup *s, int comp)
 {
     if (comp < 0 || comp >= COMP__N || comp == s->comp) return;
     s->comp = comp;
+    if (comp == COMP_GAS) s->phase = PH_SINGLE;                  /* a compressible gas has no free surface here */
     if (comp == COMP_GAS) {
         if (s->gas < 0 || s->gas >= GAS__N) s->gas = GAS_AIR;
         sim_gas_preset(s, s->gas);
@@ -283,12 +291,15 @@ double sim_richardson(const SimSetup *s, double L)
 int sim_time_scheme(const SimSetup *s)
 {
     if (s->timeScheme > TS_AUTO && s->timeScheme < TS__N) return s->timeScheme;
+    /* automatic: backward for LES and DES (and on Accurate numerics), Euler otherwise (always on Robust: plan step 9) */
     int a = sim_approach(s->turb);
-    return a == APPR_LES || a == APPR_DES ? TS_BACKWARD : TS_EULER;
+    if (s->numerics == NUM_ROBUST) return TS_EULER;
+    return a == APPR_LES || a == APPR_DES || s->numerics == NUM_ACCURATE ? TS_BACKWARD : TS_EULER;
 }
 
 const char *sim_app(const SimSetup *s)
 {
+    if (sim_is_vof(s)) return s->iso ? "interIsoFoam" : "interFoam";
     if (sim_is_gas(s)) return s->flow == FLOW_TRANSIENT ? "rhoPimpleFoam" : "rhoSimpleFoam";
     if (s->energy != EN_OFF) return s->flow == FLOW_TRANSIENT ? "buoyantPimpleFoam" : "buoyantSimpleFoam";
     if (s->flow != FLOW_TRANSIENT) return "simpleFoam";
@@ -299,7 +310,8 @@ int sim_fields(const SimSetup *s, const char *out[SIM_MAX_F])
 {
     int n = 0;
     out[n++] = "U";
-    if (sim_is_gas(s)) { out[n++] = "p"; out[n++] = "T"; }        /* p absolute, solved; the density from p and T */
+    if (sim_is_vof(s)) { out[n++] = "p_rgh"; out[n++] = "alpha.water"; }   /* interFoam works p out from p_rgh */
+    else if (sim_is_gas(s)) { out[n++] = "p"; out[n++] = "T"; }        /* p absolute, solved; the density from p and T */
     else if (s->energy != EN_OFF) { out[n++] = "p_rgh"; out[n++] = "p"; out[n++] = "T"; }
     else out[n++] = "p";
     switch (s->turb) {
@@ -342,6 +354,22 @@ const char *sim_settle(SimSetup *s)
             b->inlet = IN_SPEED; b->speed = b->mach * a;
         }
     if (s->energy != EN_OFF && s->algo == ALG_PISO) s->algo = ALG_PIMPLE;   /* buoyantPimpleFoam: PIMPLE with one outer corrector */
+    if (s->phase < 0 || s->phase >= PH__N) s->phase = PH_SINGLE;
+    if (sim_is_vof(s)) {
+        /* interFoam: incompressible, isothermal, transient, PIMPLE; the mixture's reference values are the liquid's */
+        if (sim_is_gas(s)) s->comp = COMP_INCOMP;
+        s->energy = EN_OFF;
+        if (s->flow != FLOW_TRANSIENT) { s->flow = FLOW_TRANSIENT; snprintf(msg, sizeof msg, "A free surface moves: the run is transient"); }
+        if (s->algo == ALG_PISO) s->algo = ALG_PIMPLE;
+        if (s->rhoL > 0) s->rho = s->rhoL;
+        if (s->nuL > 0) s->nu = s->nuL;
+        if (s->nAlphaCorr < 1) s->nAlphaCorr = 1;
+        if (s->nAlphaCorr > 5) s->nAlphaCorr = 5;
+        if (s->nAlphaSub < 1) s->nAlphaSub = 1;
+        if (s->nAlphaSub > 10) s->nAlphaSub = 10;
+        if (!(s->maxAlphaCo > 0)) s->maxAlphaCo = 1;
+    }
+    if (sim_has_rotation(s) && s->algo == ALG_PISO) s->algo = ALG_PIMPLE;     /* pisoFoam reads no MRFProperties */
     int a = sim_approach(s->turb);
     if (s->flow == FLOW_STEADY && (a == APPR_LES || a == APPR_DES)) {
         int was = s->turb;
@@ -396,8 +424,8 @@ const char *sim_template_hint(int t)
         "Heated or cooled walls in a flow: forced convection. Steady, k-omega SST, temperature, heat through each wall.",
         "Flow driven by warm fluid rising: a heated room, a radiator. Steady, laminar, gravity on.",
         "Gas fast enough to compress, above about Mach 0.3: a nozzle, a fast wing. Steady, k-omega SST, ideal-gas air.",
-        "Water and air with the surface between them: a dam break, a tank.",
-        "A fan, a pump, a mixer: a rotating zone.",
+        "Water and air with the surface between them: a dam break, a tank, a channel. Transient, laminar, gravity on, interFoam.",
+        "A fan, a pump, a mixer. Steady, k-omega SST, a rotating zone (frozen rotor) with its torque monitored.",
         "Keep the defaults and choose every model yourself.",
     };
     return t >= 0 && t < TMPL__N ? H[t] : "";
@@ -408,8 +436,6 @@ const char *sim_template_why_not(const SimSetup *s, int t, bool twoD)
     (void)s;
     switch (t) {
     case TMPL_RESOLVED: return twoD ? "This case is 2-D: LES resolves eddies in 3-D, so it needs a 3-D mesh" : NULL;
-    case TMPL_VOF: return "Free surface (VOF) comes in a later update of Q-Continuum";
-    case TMPL_ROTATING: return "Rotating zones come in a later update of Q-Continuum";
     default: return t >= 0 && t < TMPL__N ? NULL : "";
     }
 }
@@ -430,6 +456,7 @@ void sim_template_apply(SimSetup *s, int t, double size)
     if (t < 0 || t >= TMPL__N || sim_template_why_not(s, t, false)) return;
     s->tmpl = t;
     if (t != TMPL_GAS && t != TMPL_BLANK && sim_is_gas(s)) sim_set_comp(s, COMP_INCOMP);   /* the other templates are incompressible */
+    if (t != TMPL_VOF && t != TMPL_BLANK) s->phase = PH_SINGLE;
     switch (t) {
     case TMPL_EXTERNAL:
         s->energy = EN_OFF;
@@ -470,6 +497,22 @@ void sim_template_apply(SimSetup *s, int t, double size)
         s->comp = COMP_INCOMP;                          /* so sim_set_comp sets the gas up afresh */
         sim_set_comp(s, COMP_GAS);
         if (s->iterations < 2000) s->iterations = 2000;
+        break;
+    case TMPL_VOF:
+        /* the water at the start comes from Setup, which knows the mesh (below a third of its height) */
+        s->turb = TURB_LAMINAR; s->forces = false;
+        sim_set_phase(s, PH_VOF);
+        s->maxCo = 1; s->maxAlphaCo = 1;
+        {   /* a dam break of the part's size takes some 4 times sqrt(L / g) to slosh across; the first step small */
+            double L = size > 0 ? size : 1, tg = sqrt(L / 9.81);
+            s->endTime = 4 * tg; s->writeTime = s->endTime / 20; s->deltaT = 0.004 * tg;
+        }
+        break;
+    case TMPL_ROTATING:
+        /* the zone itself (the mesh's cell zone, or a cylinder in the middle) comes from Setup, which knows the mesh */
+        s->energy = EN_OFF;
+        s->flow = FLOW_STEADY; s->turb = TURB_KOMEGASST; s->resStop = true; s->forces = false;
+        if (s->iterations < 1000) s->iterations = 1000;   /* a frozen rotor settles more slowly than a duct */
         break;
     default: break;                                     /* blank: the models as they are */
     }

@@ -45,8 +45,21 @@ int main(int argc, char **argv)
     /* a probe file not written yet at the first scan */
     snprintf(p, sizeof p, "%s/postProcessing/probes/0/p", c); put(p, "");
 
+    /* forces' moment.dat in v2606: the header's names in tab-separated groups, the rows plain numbers */
+    snprintf(p, sizeof p, "%s/postProcessing/rotor_torque/0/moment.dat", c);
+    put(p, "# Moment\n# Time          \ttotal_x total_y total_z\tpressure_x pressure_y pressure_z\n"
+           "1                1e-06 2e-06 -9.5e-05 0 0 -1e-05\n2                1e-06 2e-06 -9.6e-05 0 0 -1e-05\n");
+
     MonSet *s = calloc(1, sizeof *s);
     monset_open(s, c);
+    int mi = monset_find(s, "rotor_torque/moment.dat");
+    CHECK(mi >= 0, "moment.dat found");
+    if (mi >= 0) {
+        MonFile *m = &s->f[mi];
+        int tz = -1;
+        for (int k = 0; k < m->nCols; k++) if (!strcmp(m->col[k], "total_z")) tz = k;
+        CHECK(m->nCols == 6 && tz >= 0 && m->n == 2 && fabs(m->v[tz][1] + 9.6e-05) < 1e-9, "moment.dat: %d columns, total_z %d", m->nCols, tz);
+    }
     int fi = monset_find(s, "forces/force.dat");
     CHECK(fi >= 0, "forces series found (%d files)", s->n);
     if (fi >= 0) CHECK(s->f[fi].nParts == 2 && s->f[fi].n == 3, "forces: %d parts, %d rows", s->f[fi].nParts, s->f[fi].n);

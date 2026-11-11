@@ -56,6 +56,9 @@ assert widget su-b#4>inlet>in-speed
 screenshot $OUT/03_boundaries.png
 click su-next
 wait 5
+assert text No zones
+click su-next
+wait 5
 assert widget su-u0#0
 assert not widget su-ti
 click su-next
@@ -104,7 +107,7 @@ assert log simulation.ini template = resolvedTurbulence
 assert log simulation.ini turbulence = WALE
 assert log simulation.ini algorithm = PISO
 assert widget su-algo#0
-click su-step#5
+click su-step#6
 wait 5
 assert text Fixed time step
 click su-et
@@ -116,7 +119,7 @@ key A ctrl
 enter 0.01
 wait 5
 screenshot $OUT/06_resolved_solver.png
-click su-step#6
+click su-step#7
 wait 5
 assert text pisoFoam
 click su-check-run

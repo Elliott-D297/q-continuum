@@ -78,13 +78,13 @@ click su-step#0
 wait 5
 note the Mach number now comes from the total pressure over the outlet's
 assert text Ma ≈ 0.39
-click su-step#3
+click su-step#4
 wait 5
 click su-T0
 key A ctrl
 enter 300
 wait 3
-click su-step#5
+click su-step#6
 wait 5
 click su-it
 key A ctrl
@@ -98,7 +98,7 @@ click su-resu
 key A ctrl
 enter 1e-6
 wait 3
-click su-step#6
+click su-step#7
 wait 5
 assert text Nothing to fix
 assert text fvOptions

@@ -203,6 +203,11 @@ static int naca(char **argv)
     f->length = s.length = sqrt(0.01) / (pow(0.09, 0.25) * 10);
     if (argv[3]) { f->intensity = s.intensity = atof(argv[3]); f->length = s.length = 0.01; }   /* a turbulent free stream instead */
     s.iterations = 1000; s.writeEvery = 1000; s.resStop = true; s.resP = 1e-4; s.resRest = 1e-4;
+    /* plan step 9 (tests/simsetup_start.sh): the numerics preset, a faster free stream, more iterations */
+    const char *nm = getenv("QC_NUMERICS"), *sp = getenv("QC_SPEED"), *it = getenv("QC_ITERATIONS");
+    if (nm) s.numerics = !strcmp(nm, "robust") ? NUM_ROBUST : !strcmp(nm, "accurate") ? NUM_ACCURATE : NUM_BALANCED;
+    if (sp) { s.U0[0] = f->vec[0] = atof(sp); }
+    if (it) s.iterations = s.writeEvery = atof(it);
     sim_settle(&s);
     char err[300];
     if (!sim_save(dir, &s) || !sim_write(dir, &s, err, sizeof err)) { printf("naca: %s\n", err); return 1; }
@@ -274,8 +279,338 @@ static int reports(char **argv)
     return 0;
 }
 
+/* test_simsetup mixer <caseDir>: the mixerVessel2D tutorial's mesh (rotor, stator walls, front, back empty; its blockMesh
+   makes the cellZone rotor) set up like the tutorial (1500 iterations: converged): steady k-epsilon, nu 1e-5, the rotor zone at 104.72 rad/s about z,
+   the rotor's torque reported (tests/simsetup_zones.sh holds it against the tutorial run as shipped) */
+static int mixer(char **argv)
+{
+    SimPatch p[] = { { "rotor", ROLE_WALL, "wall", false, 0 }, { "stator", ROLE_WALL, "wall", false, 0 },
+                     { "front", ROLE_WALL, "empty", false, 0 }, { "back", ROLE_WALL, "empty", false, 0 } };
+    SimSetup s; sim_defaults(&s, 0.2);
+    sim_set_boundaries(&s, p, 4);
+    sim_template_apply(&s, TMPL_INTERNAL, 0.2);
+    s.turb = TURB_KEPSILON; sim_settle(&s);
+    s.fluid = FLUID_CUSTOM; s.nu = 1e-5; s.rho = 1;
+    s.iterations = 1500; s.writeEvery = 1500; s.resStop = false;
+    int i = sim_zone_add(&s, ZN_ROTATE, NULL, NULL, "rotor");
+    SimZone *z = &s.z[i];
+    z->rpm = 104.72 * 60 / (2 * M_PI);
+    z->axisAuto = false; z->axis[0] = z->axis[1] = 0; z->axis[2] = 1; z->origin[0] = z->origin[1] = z->origin[2] = 0;
+    pl_strlcpy(z->torque, "rotor", sizeof z->torque);
+    char err[300], chk[2000];
+    int n = sim_check(&s, chk, sizeof chk);
+    if (n) printf("checks: %s\n", chk);
+    if (!sim_save(argv[2], &s) || !sim_write(argv[2], &s, err, sizeof err)) { printf("mixer: %s\n", err); return 1; }
+    printf("%s %s %.6g\n", sim_app(&s), z->name, sim_zone_omega(z));
+    return 0;
+}
+
+/* test_simsetup porous <caseDir> <dp> <U> <thickness> <x0>: a channel (inlet, outlet, walls (slip), frontAndBack empty) at
+   U m/s with a porous box from x0 through thickness, asked for dp Pa at U (one point), and a pressure drop report
+   (tests/simsetup_zones.sh) */
+static int porous(char **argv)
+{
+    SimPatch p[] = { { "inlet", ROLE_INLET, "patch", false, 0 }, { "outlet", ROLE_OUTLET, "patch", false, 0 },
+                     { "walls", ROLE_SYMMETRY, "patch", false, 0 }, { "frontAndBack", ROLE_WALL, "empty", false, 0 } };
+    double dp = atof(argv[3]), U = atof(argv[4]), th = atof(argv[5]), x0 = atof(argv[6]);
+    SimSetup s; sim_defaults(&s, 1);
+    sim_set_boundaries(&s, p, 4);
+    sim_template_apply(&s, TMPL_INTERNAL, 1);
+    s.turb = TURB_LAMINAR; sim_settle(&s);
+    s.b[0].speed = U; s.U0[0] = U;
+    s.iterations = 300; s.writeEvery = 300; s.resStop = false;
+    double lo[3] = { -1, -1, -1 }, hi[3] = { 1, 1, 1 };
+    int i = sim_zone_add(&s, ZN_POROUS, lo, hi, NULL);
+    SimZone *z = &s.z[i];
+    z->a[0] = x0; z->b[0] = x0 + th; z->a[1] = -1; z->b[1] = 1; z->a[2] = -1; z->b[2] = 1;
+    z->pdir = PD_X; z->thick = th; z->dp1 = dp; z->U1 = U; z->dp2 = 0;
+    sim_report_add(&s, RP_DROP, NULL);
+    char err[300], chk[2000];
+    int n = sim_check(&s, chk, sizeof chk);
+    if (n) printf("checks: %s\n", chk);
+    if (!sim_save(argv[2], &s) || !sim_write(argv[2], &s, err, sizeof err)) { printf("porous: %s\n", err); return 1; }
+    double d, f; sim_zone_porous(&s, z, &d, &f);
+    printf("%s %s %.6g %.6g %.6g\n", sim_app(&s), s.r[0].name, d, f, s.rho);
+    return 0;
+}
+
+/* test_simsetup dambreak <caseDir> <endTime> <writeTime>: the interFoam/laminar/damBreak mesh (leftWall, rightWall,
+   lowerWall, atmosphere, defaultFaces empty) set up from the Free surface template, the water column the tutorial's box
+   (tests/simsetup_vof.sh) */
+static int dambreak(char **argv)
+{
+    SimPatch p[] = { { "leftWall", ROLE_WALL, "wall", false, 0 }, { "rightWall", ROLE_WALL, "wall", false, 0 },
+                     { "lowerWall", ROLE_WALL, "wall", false, 0 }, { "atmosphere", ROLE_OPENING, "patch", false, 0 },
+                     { "defaultFaces", ROLE_WALL, "empty", false, 0 } };
+    SimSetup s; sim_defaults(&s, 0.584);
+    sim_set_boundaries(&s, p, 5);
+    sim_template_apply(&s, TMPL_VOF, 0.584);
+    s.g[0] = 0; s.g[1] = -9.81; s.g[2] = 0;
+    s.nFill = 1; s.fill[0] = (SimFill){ .kind = FL_BOX, .a = { 0, 0, -1 }, .b = { 0.1461, 0.292, 1 } };
+    s.endTime = atof(argv[3]); s.writeTime = atof(argv[4]);
+    sim_settle(&s);
+    char err[300], chk[2000];
+    int n = sim_check(&s, chk, sizeof chk);
+    if (n) printf("checks: %s\n", chk);
+    if (!sim_save(argv[2], &s) || !sim_write(argv[2], &s, err, sizeof err)) { printf("dambreak: %s\n", err); return 1; }
+    printf("%s %s\n", sim_app(&s), s.turb == TURB_LAMINAR ? "laminar" : sim_model_word(s.turb));
+    return 0;
+}
+
+/* test_simsetup tank <caseDir> <U>: a 2-D tank (left: a water inlet at U m/s, top: the atmosphere, walls: right and
+   bottom, frontAndBack empty) with water below 0.1 m at the start, and a report of the water fraction's volume average */
+static int tank(char **argv)
+{
+    SimPatch p[] = { { "inlet", ROLE_INLET, "patch", false, 0 }, { "top", ROLE_OPENING, "patch", false, 0 },
+                     { "walls", ROLE_WALL, "wall", false, 0 }, { "frontAndBack", ROLE_WALL, "empty", false, 0 } };
+    SimSetup s; sim_defaults(&s, 0.4);
+    sim_set_boundaries(&s, p, 4);
+    sim_template_apply(&s, TMPL_VOF, 0.4);
+    s.g[0] = 0; s.g[1] = -9.81; s.g[2] = 0;
+    s.b[0].speed = atof(argv[3]); s.b[0].phaseIn = PI_WATER;
+    s.nFill = 1; s.fill[0] = (SimFill){ .kind = FL_BELOW, .h = 0.1 };
+    s.endTime = 2; s.writeTime = 0.5;
+    int i = sim_report_add(&s, RP_VOLUME, NULL);
+    pl_strlcpy(s.r[i].field, "alpha.water", sizeof s.r[i].field); s.r[i].op = VO_AVG;
+    sim_settle(&s);
+    char err[300], chk[2000];
+    int n = sim_check(&s, chk, sizeof chk);
+    if (n) printf("checks: %s\n", chk);
+    if (!sim_save(argv[2], &s) || !sim_write(argv[2], &s, err, sizeof err)) { printf("tank: %s\n", err); return 1; }
+    printf("%s %s\n", sim_app(&s), s.r[i].name);
+    return 0;
+}
+
+/* the free surface's round trip and files, without OpenFOAM */
+static void vof_unit(const char *dir)
+{
+    SimSetup s; setup(&s);
+    sim_template_apply(&s, TMPL_VOF, 0.5);
+    CHECK(sim_is_vof(&s) && s.flow == FLOW_TRANSIENT && s.energy == EN_OFF && !strcmp(sim_app(&s), "interFoam"), "VOF template: %s", sim_app(&s));
+    CHECK(fabs(s.rho - 998.2) < 1e-9, "the mixture's reference density is the water's");
+    s.nFill = 2; s.fill[0] = (SimFill){ .kind = FL_BOX, .b = { 0.1, 0.2, 0.01 } }; s.fill[1] = (SimFill){ .kind = FL_BELOW, .h = 0.05 };
+    s.b[0].phaseIn = PI_AIR;
+    double lo[3] = { 0, 0, 0 }, hi[3] = { 1, 1, 0.01 };
+    s.g[2] = 0; s.g[1] = -9.81;
+    CHECK(sim_up_axis(&s) == 1 && fabs(sim_fill_volume(&s, lo, hi) - (0.1 * 0.2 * 0.01 + 0.05 * 0.01)) < 1e-12, "fill volume %g", sim_fill_volume(&s, lo, hi));
+    char cd[PL_PATH]; pl_join(cd, sizeof cd, dir, "vof");
+    char sub[PL_PATH]; pl_join(sub, sizeof sub, cd, "system"); pl_mkdirs(sub); pl_join(sub, sizeof sub, cd, "constant"); pl_mkdirs(sub);
+    CHECK(sim_save(cd, &s), "save vof");
+    SimSetup t; sim_load(cd, &t, 0.5);
+    CHECK(t.phase == PH_VOF && t.nFill == 2 && t.fill[1].kind == FL_BELOW && t.fill[1].h == 0.05 && t.b[0].phaseIn == PI_AIR && t.sigma == 0.07, "vof round trip");
+    char err[300];
+    CHECK(sim_write(cd, &s, err, sizeof err), "write vof: %s", err);
+    FDFile *f = load(cd, "constant/transportProperties"); CHECK(is(f, "water/rho", "998.2") && is(f, "sigma", "0.07"), "transportProperties"); fd_free(f);
+    f = load(cd, "0/alpha.water"); CHECK(is(f, "boundaryField/inlet/value", "uniform 0") && is(f, "boundaryField/outlet/type", "inletOutlet"), "alpha.water BCs"); fd_free(f);
+    f = load(cd, "0/p_rgh"); CHECK(is(f, "boundaryField/walls/type", "fixedFluxPressure"), "p_rgh BCs"); fd_free(f);
+    f = load(cd, "system/fvSolution"); CHECK(is(f, "solvers/\"alpha.water.*\"/nAlphaCorr", "2"), "alpha solver"); fd_free(f);
+    f = load(cd, "system/controlDict"); CHECK(is(f, "application", "interFoam") && is(f, "maxAlphaCo", "1"), "controlDict"); fd_free(f);
+    f = load(cd, "system/setFieldsDict"); fd_free(f);
+    char pp[PL_PATH]; pl_join(pp, sizeof pp, cd, "0/p");
+    CHECK(!pl_exists(pp), "no 0/p for interFoam");
+    s.phase = PH_SINGLE; sim_settle(&s);
+    CHECK(sim_write(cd, &s, err, sizeof err), "write single again");
+    pl_join(pp, sizeof pp, cd, "0/alpha.water");
+    CHECK(!pl_exists(pp), "alpha.water removed with the free surface");
+}
+
+/* the porous fit and the zone round trip, without OpenFOAM */
+static void zones_unit(const char *dir)
+{
+    SimSetup s; setup(&s);
+    double lo[3] = { 0, 0, 0 }, hi[3] = { 1, 0.5, 0.2 };
+    int r = sim_zone_add(&s, ZN_ROTATE, lo, hi, NULL), q = sim_zone_add(&s, ZN_POROUS, lo, hi, NULL);
+    CHECK(r == 0 && q == 1 && !strcmp(s.z[0].name, "rotor") && !strcmp(s.z[1].name, "porous"), "zone names");
+    SimZone *z = &s.z[q];
+    /* two points from d = 1e6, f = 50 in water: both come back */
+    s.rho = 998; s.nu = 1e-6;
+    double mu = s.rho * s.nu, dd = 1e6, ff = 50, L = 0.05;
+    z->thick = L; z->U1 = 0.5; z->U2 = 2;
+    z->dp1 = (mu * dd * 0.5 + 0.5 * s.rho * ff * 0.25) * L; z->dp2 = (mu * dd * 2 + 0.5 * s.rho * ff * 4) * L;
+    double d, f; const char *why = sim_zone_porous(&s, z, &d, &f);
+    CHECK(!why && fabs(d - dd) < 1e-6 * dd && fabs(f - ff) < 1e-6 * ff, "two-point fit d %g f %g (%s)", d, f, why ? why : "");
+    CHECK(fabs(sim_zone_drop(&s, z, 2) - z->dp2) < 1e-6 * z->dp2, "drop at the second point");
+    z->dp2 = 0;                                                     /* one point: inertial only, through that point */
+    sim_zone_porous(&s, z, &d, &f);
+    CHECK(d == 0 && fabs(sim_zone_drop(&s, z, 0.5) - z->dp1) < 1e-9 * z->dp1, "one-point fit");
+    s.z[r].rpm = 300; pl_strlcpy(s.z[r].torque, "walls", sizeof s.z[r].torque);
+    CHECK(fabs(sim_zone_omega(&s.z[r]) - 10 * M_PI) < 1e-9, "rpm to rad/s");
+    char cd[PL_PATH]; pl_join(cd, sizeof cd, dir, "zones");
+    pl_mkdirs(cd);
+    char sys[PL_PATH]; pl_join(sys, sizeof sys, cd, "system"); pl_mkdirs(sys);
+    char cons[PL_PATH]; pl_join(cons, sizeof cons, cd, "constant"); pl_mkdirs(cons);
+    CHECK(sim_save(cd, &s), "save zones");
+    SimSetup t; sim_load(cd, &t, 0.5);
+    CHECK(t.nZ == 2 && t.z[0].kind == ZN_ROTATE && t.z[0].rpm == 300 && t.z[0].axisAuto && !strcmp(t.z[0].torque, "walls")
+          && t.z[1].kind == ZN_POROUS && t.z[1].shape == ZS_BOX && t.z[1].U2 == 2 && t.z[1].thick == L, "zones round trip");
+    char err[300];
+    CHECK(sim_write(cd, &s, err, sizeof err), "write zones: %s", err);
+    FDFile *m = load(cd, "constant/MRFProperties");
+    CHECK(is(m, "rotor/cellZone", "rotor") && is(m, "rotor/active", "yes"), "MRFProperties");
+    fd_free(m);
+    FDFile *o = load(cd, "system/fvOptions");
+    CHECK(is(o, "porous/type", "explicitPorositySource") && is(o, "porous/explicitPorositySourceCoeffs/cellZone", "porous"), "fvOptions porosity");
+    fd_free(o);
+    FDFile *ts = load(cd, "system/topoSetDict.zones");
+    fd_free(ts);
+    FDFile *c = load(cd, "system/controlDict");
+    CHECK(is(c, "functions/rotor_torque/type", "forces"), "torque function object");
+    fd_free(c);
+    /* no zones: our files go */
+    s.nZ = 0;
+    CHECK(sim_write(cd, &s, err, sizeof err), "write without zones");
+    char pm[PL_PATH]; pl_join(pm, sizeof pm, cd, "constant/MRFProperties");
+    CHECK(!pl_exists(pm), "MRFProperties removed with the zones");
+}
+
+/* test_simsetup pitz <caseDir> <robust|balanced|accurate> [uniform|potential|map:<case>] [speed] [ramp] [iterations]: the case (its
+   pitzDaily mesh already there: inlet, outlet, upperWall, lowerWall, frontAndBack) set up steady, k-omega SST, nu 1e-5 m²/s
+   (the tutorial's), the inlet at speed (default 10 m/s), stopping at residuals 1e-4 / 1e-5 (tests/simsetup_start.sh runs it) */
+static int pitz(int argc, char **argv)
+{
+    const char *dir = argv[2];
+    SimPatch p[] = { { "inlet", ROLE_INLET, "patch", false, 0 }, { "outlet", ROLE_OUTLET, "patch", false, 0 },
+                     { "upperWall", ROLE_WALL, "wall", false, 0 }, { "lowerWall", ROLE_WALL, "wall", false, 0 },
+                     { "frontAndBack", ROLE_WALL, "empty", false, 0 } };
+    SimSetup s; sim_defaults(&s, 0.3);
+    sim_set_boundaries(&s, p, 5);
+    sim_fluid(&s, FLUID_CUSTOM); s.rho = 1; s.nu = 1e-5;
+    s.numerics = !strcmp(argv[3], "robust") ? NUM_ROBUST : !strcmp(argv[3], "accurate") ? NUM_ACCURATE : NUM_BALANCED;
+    if (argc > 4 && !strcmp(argv[4], "potential")) s.start = SV_POTENTIAL;
+    else if (argc > 4 && !strncmp(argv[4], "map:", 4)) { s.start = SV_MAP; pl_strlcpy(s.mapFrom, argv[4] + 4, sizeof s.mapFrom); }
+    s.b[0].speed = argc > 5 ? atof(argv[5]) : 10;
+    s.ramp = argc > 6 ? atof(argv[6]) : 0;
+    s.iterations = argc > 7 ? atof(argv[7]) : 2000; s.writeEvery = s.iterations; s.resStop = true; s.resP = 1e-4; s.resRest = 1e-5;
+    s.length = 0.0025; s.intensity = 5;
+    sim_settle(&s);
+    char err[300];
+    if (!sim_save(dir, &s) || !sim_write(dir, &s, err, sizeof err)) { printf("pitz: %s\n", err); return 1; }
+    char lab[32], cmd[2048];
+    if (sim_start_command(dir, lab, sizeof lab, cmd, sizeof cmd)) printf("%s\n", cmd);    /* the Starting values step, for the script */
+    return 0;
+}
+
+/* plan step 9 without OpenFOAM: the numerics presets, potential flow and mapFields files, the inlet ramp, the regions, a
+   field rewritten by a tool and merged again, hand edits making the numerics Custom */
+static void start_unit(const char *dir)
+{
+    SimSetup s; setup(&s);
+    char cd[PL_PATH]; pl_join(cd, sizeof cd, dir, "start");
+    char sub[PL_PATH]; pl_join(sub, sizeof sub, cd, "system"); pl_mkdirs(sub); pl_join(sub, sizeof sub, cd, "constant"); pl_mkdirs(sub);
+    char err[300];
+    /* round trip */
+    s.start = SV_MAP; pl_strlcpy(s.mapFrom, "/some/where else", sizeof s.mapFrom); s.ramp = 80; s.numerics = NUM_ACCURATE;
+    s.nFill = 2; s.fill[0] = (SimFill){ .kind = FL_ZONE, .zone = "heater", .setT = true, .T = 350 };
+    s.fill[1] = (SimFill){ .kind = FL_BOX, .a = { 0, 0, 0 }, .b = { 0.1, 0.1, 0.1 }, .setU = true, .U = { 1, 2, 3 } };
+    CHECK(sim_save(cd, &s), "save start");
+    SimSetup t; sim_load(cd, &t, 0.5);
+    CHECK(t.start == SV_MAP && !strcmp(t.mapFrom, "/some/where else") && t.ramp == 80 && t.numerics == NUM_ACCURATE, "start round trip");
+    CHECK(t.nFill == 2 && t.fill[0].kind == FL_ZONE && !strcmp(t.fill[0].zone, "heater") && t.fill[0].setT && t.fill[0].T == 350 && !t.fill[0].setU
+          && t.fill[1].kind == FL_BOX && t.fill[1].setU && t.fill[1].U[2] == 3 && !t.fill[1].setT && t.fill[1].b[0] == 0.1, "regions round trip");
+    char msg[2000];
+    CHECK(sim_check(&s, msg, sizeof msg) >= 2 && strstr(msg, "another case") && strstr(msg, "Region 1 sets nothing"), "checks: %s", msg);
+    /* the presets */
+    s.start = SV_UNIFORM; s.nFill = 0; s.ramp = 0;
+    s.numerics = NUM_ROBUST;
+    CHECK(sim_write(cd, &s, err, sizeof err), "write robust: %s", err);
+    FDFile *f = load(cd, "system/fvSchemes");
+    CHECK(is(f, "divSchemes/div(phi,U)", "bounded Gauss upwind") && is(f, "divSchemes/div(phi,k)", "bounded Gauss upwind"), "robust schemes"); fd_free(f);
+    f = load(cd, "system/fvSolution");
+    CHECK(is(f, "SIMPLE/consistent", "no") && is(f, "relaxationFactors/fields/p", "0.3") && is(f, "relaxationFactors/equations/U", "0.7"), "robust relaxation"); fd_free(f);
+    s.numerics = NUM_BALANCED;
+    CHECK(sim_write(cd, &s, err, sizeof err), "write balanced: %s", err);
+    f = load(cd, "system/fvSchemes");
+    CHECK(is(f, "divSchemes/div(phi,U)", "bounded Gauss linearUpwind grad(U)") && is(f, "divSchemes/div(phi,omega)", "bounded Gauss upwind")
+          && is(f, "gradSchemes/grad(U)", "cellLimited Gauss linear 1"), "balanced schemes"); fd_free(f);
+    f = load(cd, "system/fvSolution");
+    CHECK(is(f, "SIMPLE/consistent", "yes") && is(f, "relaxationFactors/equations/U", "0.9"), "balanced relaxation (SIMPLEC)"); fd_free(f);
+    CHECK(!sim_numerics_edited(cd), "not edited after a write");
+    s.numerics = NUM_ACCURATE;
+    CHECK(sim_write(cd, &s, err, sizeof err), "write accurate: %s", err);
+    f = load(cd, "system/fvSchemes");
+    CHECK(is(f, "divSchemes/div(phi,k)", "bounded Gauss linearUpwind limited") && is(f, "gradSchemes/limited", "cellLimited Gauss linear 1"), "accurate schemes"); fd_free(f);
+    f = load(cd, "system/fvSolution");
+    CHECK(is(f, "solvers/p/relTol", "0.05"), "accurate linear solvers"); fd_free(f);
+    CHECK(sim_numerics_of(cd) == NUM_ACCURATE, "the Numerics page reads the preset: %d", sim_numerics_of(cd));
+    /* a hand edit: Custom, kept by the next write, dropped by Back to the preset */
+    char fp[PL_PATH]; pl_join(fp, sizeof fp, cd, "system/fvSchemes");
+    char *txt = pl_read_file(fp, NULL);
+    Str e; str_init(&e); str_cat(&e, txt); str_cat(&e, "\nfluxRequired\n{\n    default         no;\n}\n");
+    pl_write_file(fp, e.s, e.len); free(txt); str_free(&e);
+    CHECK(sim_numerics_edited(cd), "a hand edit makes the numerics Custom");
+    CHECK(sim_write(cd, &s, err, sizeof err), "write over the edit");
+    f = load(cd, "system/fvSchemes"); CHECK(is(f, "fluxRequired/default", "no"), "the hand edit is kept"); fd_free(f);
+    sim_numerics_reset(cd);
+    CHECK(!sim_numerics_edited(cd), "back to the preset");
+    f = load(cd, "system/fvSchemes"); CHECK(!fd_find(f, "fluxRequired"), "the edit is gone"); fd_free(f);
+    s.numerics = NUM_BALANCED;
+    /* potential flow */
+    s.start = SV_POTENTIAL;
+    CHECK(!sim_start_why_not(&s, SV_POTENTIAL), "potential flow with an inlet");
+    CHECK(sim_save(cd, &s) && sim_write(cd, &s, err, sizeof err), "write potential: %s", err);
+    f = load(cd, "system/fvSolution"); CHECK(is(f, "solvers/Phi/solver", "GAMG") && fd_find(f, "potentialFlow/nNonOrthogonalCorrectors"), "Phi and potentialFlow"); fd_free(f);
+    f = load(cd, "system/fvSchemes"); CHECK(is(f, "divSchemes/div(div(phi,U))", "Gauss linear"), "potentialFoam -writep's scheme"); fd_free(f);
+    char lab[32], cmd[2048];
+    CHECK(sim_start_command(cd, lab, sizeof lab, cmd, sizeof cmd) && !strcmp(lab, "potentialFoam") && strstr(cmd, "potentialFoam -writephi -writep")
+          && strstr(cmd, ".qc-setup/0.before"), "potentialFoam step: %s", cmd);
+    /* a tool rewrites 0/U (nonuniform, no mark): writing the setup again merges with the field as it was before */
+    char up[PL_PATH], kd[PL_PATH], kp[PL_PATH]; pl_join(up, sizeof up, cd, "0/U"); pl_join(kd, sizeof kd, cd, ".qc-setup/0.before"); pl_mkdirs(kd);
+    pl_join(kp, sizeof kp, kd, "U");
+    char *was = pl_read_file(up, NULL);
+    pl_write_file(kp, was, strlen(was));                            /* kept by the step before the tool ran */
+    const char *tool = "FoamFile\n{\n    version 2.0;\n    format ascii;\n    class volVectorField;\n    object U;\n}\ndimensions [0 1 -1 0 0 0 0];\n"
+                       "internalField nonuniform List<vector> 2((1 0 0) (2 0 0));\nboundaryField\n{\n}\n";
+    pl_write_file(up, tool, strlen(tool));
+    free(was);
+    s.U0[0] = 7;
+    CHECK(sim_write(cd, &s, err, sizeof err), "write over a tool's field");
+    f = load(cd, "0/U"); CHECK(is(f, "internalField", "uniform (7 0 0)") && is(f, "boundaryField/inlet/type", "surfaceNormalFixedValue"), "0/U is the setup's again"); fd_free(f);
+    char ob[PL_PATH]; pl_join(ob, sizeof ob, cd, "0/U.orig");
+    CHECK(!pl_exists(ob), "no 0/U.orig for a tool's output");
+    /* switching away from potential flow drops its flux; mapFields writes its dictionary */
+    char ph[PL_PATH]; pl_join(ph, sizeof ph, cd, "0/phi"); pl_write_file(ph, "x", 1);
+    s.start = SV_MAP; pl_strlcpy(s.mapFrom, cd, sizeof s.mapFrom);
+    CHECK(sim_save(cd, &s) && sim_write(cd, &s, err, sizeof err), "write map");
+    CHECK(!pl_exists(ph), "0/phi removed");
+    f = load(cd, "system/mapFieldsDict"); CHECK(fd_find(f, "patchMap") && fd_find(f, "cuttingPatches"), "mapFieldsDict"); fd_free(f);
+    CHECK(sim_start_command(cd, lab, sizeof lab, cmd, sizeof cmd) && !strcmp(lab, "mapFields") && strstr(cmd, "-sourceTime latestTime") && !strstr(cmd, "-consistent"),
+          "mapFields step: %s", cmd);
+    s.start = SV_UNIFORM;
+    CHECK(sim_write(cd, &s, err, sizeof err), "write uniform");
+    char md[PL_PATH]; pl_join(md, sizeof md, cd, "system/mapFieldsDict");
+    CHECK(!pl_exists(md), "mapFieldsDict removed");
+    /* the ramp: the inlet's speed scaled up over 80 iterations */
+    s.ramp = 80;
+    CHECK(sim_write(cd, &s, err, sizeof err), "write ramp");
+    f = load(cd, "0/U"); CHECK(is(f, "boundaryField/inlet/ramp", "table ((0 0.1) (80 1))"), "inlet ramp"); fd_free(f);
+    s.b[0].inlet = IN_FLOW; s.b[0].flow = 0.02;
+    CHECK(sim_write(cd, &s, err, sizeof err), "write ramp flow");
+    f = load(cd, "0/U"); CHECK(is(f, "boundaryField/inlet/volumetricFlowRate", "table ((0 0.002) (80 0.02))"), "flow-rate ramp"); fd_free(f);
+    s.ramp = 0; s.b[0].inlet = IN_SPEED;
+    /* regions: a hot box with heat on */
+    sim_set_energy(&s, EN_FORCED);
+    s.nFill = 1; s.fill[0] = (SimFill){ .kind = FL_BOX, .a = { 0, 0, 0 }, .b = { 0.1, 0.1, 0.1 }, .setT = true, .T = 330 };
+    CHECK(sim_check(&s, msg, sizeof msg) == 0, "hot block checks: %s", msg);
+    CHECK(sim_write(cd, &s, err, sizeof err), "write regions: %s", err);
+    f = load(cd, "system/setFieldsDict");
+    CHECK(f && strstr(f->text ? f->text : "", "volScalarFieldValue T 330") && strstr(f->text ? f->text : "", "volScalarFieldValue T 293.15"), "setFieldsDict regions");
+    fd_free(f);
+    s.nFill = 0;
+    CHECK(sim_write(cd, &s, err, sizeof err), "write without regions");
+    char sf[PL_PATH]; pl_join(sf, sizeof sf, cd, "system/setFieldsDict");
+    CHECK(!pl_exists(sf), "setFieldsDict removed with the regions");
+    /* a free surface starts only from its water */
+    sim_set_phase(&s, PH_VOF);
+    CHECK(sim_start_why_not(&s, SV_POTENTIAL) && sim_start_why_not(&s, SV_MAP), "free surface: no potential flow or mapping");
+}
+
 int main(int argc, char **argv)
 {
+    if (argc >= 4 && !strcmp(argv[1], "pitz")) return pitz(argc, argv);
+    if (argc >= 3 && !strcmp(argv[1], "mixer")) return mixer(argv);
+    if (argc >= 5 && !strcmp(argv[1], "dambreak")) return dambreak(argv);
+    if (argc >= 4 && !strcmp(argv[1], "tank")) return tank(argv);
+    if (argc >= 7 && !strcmp(argv[1], "porous")) return porous(argv);
     if (argc >= 3 && !strcmp(argv[1], "reports")) return reports(argv);
     if (argc >= 3 && !strcmp(argv[1], "plate")) return plate(argv);
     if (argc >= 6 && !strcmp(argv[1], "yplus")) return yplus(argv);
@@ -287,6 +622,9 @@ int main(int argc, char **argv)
     if (argc < 2) { printf("usage: test_simsetup <scratchDir>\n"); return 2; }
     char dir[PL_PATH]; pl_join(dir, sizeof dir, argv[1], "simsetup");
     pl_remove_tree(dir); pl_mkdirs(dir);
+    zones_unit(dir);
+    vof_unit(dir);
+    start_unit(dir);
     SimSetup s, r;
     setup(&s);
     CHECK(s.nB == 5 && s.b[0].role == ROLE_INLET && s.b[2].role == ROLE_WALL, "boundaries set");

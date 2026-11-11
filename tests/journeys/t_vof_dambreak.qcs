@@ -1,0 +1,54 @@
+# Free surface (setup plan step 8, 2026-11-08): the interFoam/laminar/damBreak tutorial's mesh with its own physics files
+# taken away, built from the Free surface card: gravity down y (the mesh is flat along z), the water a dam-break column in
+# the corner (switched from "below a height" to a box: the card's default box is the tutorial's column), the atmosphere an
+# opening. The Run page runs setFields, then interFoam to 0.2 s; the water has spread along the floor.
+budget p95 80 max 600
+shell cp -r "$FOAM_TUTORIALS/multiphase/interFoam/laminar/damBreak/damBreak" $SB/ws/dam && cd $SB/ws/dam && rm -rf 0.orig Allrun Allclean constant/transportProperties constant/turbulenceProperties constant/g system/fvSchemes system/fvSolution system/setFieldsDict system/sampling && printf 'FoamFile { version 2.0; format ascii; class dictionary; object controlDict; }\napplication interFoam;\nstartTime 0;\nendTime 1;\ndeltaT 1;\nwriteControl timeStep;\nwriteInterval 1;\n' > system/controlDict && bash -c '. "$WM_PROJECT_DIR/etc/bashrc" > /dev/null 2>&1; blockMesh > log.blockMesh 2>&1'
+open $SB/ws/dam
+click nav:physics
+wait-until page Physics
+wait 10
+click su-tmpl#7
+wait 10
+assert log simulation.ini phase = vof
+assert log simulation.ini gravity = 0 -9.81 0
+assert text Free surface (water and air)
+screenshot $OUT/01_models.png
+click su-step#1
+wait 5
+assert text Surface tension
+click su-step#4
+wait 5
+assert text Water at the start
+click su-w#0>kind#0
+wait 3
+assert log simulation.ini region = box 0 0 
+screenshot $OUT/02_water.png
+click su-step#6
+wait 5
+assert text Max interface Courant
+click su-et
+key A ctrl
+enter 0.2
+wait 3
+click su-wt
+key A ctrl
+enter 0.05
+wait 3
+screenshot $OUT/03_solver.png
+click su-step#7
+wait 5
+assert text Nothing to fix
+click su-check-run
+wait-until page Run
+wait 10
+assert text setFields
+click run-go
+wait-until job running timeout 30
+wait-until job finished timeout 300
+assert log log.setFields alpha.water
+assert log log.interFoam End
+assert not log log.interFoam FOAM FATAL
+assert file 0.2/alpha.water
+assert log system/controlDict maxAlphaCo
+screenshot $OUT/04_run.png

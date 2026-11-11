@@ -16,7 +16,7 @@ click su-tmpl#1
 wait 10
 assert log simulation.ini template = internalFlow
 assert text Started from
-assert widget su-step#6
+assert widget su-step#7
 assert widget su-appr#2
 assert widget su-energy#1
 screenshot $OUT/1_steady_rans.png
@@ -49,12 +49,12 @@ wait 10
 assert log simulation.ini algorithm = largeStepPIMPLE
 assert log simulation.ini outer_correctors = 20
 screenshot $OUT/3_des_large.png
-click su-step#5
+click su-step#6
 wait 10
 assert widget su-oresp
 assert widget su-nouter
 assert not widget su-ncorr
-click su-more#5
+click su-more#6
 wait 5
 assert widget su-ncorr
 assert widget su-ts
@@ -66,7 +66,7 @@ click su-appr#2
 wait 5
 click su-algo#0
 wait 10
-click su-step#5
+click su-step#6
 wait 5
 assert text Fixed time step
 assert not widget su-adj
@@ -84,7 +84,7 @@ key A ctrl
 enter 0.0001
 wait 5
 screenshot $OUT/4_les_piso.png
-click su-step#6
+click su-step#7
 wait 5
 assert text pisoFoam
 screenshot $OUT/4b_check.png

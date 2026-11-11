@@ -35,21 +35,21 @@ click su-tmpl#0
 wait 10
 assert log simulation.ini template = externalAero
 assert log simulation.ini forces = 1
-click su-step#4
+click su-step#5
 wait 5
 assert text Reference values
 assert not widget su-fcofr#0
-click su-more#4
+click su-more#5
 wait 5
 assert widget su-fcofr#0
 screenshot $OUT/02_reports.png
-click su-step#5
+click su-step#6
 wait 5
 click su-it
 key A ctrl
 enter 30
 wait 5
-click su-step#6
+click su-step#7
 wait 5
 click su-check-run
 wait-until page Run
@@ -76,7 +76,7 @@ assert log simulation.ini template = vortexShedding
 assert log simulation.ini flow = transient
 assert log simulation.ini algorithm = PIMPLE
 screenshot $OUT/04_shedding_models.png
-click su-step#5
+click su-step#6
 wait 5
 assert widget su-adj
 assert widget su-nouter
@@ -88,7 +88,7 @@ click su-wt
 key A ctrl
 enter 0.004
 wait 5
-click su-step#6
+click su-step#7
 wait 5
 assert text pimpleFoam
 click su-check-run

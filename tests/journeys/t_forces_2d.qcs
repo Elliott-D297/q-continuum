@@ -32,7 +32,7 @@ wait 5
 click su-tmpl#0
 wait 10
 assert log simulation.ini template = externalAero
-click su-step#4
+click su-step#5
 wait 10
 assert text Reference values
 assert log simulation.ini forces = 1
@@ -41,7 +41,7 @@ screenshot $OUT/1_forces.png
 wait 10
 screenshot $OUT/2_forces_ref.png
 # the residual stop (user, 2026-10-26: "why did it stop here?"): its targets are settings, and off means no residualControl
-click su-step#5
+click su-step#6
 wait 5
 click su-res
 wait 10

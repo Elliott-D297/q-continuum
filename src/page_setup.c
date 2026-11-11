@@ -12,13 +12,14 @@
 #include <fcntl.h>
 #include <sys/stat.h>
 #include "app.h"
+#include <ctype.h>
 #include "safety.h"
 #include "simsetup.h"
 #include "foamdict.h"
 #include "precheck.h"
 
 /* Setup's steps (the page, below) */
-enum { SS_MODELS = 0, SS_MATERIALS, SS_BOUNDARIES, SS_START, SS_REPORTS, SS_SOLVER, SS_CHECK, SS__N };
+enum { SS_MODELS = 0, SS_MATERIALS, SS_BOUNDARIES, SS_ZONES, SS_START, SS_REPORTS, SS_SOLVER, SS_CHECK, SS__N };
 
 static struct {
     char     casePath[PL_PATH];
@@ -132,7 +133,7 @@ static void gravity_auto(Case *c)
         for (int k = 0; k < 3; k++) if (hi[k] - lo[k] > P.height) P.height = hi[k] - lo[k];
     /* the Nusselt number's length, while it isn't typed in: the same height (heat on only, so other cases' files stay current) */
     if (P.s.energy != EN_OFF && P.s.nuAuto && P.height > 0 && fabs(P.s.nuLength - P.height) > 1e-9 * P.height) { P.s.nuLength = P.height; save(); }
-    if (P.s.energy != EN_BUOYANT || !P.s.gAuto || !stlmesh_gravity(c, g) || !memcmp(g, P.s.g, sizeof g)) return;
+    if ((P.s.energy != EN_BUOYANT && !sim_is_vof(&P.s)) || !P.s.gAuto || !stlmesh_gravity(c, g) || !memcmp(g, P.s.g, sizeof g)) return;
     memcpy(P.s.g, g, sizeof g);
     save();
 }
@@ -255,6 +256,12 @@ float setup_boundary_editor(Case *c, const char *name, float x, float y, float w
         int k = b->inlet;
         if (!gas && k == IN_MACH) k = IN_SPEED;             /* Mach inlets are a gas's; an incompressible setup writes it as speed */
         if (ui_select(ui_id("in-kind"), (Rectangle){ cr.x, cr.y, fminf(240, cr.width), 34 }, INLET_NAME, gas ? IN__N : IN_MACH, &k) && k != b->inlet) { b->inlet = k; save(); }
+        if (sim_is_vof(&P.s)) {
+            Rectangle pr = prop_row(x, &y, w, "Brings in", hints ? "Water, air, or either (whatever is next to it: zero gradient). A pressure inlet "
+                                                                   "lets air back out if the flow turns round." : NULL, 34);
+            int ph = b->phaseIn;
+            if (ui_segmented(ui_id("in-phase"), (Rectangle){ pr.x, pr.y, fminf(300, pr.width), 34 }, (const char **)PHASEIN_NAME, PI__N, &ph) && ph != b->phaseIn) { b->phaseIn = ph; save(); }
+        }
         char ma[96] = "";
         if (gas) { double a0 = sim_sound_speed(&P.s, b->T); if (a0 > 0 && b->inlet == IN_SPEED) pl_fmt_ui(ma, sizeof ma, "Ma %.3g", b->speed / a0); }
         if (b->inlet == IN_MACH && gas) {
@@ -330,7 +337,9 @@ float setup_boundary_editor(Case *c, const char *name, float x, float y, float w
     case ROLE_OPENING: {
         /* surroundings at rest (a window), or the free stream far from a body (freestream conditions). Not with heat on an
            incompressible setup, whose openings are the buoyant solvers' prghTotalPressure */
-        bool can = gas || !heat;
+        bool can = (gas || !heat) && !sim_is_vof(&P.s);
+        if (sim_is_vof(&P.s)) y += note(x, y + 2, w, "The atmosphere: water and air leave freely, air comes back in where the flow turns inward, "
+                                                     "at the total pressure below (gauge).") + 6;
         if (can) {
             Rectangle kr = prop_row(x, &y, w, "Opening to", hints ? "Surroundings: still air beyond it (a window, a room's open side). Free stream: the flow far from a "
                                                                     "body, coming in where it blows in and leaving elsewhere (a far field round a wing)." : NULL, 34);
@@ -510,6 +519,46 @@ static bool write_files(Case *c, bool thenRun)
 
 static bool wf_imported(Case *c);
 
+void setup_open_step(int step)
+{
+    if (A.cs) sync(A.cs);
+    if (step >= 0 && step < SS__N) P.step = step;
+    A.physicsTab = 2;
+    app_go(PG_PHYSICS);
+}
+
+/* a run of the setup's that diverged (plan step 9): Robust numerics offered with one click, while the setup's aren't Robust */
+bool setup_robust_offer(Case *c)
+{
+    if (!c || c->s.nRegions > 0) return false;
+    char ini[PL_PATH]; sim_ini_path(c->s.path, ini, sizeof ini);
+    if (!pl_is_file(ini)) return false;
+    sync(c);
+    return P.s.numerics != NUM_ROBUST && P.s.nB > 0;
+}
+
+/* a steady run of the setup's that should stop on its residuals: one that ran all its iterations didn't converge */
+bool setup_expects_convergence(Case *c)
+{
+    if (!c || c->s.nRegions > 0) return false;
+    char ini[PL_PATH]; sim_ini_path(c->s.path, ini, sizeof ini);
+    if (!pl_is_file(ini)) return false;
+    sync(c);
+    return P.s.flow == FLOW_STEADY && P.s.resStop;
+}
+
+bool setup_go_robust(Case *c)
+{
+    if (!setup_robust_offer(c)) return false;
+    int was = P.s.numerics;
+    P.s.numerics = NUM_ROBUST;
+    save();
+    if (!write_files(c, false)) { P.s.numerics = was; save(); return false; }
+    ui_toast(TOAST_OK, "Robust numerics: first-order upwind, firmly relaxed%s. Once it runs, Balanced from its results sharpens it",
+             P.s.flow == FLOW_STEADY ? " SIMPLE" : ", Euler in time");
+    return true;
+}
+
 /* the case files brought up to date with the setup before anything runs them (user request, 2026-10-26: a boundary
    changed on the Mesh tab ran with the old 0/U). Only for a case the setup owns: made from an STL, or with case files
    it wrote before; once there is a mesh (its patches are the boundaries); never with unsaved edits in the way or a job going. */
@@ -637,6 +686,7 @@ static void wf_status(Case *c, WfStep st[WF__N])
     pl_join(cml, sizeof cml, c->s.path, "log.checkMesh");
     double sigMt = mtime_ns(sig);
     bool unfinished = sigMt > 0 && mtime_ns(cml) < sigMt;     /* Generate ends with checkMesh: a failed one never got there */
+    if (unfinished && imported && !mtime_ns(cml) && meshMt > sigMt) unfinished = false;   /* converted after the import began: its logs were cleaned */
     if (unfinished && !imported && !mtime_ns(cml) && meshMt > sigMt) {
         /* no log.checkMesh at all: a start over before the fix put the mesh's logs in the trash. A mesh made after the
            settings that has every boundary of the STL got there (a failed snappy leaves only blockMesh's patches) */
@@ -802,7 +852,7 @@ static float note(float x, float y, float w, const char *t)
 
 typedef struct { int state; char sub[160]; } SsStatus;
 
-static const char *const SS_TITLE[SS__N] = { "Models", "Materials", "Boundaries", "Starting values", "Reports", "Solver", "Check" };
+static const char *const SS_TITLE[SS__N] = { "Models", "Materials", "Boundaries", "Zones", "Starting values", "Reports", "Solver", "Check" };
 
 /* a whole number in a row (correctors), saved as it changes */
 static bool row_count(float x, float *y, float w, bool hints, const char *id, const char *label, const char *hint, int *v, int lo, int hi)
@@ -899,9 +949,10 @@ static void ss_status(Case *c, SsStatus st[SS__N])
     /* Models */
     pl_fmt_ui(st[SS_MODELS].sub, sizeof st[0].sub, "%s %s%s%s%s", FLOW_NAME[s->flow], sim_approach_label(s, sim_approach(s->turb)),
               s->turb == TURB_LAMINAR ? "" : ", ", s->turb == TURB_LAMINAR ? "" : TURB_NAME[s->turb],
-              sim_is_gas(s) ? ", ideal gas" : s->energy == EN_FORCED ? ", heat" : s->energy == EN_BUOYANT ? ", buoyancy" : "");
+              sim_is_vof(s) ? ", free surface" : sim_is_gas(s) ? ", ideal gas" : s->energy == EN_FORCED ? ", heat" : s->energy == EN_BUOYANT ? ", buoyancy" : "");
     /* Materials */
-    if (sim_is_gas(s)) pl_fmt_ui(st[SS_MATERIALS].sub, sizeof st[0].sub, "%s at %.4g kPa, %.4g kg/m³", GAS_NAME[s->gas], s->pOp / 1000, s->rho);
+    if (sim_is_vof(s)) pl_fmt_ui(st[SS_MATERIALS].sub, sizeof st[0].sub, "%s and air", LIQ_NAME[s->liquid]);
+    else if (sim_is_gas(s)) pl_fmt_ui(st[SS_MATERIALS].sub, sizeof st[0].sub, "%s at %.4g kPa, %.4g kg/m³", GAS_NAME[s->gas], s->pOp / 1000, s->rho);
     else pl_fmt_ui(st[SS_MATERIALS].sub, sizeof st[0].sub, "%s, %.4g kg/m³", FLUID_NAME[s->fluid], s->rho);
     /* Boundaries */
     int nIn = 0, nOut = 0, nWall = 0;
@@ -914,11 +965,25 @@ static void ss_status(Case *c, SsStatus st[SS__N])
     }
     if (!s->nB) { st[SS_BOUNDARIES].state = SS_ATTN; pl_strlcpy(st[SS_BOUNDARIES].sub, "No boundaries yet", sizeof st[0].sub); }
     else pl_fmt_ui(st[SS_BOUNDARIES].sub, sizeof st[0].sub, "%d in, %d out, %d wall%s", nIn, nOut, nWall, nWall == 1 ? "" : "s");
+    /* Zones */
+    {
+        int nr = 0, np = 0;
+        for (int i = 0; i < s->nZ; i++) { if (s->z[i].kind == ZN_ROTATE) nr++; else np++; }
+        if (!s->nZ) pl_strlcpy(st[SS_ZONES].sub, "None", sizeof st[0].sub);
+        else pl_fmt_ui(st[SS_ZONES].sub, sizeof st[0].sub, "%s%s%s", nr ? TextFormat("%d rotating", nr) : "", nr && np ? ", " : "",
+                       np ? TextFormat("%d porous", np) : "");
+    }
     /* Starting values */
     double u0 = sqrt(s->U0[0] * s->U0[0] + s->U0[1] * s->U0[1] + s->U0[2] * s->U0[2]);
-    if (u0 > 0) pl_fmt_ui(st[SS_START].sub, sizeof st[0].sub, "Moving at %.3g m/s", u0);
+    if (s->start == SV_POTENTIAL && !sim_start_why_not(s, s->start)) pl_strlcpy(st[SS_START].sub, "Potential flow", sizeof st[0].sub);
+    else if (s->start == SV_MAP && !sim_start_why_not(s, s->start)) pl_fmt_ui(st[SS_START].sub, sizeof st[0].sub, "From %s", s->mapFrom[0] ? pl_basename(s->mapFrom) : "another case");
+    else if (u0 > 0) pl_fmt_ui(st[SS_START].sub, sizeof st[0].sub, "Moving at %.3g m/s", u0);
     else pl_strlcpy(st[SS_START].sub, "Still fluid", sizeof st[0].sub);
+    if (sim_regions_set(s)) pl_fmt_ui(st[SS_START].sub + strlen(st[SS_START].sub), sizeof st[0].sub - strlen(st[SS_START].sub), ", %d region%s", s->nFill, s->nFill == 1 ? "" : "s");
+    if (s->flow == FLOW_STEADY && s->ramp >= 1) pl_fmt_ui(st[SS_START].sub + strlen(st[SS_START].sub), sizeof st[0].sub - strlen(st[SS_START].sub), ", inlets ramped");
     if (s->energy != EN_OFF) pl_fmt_ui(st[SS_START].sub + strlen(st[SS_START].sub), sizeof st[0].sub - strlen(st[SS_START].sub), ", %.4g °C", s->T0 - 273.15);
+    if (sim_is_vof(s)) pl_fmt_ui(st[SS_START].sub + strlen(st[SS_START].sub), sizeof st[0].sub - strlen(st[SS_START].sub), s->nFill ? ", water in %d region%s" : ", no water",
+                                 s->nFill, s->nFill == 1 ? "" : "s");
     /* Reports */
     bool heatRep = s->energy != EN_OFF && s->heatReport;
     {
@@ -929,8 +994,11 @@ static void ss_status(Case *c, SsStatus st[SS__N])
         pl_strlcpy(st[SS_REPORTS].sub, t[0] ? t : "Wall y+ only", sizeof st[0].sub);
     }
     /* Solver */
-    if (s->flow == FLOW_STEADY) pl_fmt_ui(st[SS_SOLVER].sub, sizeof st[0].sub, "%.6g iterations%s", s->iterations, s->resStop ? ", stops when converged" : "");
-    else pl_fmt_ui(st[SS_SOLVER].sub, sizeof st[0].sub, "%s to %.4g s%s", ALG_NAME[s->algo], s->endTime, s->algo != ALG_PISO && s->adjustDt ? TextFormat(", Courant %.3g", s->maxCo) : "");
+    {
+        const char *nmw = c && sim_numerics_edited(c->s.path) ? "Custom" : NUM_NAME[s->numerics];
+        if (s->flow == FLOW_STEADY) pl_fmt_ui(st[SS_SOLVER].sub, sizeof st[0].sub, "%s, %.6g iterations%s", nmw, s->iterations, s->resStop ? ", stops when converged" : "");
+        else pl_fmt_ui(st[SS_SOLVER].sub, sizeof st[0].sub, "%s, %s to %.4g s%s", nmw, ALG_NAME[s->algo], s->endTime, s->algo != ALG_PISO && s->adjustDt ? TextFormat(", Courant %.3g", s->maxCo) : "");
+    }
     /* a step's problems: its first one instead (Models and Solver: a look; the rest: wrong) */
     int bad = 0, worst = SS_OK;
     for (int k = 0; k < SS_CHECK; k++) {
@@ -953,6 +1021,10 @@ static void ss_status(Case *c, SsStatus st[SS__N])
 static const char *const TMPL_ICON[TMPL__N] = { ICON_WIND, ICON_GIT_FORK, ICON_WAVES, ICON_ORBIT, ICON_THERMOMETER, ICON_FLAME,
                                                 ICON_ROCKET, ICON_DROPLETS, ICON_FAN, ICON_SLIDERS_HORIZONTAL };
 
+static int mesh_zones(const char *casePath, char (*out)[64]);
+static void water_default(Case *c);
+static void list_set(char *list, size_t cap, const char *name, bool on);
+
 static void pick_template(Case *c, int t)
 {
     sim_template_apply(&P.s, t, P.size);
@@ -968,8 +1040,29 @@ static void pick_template(Case *c, int t)
     }
     /* a body in a wind tunnel: the air starts at the free stream */
     if (P.external) { SimBoundary *in = sim_find(&P.s, "inlet"); if (in && in->role == ROLE_INLET) free_stream(c, sim_ref_speed(&P.s), P.s.U0); }
+    if (t == TMPL_VOF) { gravity_auto(c); water_default(c); }
+    if (t == TMPL_ROTATING && !sim_has_rotation(&P.s)) {
+        /* a rotating zone on the mesh's own cell zone (a mixer's rotor), else a cylinder in the middle to place; the torque
+           on the walls whose names say they turn */
+        char mz[16][64]; int nmz = mesh_zones(c->s.path, mz);
+        double lo[3], hi[3]; bool hb = mesh_bounds(c->s.path, lo, hi);
+        int i = sim_zone_add(&P.s, ZN_ROTATE, hb ? lo : NULL, hb ? hi : NULL, nmz ? mz[0] : NULL);
+        if (i >= 0) {
+            SimZone *z = &P.s.z[i];
+            for (int k = 0; k < P.s.nB; k++) {
+                const SimBoundary *b = &P.s.b[k];
+                if (b->role != ROLE_WALL || sim_constraint(b->meshType)) continue;
+                char l[64]; size_t n = 0;
+                for (; b->name[n] && n < sizeof l - 1; n++) l[n] = (char)tolower((unsigned char)b->name[n]);
+                l[n] = 0;
+                if (strstr(l, "rotor") || strstr(l, "impeller") || strstr(l, "blade") || strstr(l, "fan") || strstr(l, "prop") || strstr(l, "rotat") || strstr(l, "hub"))
+                    list_set(z->torque, sizeof z->torque, b->name, true);
+            }
+        }
+        sim_settle(&P.s);
+    }
     save();
-    P.picking = false; P.step = SS_MODELS;
+    P.picking = false; P.step = t == TMPL_ROTATING ? SS_ZONES : SS_MODELS;
     bool layers = t == TMPL_EXTERNAL || t == TMPL_INTERNAL || t == TMPL_SHEDDING || t == TMPL_HEAT || t == TMPL_NATCONV;
     gravity_auto(c);
     if (stlmesh_template_hints(c, layers)) ui_toast(TOAST_INFO, "%s: prism layers switched on in the STL mesher, for the %s layer", TMPL_NAME[t],
@@ -1084,6 +1177,34 @@ static float wall_rows(Case *c, float x, float y, float w, bool hints)
 }
 
 /* ---------------------------------------------------------------------------- 1 Models */
+/* the water at the start of a new free-surface setup: everything below a third of the mesh's height */
+static void water_default(Case *c)
+{
+    SimSetup *s = &P.s;
+    double lo[3], hi[3];
+    if (!mesh_bounds(c->s.path, lo, hi)) return;
+    /* gravity along a 2-D mesh's depth (the default -z on an x-y mesh, with no STL mesher to say which way is up) would
+       pull the water through the empty sides: down y instead (down z for a mesh thin along x or y) */
+    double gtmp[3];
+    int up = sim_up_axis(s), thin = 0;
+    for (int k = 1; k < 3; k++) if (hi[k] - lo[k] < hi[thin] - lo[thin]) thin = k;
+    double big = fmax(hi[0] - lo[0], fmax(hi[1] - lo[1], hi[2] - lo[2]));
+    if (up == thin && hi[thin] - lo[thin] < 0.2 * big && !stlmesh_gravity(c, gtmp)) {
+        double gm = sim_g_mag(s) > 0 ? sim_g_mag(s) : 9.81;
+        int nu = thin == 2 ? 1 : 2;
+        s->g[0] = s->g[1] = s->g[2] = 0; s->g[nu] = -gm;
+        up = nu;
+        ui_toast(TOAST_INFO, "Gravity set down %s (the mesh is flat along %s): change it in Models if that's not down", nu == 1 ? "y" : "z", thin == 0 ? "x" : thin == 1 ? "y" : "z");
+    }
+    if (s->nFill) return;
+    s->nFill = 1;
+    s->fill[0] = (SimFill){ .kind = FL_BELOW, .a = { lo[0], lo[1], lo[2] }, .b = { hi[0], hi[1], hi[2] } };
+    s->fill[0].h = s->g[up] <= 0 ? lo[up] + (hi[up] - lo[up]) / 3 : hi[up] - (hi[up] - lo[up]) / 3;
+    for (int k = 0; k < 3; k++) s->fill[0].b[k] = lo[k] + (hi[k] - lo[k]) / 4;   /* a box, if switched to one: a dam-break column in a corner */
+    s->fill[0].b[up] = lo[up] + (hi[up] - lo[up]) / 2;
+    for (int k = 0; k < 3; k++) if (k != up && hi[k] - lo[k] < 0.2 * big) s->fill[0].b[k] = hi[k];   /* a 2-D mesh's depth: all of it */
+}
+
 static float models_step(Case *c, float x, float y, float w)
 {
     float y0 = y;
@@ -1101,7 +1222,8 @@ static float models_step(Case *c, float x, float y, float w)
     /* time */
     cr = prop_row(x, &y, w, "Time", hints ? "Steady: the flow settles to one answer. Transient: vortex shedding, start-up, anything that changes." : NULL, 34);
     int fl = s->flow;
-    if (ui_segmented(ui_id("su-flow"), (Rectangle){ cr.x, cr.y, fminf(260, cr.width), 34 }, (const char **)FLOW_NAME, FLOW__N, &fl) && fl != s->flow) {
+    const char *fw[FLOW__N] = { sim_is_vof(s) ? "A free surface moves: the run is always transient" : NULL, NULL };
+    if (ui_segmented_why(ui_id("su-flow"), (Rectangle){ cr.x, cr.y, fminf(260, cr.width), 34 }, (const char **)FLOW_NAME, FLOW__N, &fl, fw) && fl != s->flow) {
         s->flow = fl;
         const char *m = sim_settle(s);
         if (m) ui_toast(TOAST_INFO, "%s", m);
@@ -1144,7 +1266,7 @@ static float models_step(Case *c, float x, float y, float w)
             "pisoFoam: accurate, small fixed time steps (Courant under 1). Suits LES and DES.",
             "pimpleFoam: the usual transient choice; the time step can follow a Courant limit.",
             "pimpleFoam with many outer correctors per step: time steps 5 to 10 times larger, for slow changes." };
-        cr = prop_row(x, &y, w, "Algorithm", s->energy != EN_OFF && s->algo != ALG_PISO ? TextFormat("%s%s", sim_app(s), strchr(algHint[s->algo], ':')) : algHint[s->algo], 34);
+        cr = prop_row(x, &y, w, "Algorithm", (s->energy != EN_OFF || sim_is_vof(s)) && s->algo != ALG_PISO ? TextFormat("%s%s", sim_app(s), strchr(algHint[s->algo], ':')) : algHint[s->algo], 34);
         int al = s->algo;
         const char *aw[ALG__N];
         for (int i = 0; i < ALG__N; i++) aw[i] = i == ALG_PISO ? sim_algo_why_not(s, i) : NULL;   /* PISO: not with heat */
@@ -1183,7 +1305,23 @@ static float models_step(Case *c, float x, float y, float w)
         if (alg != s->algo) ui_toast(TOAST_INFO, "With heat on, buoyantPimpleFoam steps through time: the algorithm is now PIMPLE");
         save();
     }
-    if (s->energy == EN_BUOYANT) {
+    /* free surface (plan step 8): water and air with the surface between them */
+    cr = prop_row(x, &y, w, "Multiphase", hints ? (sim_is_vof(s) ? "Water and air, the surface between them tracked as the share of water in each cell "
+                                                                  "(VOF, interFoam). Always transient; no heat. Materials holds both, Starting values the water."
+                                                                : "Free surface: water and air with the surface between them, a dam break, a tank, a channel.") : NULL, 34);
+    {
+        int ph = s->phase;
+        const char *pw[PH__N]; for (int i = 0; i < PH__N; i++) pw[i] = sim_phase_why_not(s, i);
+        if (ui_segmented_why(ui_id("su-multi"), (Rectangle){ cr.x, cr.y, fminf(420, cr.width), 34 }, (const char **)PHASE_NAME, PH__N, &ph, pw) && ph != s->phase) {
+            sim_set_phase(s, ph);
+            gravity_auto(c);
+            if (ph == PH_VOF) water_default(c);
+            ui_toast(TOAST_INFO, ph == PH_VOF ? "Free surface: transient, interFoam, gravity on. Starting values holds the water at the start"
+                                              : "One fluid again");
+            save();
+        }
+    }
+    if (s->energy == EN_BUOYANT || sim_is_vof(s)) {
         double g[3];
         bool have = stlmesh_gravity(c, g);
         if (have) {                                         /* from the STL mesher's Up, or typed in */
@@ -1210,20 +1348,14 @@ static float models_step(Case *c, float x, float y, float w)
     }
     y += 8;
     y += issues_callout(SS_MODELS, x, y, w);
-    /* the physics still to come: there, greyed, saying so */
+    /* the physics still to come: there, greyed, saying so (rotating and porous zones have their own step) */
     y += 12;
-    y += section_head(x, y, w, "Other physics", "Free surfaces and rotating zones come in later updates; hover an option for what it will do.");
-    static const char *const MU[] = { "None", "Free surface" }, *const MO[] = { "None", "Rotating zone" }, *const EX[] = { "None", "Passive scalar" };
-    static const char *const MUw[] = { NULL, "Water and air with the surface between them (VOF, needs a transient run): a later update" },
-                      *const MOw[] = { NULL, "A zone turning with a fan or a stirrer (MRF, frozen rotor): a later update" },
-                      *const EXw[] = { NULL, "A dye or a concentration carried by the flow: a later update" };
-    struct { const char *id, *label, *const *items, *const *why; int n; } G[] = {
-        { "su-multi", "Multiphase", MU, MUw, 2 }, { "su-motion", "Motion", MO, MOw, 2 }, { "su-extras", "Extras", EX, EXw, 2 } };
-    for (int g = 0; g < 3; g++) {
-        cr = prop_row(x, &y, w, G[g].label, NULL, 34);
-        int sel = 0;
-        ui_segmented_why(ui_id(G[g].id), (Rectangle){ cr.x, cr.y, fminf(G[g].n * 140.f, cr.width), 34 }, (const char **)G[g].items, G[g].n, &sel, G[g].why);
-    }
+    y += section_head(x, y, w, "Other physics", "Rotating and porous zones are in the Zones step. Hover an option for what it will do.");
+    static const char *const EX[] = { "None", "Passive scalar" };
+    static const char *const EXw[] = { NULL, "A dye or a concentration carried by the flow: a later update" };
+    cr = prop_row(x, &y, w, "Extras", NULL, 34);
+    int sel = 0;
+    ui_segmented_why(ui_id("su-extras"), (Rectangle){ cr.x, cr.y, fminf(280, cr.width), 34 }, (const char **)EX, 2, &sel, EXw);
     return y - y0;
 }
 
@@ -1261,11 +1393,45 @@ static float gas_materials(float x, float y, float w)
     return y - y0;
 }
 
+/* a free surface: the liquid ("water", a preset or custom) and the gas ("air"), and the surface tension */
+static float vof_materials(float x, float y, float w)
+{
+    float y0 = y;
+    SimSetup *s = &P.s;
+    y += issues_callout(SS_MATERIALS, x, y, w);
+    Rectangle cr = prop_row(x, &y, w, "Liquid", "The heavier phase, called water in the files (alpha.water is its share of each cell).", 34);
+    int l = s->liquid;
+    if (ui_segmented(ui_id("su-liq"), (Rectangle){ cr.x, cr.y, fminf(480, cr.width), 34 }, (const char **)LIQ_NAME, LIQ__N, &l) && l != s->liquid) {
+        sim_liquid(s, l); sim_settle(s); save();
+    }
+    bool rows = s->liquid == LIQ_CUSTOM || P.more[SS_MATERIALS];
+    bool ch = false;
+    if (rows) {
+        ch |= row_num(x, &y, w, true, "su-rhol", "Liquid density", NULL, &s->rhoL, 1e-3, 1e5, "kg/m³", NULL);
+        ch |= row_num(x, &y, w, true, "su-nul", "Liquid viscosity", "Kinematic, nu = mu / rho.", &s->nuL, 1e-12, 1e3, "m²/s", NULL);
+        if (ch) { s->liquid = LIQ_CUSTOM; ch = false; }
+    }
+    if (rows || P.more[SS_MATERIALS]) {
+        ch |= row_num(x, &y, w, true, "su-rhog", "Gas density", "Air: 1.2 kg/m³ (the tutorials take 1).", &s->rhoG, 1e-6, 1e5, "kg/m³", NULL);
+        ch |= row_num(x, &y, w, true, "su-nug", "Gas viscosity", "Air: 1.48e-5 m²/s.", &s->nuG, 1e-12, 1e3, "m²/s", NULL);
+    }
+    ch |= row_num(x, &y, w, true, "su-sigma", "Surface tension", "Water and air 0.07 N/m. It matters for drops, films and small ripples; a dam break hardly feels it.",
+                  &s->sigma, 0, 10, "N/m", NULL);
+    if (ch) { sim_settle(s); save(); }
+    if (!rows) {
+        char t[300]; pl_fmt_ui(t, sizeof t, "%s: %.5g kg/m³, %.4g m²/s. Air: %.4g kg/m³, %.4g m²/s.", LIQ_NAME[s->liquid], s->rhoL, s->nuL, s->rhoG, s->nuG);
+        y += note(x, y + 8, w, t) + 8;
+    }
+    if (s->liquid != LIQ_CUSTOM) y += more_toggle(SS_MATERIALS, x, y);
+    return y - y0;
+}
+
 static float materials_step(float x, float y, float w)
 {
     float y0 = y;
     SimSetup *s = &P.s;
     if (sim_is_gas(s)) return gas_materials(x, y, w);
+    if (sim_is_vof(s)) return vof_materials(x, y, w);
     bool heat = s->energy != EN_OFF, buoy = s->energy == EN_BUOYANT;
     y += issues_callout(SS_MATERIALS, x, y, w);
     Rectangle cr = prop_row(x, &y, w, "Fluid", heat ? "Air and water at 20 °C, their thermal properties too; Custom for your own."
@@ -1584,18 +1750,423 @@ static float reports_step(Case *c, float x, float y, float w)
     return y - y0;
 }
 
+/* ---------------------------------------------------------------------------- 4 Zones (plan step 7) */
+/* a name in a space-separated list of names */
+static bool in_list(const char *list, const char *name)
+{
+    size_t n = strlen(name);
+    for (const char *p = list; (p = strstr(p, name)); p += n)
+        if ((p == list || p[-1] == ' ') && (p[n] == 0 || p[n] == ' ')) return true;
+    return false;
+}
+
+static void list_set(char *list, size_t cap, const char *name, bool on)
+{
+    char out[512] = "", w[128];
+    for (const char *p = list; *p; ) {
+        while (*p == ' ') p++;
+        size_t k = strcspn(p, " ");
+        if (!k) break;
+        snprintf(w, sizeof w, "%.*s", (int)k, p);
+        p += k;
+        if (!strcmp(w, name)) continue;
+        snprintf(out + strlen(out), sizeof out - strlen(out), "%s%s", out[0] ? " " : "", w);
+    }
+    if (on) snprintf(out + strlen(out), sizeof out - strlen(out), "%s%s", out[0] ? " " : "", name);
+    pl_strlcpy(list, out, cap);
+}
+
+/* the walls as check boxes that wrap, ticked when in the list; true when one changed */
+static bool wall_checks(float x, float *y, float w, const char *id, const char *label, const char *hint, char *list, size_t cap)
+{
+    SimSetup *s = &P.s;
+    float room = w - fminf(300, w * 0.38f), lineW = 0, lines = 1;
+    int nw = 0;
+    for (int i = 0; i < s->nB; i++) {
+        const SimBoundary *b = &s->b[i];
+        if (b->role != ROLE_WALL || sim_constraint(b->meshType)) continue;
+        float cw = ui_text_w(F_REG, 13.5f, b->name) + 44;
+        if (lineW + cw > room && lineW > 0) { lines++; lineW = 0; }
+        lineW += cw; nw++;
+    }
+    Rectangle cr = prop_row(x, y, w, label, hint, nw ? lines * 30 - 6 : 24);
+    if (!nw) { ui_text(F_REG, 13, "No walls.", cr.x, cr.y + 4, TH.text3); return false; }
+    float bx = cr.x, by = cr.y;
+    bool ch = false;
+    for (int i = 0; i < s->nB; i++) {
+        const SimBoundary *b = &s->b[i];
+        if (b->role != ROLE_WALL || sim_constraint(b->meshType)) continue;
+        float cw = ui_text_w(F_REG, 13.5f, b->name) + 44;
+        if (bx + cw > cr.x + cr.width && bx > cr.x) { bx = cr.x; by += 30; }
+        bool on = in_list(list, b->name), was = on;
+        ui_checkbox(ui_idn(ui_id(id), i), (Rectangle){ bx, by, cw - 14, 24 }, &on, b->name);
+        if (on != was) { list_set(list, cap, b->name, on); ch = true; }
+        bx += cw;
+    }
+    return ch;
+}
+
+/* the mesh's cellZones (constant/polyMesh/cellZones), read again when it changes */
+static int mesh_zones(const char *casePath, char (*out)[64])
+{
+    static char z[16][64], at[PL_PATH]; static int n; static double mt = -1;
+    char p[PL_PATH]; pl_join(p, sizeof p, casePath, "constant/polyMesh/cellZones");
+    double m = mtime_ns(p);
+    if (strcmp(at, casePath) || m != mt) { pl_strlcpy(at, casePath, sizeof at); mt = m; n = m > 0 ? sim_mesh_cell_zones(casePath, z, 16) : 0; }
+    memcpy(out, z, sizeof z);
+    return n;
+}
+
+static float zones_step(Case *c, float x, float y, float w)
+{
+    float y0 = y;
+    SimSetup *s = &P.s;
+    y += issues_callout(SS_ZONES, x, y, w);
+    y += note(x, y, w, "Parts of the fluid that turn (a fan, an impeller, a mixer: a rotating reference frame, the blades held still and the "
+                       "flow round them solved as it turns) or that resist the flow (a filter, a screen, a radiator, a packed bed: a porous "
+                       "medium). Most cases need none.");
+    char mz[16][64]; int nmz = mesh_zones(c->s.path, mz);
+    static const char *ADD[ZN__N + 1] = { "Add a zone ...", "Rotating zone: a fan, an impeller, a mixer", "Porous zone: a filter, a screen, a radiator" };
+    int pick = 0;
+    ui_disable(s->nZ >= SIM_MAX_Z);
+    if (ui_select(ui_id("su-zone-add"), (Rectangle){ x, y + 6, fminf(420, w), 36 }, ADD, ZN__N + 1, &pick) && pick > 0) {
+        double lo[3], hi[3]; bool hb = mesh_bounds(c->s.path, lo, hi);
+        /* the mesh's own zone, when it has one no zone uses yet */
+        const char *free_z = NULL;
+        for (int k = 0; k < nmz && !free_z; k++) {
+            bool used = false;
+            for (int i = 0; i < s->nZ; i++) if (s->z[i].shape == ZS_MESH && !strcmp(s->z[i].zone, mz[k])) used = true;
+            if (!used) free_z = mz[k];
+        }
+        int i = sim_zone_add(s, pick - 1, hb ? lo : NULL, hb ? hi : NULL, free_z);
+        if (i >= 0) { sim_settle(s); save(); }
+    }
+    ui_disable(false);
+    y += 56;
+    int del = -1;
+    for (int i = 0; i < s->nZ; i++) {
+        SimZone *z = &s->z[i];
+        ui_push_id(ui_idn(ui_id("su-z"), i));
+        float cy = y + 12;
+        char t[160], sub[200];
+        if (z->kind == ZN_ROTATE) pl_fmt_ui(t, sizeof t, "Rotating zone %s  ·  %.6g rpm", z->name, z->rpm);
+        else { double d, f; sim_zone_porous(s, z, &d, &f); pl_fmt_ui(t, sizeof t, "Porous zone %s  ·  %.4g Pa at %.4g m/s", z->name, sim_zone_drop(s, z, z->U1 > 0 ? z->U1 : 1), z->U1 > 0 ? z->U1 : 1); }
+        ui_text_clip(F_SEMI, 14, t, x + 16, cy + 2, w - 80, TH.text);
+        pl_fmt_ui(sub, sizeof sub, "cellZone %s  ·  %s%s", z->shape == ZS_MESH ? z->zone : z->name, z->kind == ZN_ROTATE ? "constant/MRFProperties" : "system/fvOptions",
+                  z->shape == ZS_MESH ? "" : "  ·  marked by topoSet before the run");
+        ui_text_clip(F_MONO, 12, sub, x + 16, cy + 22, w - 80, TH.text3);
+        if (ui_button(ui_id("del"), (Rectangle){ x + w - 46, cy, 34, 34 }, ICON_X, NULL, BTN_ICON)) del = i;
+        ui_tooltip((Rectangle){ x + w - 46, cy, 34, 34 }, "Remove this zone");
+        cy += 50;
+        float ix = x + 16, iw = w - 32;
+        bool ch = false;
+        /* the name: the cellZone and the dictionary entry */
+        Rectangle cr = prop_row(ix, &cy, iw, "Name", "Letters, digits and _.", 34);
+        {
+            char b[48]; pl_strlcpy(b, z->name, sizeof b);
+            if (ui_input(ui_id("name"), (Rectangle){ cr.x, cr.y, fminf(240, cr.width), 34 }, b, sizeof b, NULL, INPUT_MONO)) {
+                bool okn = b[0] && !isdigit((unsigned char)b[0]);
+                for (char *q = b; *q; q++) if (!isalnum((unsigned char)*q) && *q != '_') okn = false;
+                for (int j = 0; j < s->nZ; j++) if (j != i && !strcmp(s->z[j].name, b)) okn = false;
+                if (okn) { pl_strlcpy(z->name, b, sizeof z->name); ch = true; }
+                else ui_toast(TOAST_ERR, "A zone's name: letters, digits and _, not starting with a digit, not another zone's");
+            }
+        }
+        /* the cells */
+        static const char *SH[ZS__N];
+        for (int k = 0; k < ZS__N; k++) SH[k] = ZONE_SHAPE_NAME[k];
+        int nsh = nmz > 0 || z->shape == ZS_MESH ? ZS__N : ZS_MESH;
+        cr = prop_row(ix, &cy, iw, "Cells", nmz ? "A shape, or a cell zone the mesh already has." : "The cells inside this shape (in the mesh's axes, m).", 34);
+        int sh = z->shape;
+        if (ui_select(ui_id("shape"), (Rectangle){ cr.x, cr.y, fminf(240, cr.width), 34 }, SH, nsh, &sh) && sh != z->shape) {
+            z->shape = sh;
+            if (sh == ZS_MESH && nmz && !z->zone[0]) pl_strlcpy(z->zone, mz[0], sizeof z->zone);
+            if (sh != ZS_CYLINDER) z->axisAuto = false;
+            if (sh == ZS_SPHERE && !(z->r > 0)) z->r = 0.1;
+            ch = true;
+        }
+        switch (z->shape) {
+        case ZS_CYLINDER:
+            ch |= row_vec(ix, &cy, iw, true, "a", "End 1", "The centre of one end.", z->a, "m");
+            ch |= row_vec(ix, &cy, iw, true, "b", "End 2", "The centre of the other.", z->b, "m");
+            ch |= row_num(ix, &cy, iw, true, "r", "Radius", NULL, &z->r, 1e-12, 1e9, "m", NULL);
+            break;
+        case ZS_BOX:
+            ch |= row_vec(ix, &cy, iw, true, "a", "Least corner", NULL, z->a, "m");
+            ch |= row_vec(ix, &cy, iw, true, "b", "Greatest corner", NULL, z->b, "m");
+            break;
+        case ZS_SPHERE:
+            ch |= row_vec(ix, &cy, iw, true, "a", "Centre", NULL, z->a, "m");
+            ch |= row_num(ix, &cy, iw, true, "r", "Radius", NULL, &z->r, 1e-12, 1e9, "m", NULL);
+            break;
+        default: {
+            cr = prop_row(ix, &cy, iw, "Cell zone", nmz ? NULL : "The mesh has no cell zones now: mesh it, or pick a shape.", 34);
+            const char *names[16]; int cur = -1;
+            for (int k = 0; k < nmz; k++) { names[k] = mz[k]; if (!strcmp(mz[k], z->zone)) cur = k; }
+            if (nmz) {
+                int pz = cur < 0 ? 0 : cur;
+                if (ui_select(ui_id("zone"), (Rectangle){ cr.x, cr.y, fminf(240, cr.width), 34 }, names, nmz, &pz) && (pz != cur || cur < 0)) {
+                    pl_strlcpy(z->zone, mz[pz], sizeof z->zone); ch = true;
+                }
+            }
+            break;
+        }
+        }
+        if (z->kind == ZN_ROTATE) {
+            char a[64]; pl_fmt_ui(a, sizeof a, "%.5g rad/s", sim_zone_omega(z));
+            ch |= row_num(ix, &cy, iw, true, "rpm", "Speed", "Revolutions per minute; negative turns the other way (right-hand rule about the axis).",
+                          &z->rpm, -1e7, 1e7, "rpm", a);
+            /* the axis: the cylinder's, or along x, y, z through a point, or typed */
+            static const char *AXN[5] = { "The cylinder's", "x", "y", "z", "Typed in" };
+            int ax = z->axisAuto && z->shape == ZS_CYLINDER ? 0 : 4;
+            if (!z->axisAuto || z->shape != ZS_CYLINDER)
+                for (int k = 0; k < 3; k++) if (fabs(z->axis[k]) == 1 && fabs(z->axis[(k + 1) % 3]) + fabs(z->axis[(k + 2) % 3]) == 0) ax = k + 1;
+            cr = prop_row(ix, &cy, iw, "Axis", "It turns about this line.", 34);
+            const char **opts = z->shape == ZS_CYLINDER ? AXN : AXN + 1;
+            int nopt = z->shape == ZS_CYLINDER ? 5 : 4, sel = z->shape == ZS_CYLINDER ? ax : ax - 1;
+            if (ui_segmented(ui_id("axis"), (Rectangle){ cr.x, cr.y, fminf(420, cr.width), 34 }, opts, nopt, &sel)) {
+                int na = z->shape == ZS_CYLINDER ? sel : sel + 1;
+                if (na != ax) {
+                    double a3[3], o3[3]; sim_zone_axis(z, a3, o3);
+                    z->axisAuto = na == 0;
+                    if (na >= 1 && na <= 3) { z->axis[0] = z->axis[1] = z->axis[2] = 0; z->axis[na - 1] = 1; }
+                    else if (na == 4) memcpy(z->axis, a3, sizeof a3);
+                    if (na != 0) memcpy(z->origin, o3, sizeof o3);
+                    ch = true;
+                }
+            }
+            if (!(z->axisAuto && z->shape == ZS_CYLINDER)) {
+                if (ax == 4) ch |= row_vec(ix, &cy, iw, true, "axv", "Axis direction", NULL, z->axis, NULL);
+                ch |= row_vec(ix, &cy, iw, true, "org", "Through", "A point on the axis.", z->origin, "m");
+            }
+            ch |= wall_checks(ix, &cy, iw, "still", "Walls kept still", "Walls inside the zone turn with it (the blades, the hub); tick any that "
+                              "stand still there, like a casing or a shaft's housing.", z->still, sizeof z->still);
+            ch |= wall_checks(ix, &cy, iw, "tq", "Torque on", "The torque of the flow on these walls about the axis, plotted on the Run page "
+                              "(times the speed: the power).", z->torque, sizeof z->torque);
+        } else {
+            cr = prop_row(ix, &cy, iw, "Flow passes", "Along one axis (across it the resistance is 1000 times, like a honeycomb or a radiator), "
+                                                      "or the same every way (a foam, a packed bed).", 34);
+            int pd = z->pdir;
+            if (ui_segmented(ui_id("pdir"), (Rectangle){ cr.x, cr.y, fminf(420, cr.width), 34 }, (const char **)PDIR_NAME, PD__N, &pd) && pd != z->pdir) { z->pdir = pd; ch = true; }
+            if (!z->coeffs) {
+                ch |= row_num(ix, &cy, iw, true, "th", "Thickness", "The depth of the medium the pressure drops were measured across.", &z->thick, 1e-9, 1e6, "m", NULL);
+                ch |= row_num(ix, &cy, iw, true, "dp1", "Pressure drop", "From a datasheet or a test.", &z->dp1, 0, 1e12, "Pa", NULL);
+                ch |= row_num(ix, &cy, iw, true, "u1", "at the speed", "The approach (superficial) speed: the flow rate over the frontal area.", &z->U1, 1e-9, 1e6, "m/s", NULL);
+                ch |= row_num(ix, &cy, iw, true, "dp2", "Second drop", "Optional: a second point gives both the viscous and the inertial "
+                              "resistance; with one, the drop is taken to grow with the speed squared.", &z->dp2, 0, 1e12, "Pa", z->dp2 > 0 ? NULL : "0: none");
+                if (z->dp2 > 0) ch |= row_num(ix, &cy, iw, true, "u2", "at the speed", NULL, &z->U2, 0, 1e6, "m/s", NULL);
+            } else {
+                ch |= row_num(ix, &cy, iw, true, "d", "Darcy d", "Viscous resistance: 1 / permeability.", &z->d, 0, 1e30, "1/m²", NULL);
+                ch |= row_num(ix, &cy, iw, true, "f", "Forchheimer f", "Inertial resistance.", &z->f, 0, 1e30, "1/m", NULL);
+                ch |= row_num(ix, &cy, iw, true, "th", "Thickness", "For the drop shown below.", &z->thick, 1e-9, 1e6, "m", NULL);
+            }
+            double d, f; const char *why = sim_zone_porous(s, z, &d, &f);
+            char line[300];
+            double U = z->U1 > 0 ? z->U1 : 1;
+            pl_fmt_ui(line, sizeof line, "d = %.4g 1/m², f = %.4g 1/m: %.4g Pa at %.4g m/s, %.4g Pa at twice that%s%s", d, f, sim_zone_drop(s, z, U), U,
+                      sim_zone_drop(s, z, 2 * U), why ? ". " : "", why ? why : "");
+            cy += note(ix, cy + 2, iw, line) + 6;
+            Rectangle mr = prop_row(ix, &cy, iw, "Type the coefficients", "Darcy-Forchheimer's d and f instead of pressure drops.", 24);
+            bool co = z->coeffs;
+            if (ui_switch(ui_id("coeffs"), mr.x, mr.y + 2, &co)) { if (co) { z->d = d; z->f = f; } z->coeffs = co; ch = true; }
+        }
+        if (ch) { sim_settle(s); save(); }
+        Rectangle card = { x, y, w, cy - y + 6 };
+        ui_rect_lines(card, 10, 1, TH.lineSoft);
+        ui_pop_id();
+        y += card.height + 12;
+    }
+    if (del >= 0) { sim_zone_remove(s, del); save(); }
+    if (!s->nZ) y += note(x, y, w, "No zones: the whole domain is plain, still-standing fluid.") + 4;
+    return y + 8 - y0;
+}
+
 /* ---------------------------------------------------------------------------- 4 Starting values */
+/* a free surface's water at the start: boxes, or all below a height (setFields fills alpha.water before the run) */
+/* the regions at the start (plan steps 8 and 9): a free surface's water, or a single fluid's own temperatures and velocities
+   (a hot block, a jet); each a box, everything below a height, or a zone's cells */
+static float regions_start(float x, float y, float w)
+{
+    float y0 = y;
+    SimSetup *s = &P.s;
+    bool vof = sim_is_vof(s), hasT = s->energy != EN_OFF || sim_is_gas(s);
+    y += 10;
+    if (vof) y += section_head(x, y, w, "Water at the start", "Air everywhere else. Boxes and heights are in the mesh's axes; the Run page's setFields step "
+                                                            "puts the water in before each fresh run.");
+    else y += section_head(x, y, w, "Regions", hasT ? "Parts of the fluid that start at their own temperature or velocity (a hot block, a jet). The Run page's "
+                                                       "setFields step sets them before each fresh run."
+                                                     : "Parts of the fluid that start at their own velocity (a jet, a moving slug). The Run page's setFields step "
+                                                       "sets them before each fresh run.");
+    static const char *const AX[3] = { "x", "y", "z" };
+    /* the zones a region can be: the Zones step's and the mesh's own cellZones */
+    char zn[SIM_MAX_Z + 16][64]; int nzn = 0;
+    for (int i = 0; i < s->nZ; i++) pl_strlcpy(zn[nzn++], s->z[i].name, 64);
+    if (A.cs) {
+        char mz[16][64]; int nm = mesh_zones(A.cs->s.path, mz);
+        for (int i = 0; i < nm && nzn < SIM_MAX_Z + 16; i++) {
+            bool dup = false;
+            for (int k = 0; k < nzn; k++) if (!strcmp(zn[k], mz[i])) dup = true;
+            if (!dup) pl_strlcpy(zn[nzn++], mz[i], 64);
+        }
+    }
+    int up = sim_up_axis(s), del = -1;
+    for (int i = 0; i < s->nFill; i++) {
+        SimFill *f = &s->fill[i];
+        ui_push_id(ui_idn(ui_id("su-w"), i));
+        float cy = y + 10;
+        char t[96]; pl_fmt_ui(t, sizeof t, vof ? "Water %d" : "Region %d", i + 1);
+        ui_text(F_SEMI, 14, t, x + 16, cy + 4, TH.text);
+        int k = f->kind;
+        const char *kw[FL__N] = { NULL, NULL, nzn ? NULL : "No zones: add one on the Zones step, or mesh with cellZones" };
+        if (ui_segmented_why(ui_id("kind"), (Rectangle){ x + 110, cy, fminf(380, w - 180), 32 }, (const char **)FILL_NAME, FL__N, &k, kw) && k != f->kind) {
+            f->kind = k;
+            if (k == FL_ZONE && !f->zone[0] && nzn) pl_strlcpy(f->zone, zn[0], sizeof f->zone);
+            save();
+        }
+        if (ui_button(ui_id("del"), (Rectangle){ x + w - 46, cy, 34, 34 }, ICON_X, NULL, BTN_ICON)) del = i;
+        ui_tooltip((Rectangle){ x + w - 46, cy, 34, 34 }, vof ? "Remove this water" : "Remove this region");
+        cy += 46;
+        float ix = x + 16, iw = w - 32;
+        if (f->kind == FL_BOX) {
+            row_vec(ix, &cy, iw, true, "a", "Least corner", NULL, f->a, "m");
+            row_vec(ix, &cy, iw, true, "b", "Greatest corner", NULL, f->b, "m");
+        } else if (f->kind == FL_BELOW) {
+            char h[64]; pl_fmt_ui(h, sizeof h, "Along %s, against gravity", AX[up]);
+            row_num(ix, &cy, iw, true, "h", vof ? "Water up to" : "Up to", h, &f->h, -1e6, 1e6, "m", NULL);
+        } else {
+            Rectangle zr = prop_row(ix, &cy, iw, "Zone", "Its cells: a zone of the Zones step (marked by the Run page's Cell zones step first) or of the mesh.", 34);
+            const char *items[SIM_MAX_Z + 16]; int sel = -1;
+            for (int z = 0; z < nzn; z++) { items[z] = zn[z]; if (!strcmp(zn[z], f->zone)) sel = z; }
+            if (nzn && ui_select(ui_id("zone"), (Rectangle){ zr.x, zr.y, fminf(260, zr.width), 34 }, items, nzn, &sel) && sel >= 0) {
+                pl_strlcpy(f->zone, zn[sel], sizeof f->zone); save();
+            }
+            if (!nzn) ui_text_clip(F_REG, 13, "No zones yet", zr.x, zr.y + 9, zr.width, TH.warn);
+        }
+        if (!vof) {
+            if (hasT) {
+                Rectangle tr = prop_row(ix, &cy, iw, "Own temperature", NULL, 34);
+                if (ui_switch(ui_id("sett"), tr.x, tr.y + 6, &f->setT)) { if (f->setT && !(f->T > 0)) f->T = s->T0 + 20; save(); }
+                if (f->setT) {
+                    char cc[48]; pl_fmt_ui(cc, sizeof cc, "%.4g °C", f->T - 273.15);
+                    if (num_in(ui_id("t"), (Rectangle){ tr.x + 56, tr.y, fminf(160, tr.width - 56), 34 }, &f->T, "%.6g", 1, 1e4, "K")) save();
+                    if (tr.width > 330) ui_text_clip(F_REG, 13, cc, tr.x + 228, tr.y + 9, tr.width - 228, TH.text3);
+                }
+            }
+            Rectangle ur = prop_row(ix, &cy, iw, "Own velocity", NULL, 34);
+            if (ui_switch(ui_id("setu"), ur.x, ur.y + 6, &f->setU)) save();
+            if (f->setU) row_vec(ix, &cy, iw, true, "u", "Velocity", NULL, f->U, "m/s");
+        }
+        Rectangle card = { x, y, w, cy - y + 4 };
+        ui_rect_lines(card, 10, 1, TH.lineSoft);
+        ui_pop_id();
+        y += card.height + 10;
+    }
+    if (del >= 0) { memmove(&s->fill[del], &s->fill[del + 1], sizeof s->fill[0] * (size_t)(s->nFill - del - 1)); s->nFill--; save(); }
+    const char *addL = vof ? "Add water" : "Add a region";
+    float bw = ui_button_width(ICON_PLUS, addL);
+    ui_disable(s->nFill >= SIM_MAX_FILL);
+    if (ui_button(ui_id("su-w-add"), (Rectangle){ x, y + 2, bw, 34 }, ICON_PLUS, addL, BTN_SECONDARY)) {
+        double lo[3], hi[3];
+        SimFill *f = &s->fill[s->nFill++];
+        memset(f, 0, sizeof *f);
+        if (A.cs && mesh_bounds(A.cs->s.path, lo, hi)) {
+            f->kind = FL_BOX;
+            for (int k = 0; k < 3; k++) { f->a[k] = lo[k]; f->b[k] = lo[k] + (hi[k] - lo[k]) / 4; }
+            for (int k = 0; k < 3; k++) if (hi[k] - lo[k] < 0.2 * (hi[up] - lo[up])) { f->a[k] = lo[k]; f->b[k] = hi[k]; }   /* a 2-D mesh's depth: all of it */
+            f->h = lo[up] + (hi[up] - lo[up]) / 3;
+        } else { f->kind = FL_BELOW; f->h = 0.1; }
+        if (!vof) { f->setT = hasT; f->T = s->T0 + 20; f->setU = !hasT; }   /* a hot block; without heat, a moving one */
+        save();
+    }
+    ui_disable(false);
+    y += 48;
+    double lo[3], hi[3];
+    if (vof && A.cs && mesh_bounds(A.cs->s.path, lo, hi)) {
+        double V = 1; for (int k = 0; k < 3; k++) V *= hi[k] - lo[k];
+        double vw = sim_fill_volume(s, lo, hi);
+        char t[200];
+        if (s->nFill) pl_fmt_ui(t, sizeof t, "About %.4g m³ of water (%.3g litres), %.0f %% of the mesh's box.", vw, vw * 1000, V > 0 ? 100 * vw / V : 0);
+        else pl_strlcpy(t, "No water at the start: it comes in through an inlet, or add some.", sizeof t);
+        y += note(x, y, w, t) + 6;
+    }
+    if (vof) row_vec(x, &y, w, true, "su-uw", "Water velocity", "The starting water's own velocity (a moving slug, a wave); the air starts with the velocity above.", s->Uw, "m/s");
+    return y - y0;
+}
+
+/* another case's results to start from (plan step 9): the workspace's OpenFOAM cases with results, or a folder typed in */
+static float map_source(Case *c, float x, float y, float w)
+{
+    float y0 = y;
+    SimSetup *s = &P.s;
+    static const char *items[64]; static char names[64][96]; static int idx[64];
+    int n = 0, sel = -1;
+    /* the cases as they are now, each time this comes into view (the Cases list may be from before the other case ran) */
+    static double lastDrawn = -10;
+    if (ui_time() - lastDrawn > 1) app_rescan_cases(true);
+    lastDrawn = ui_time();
+    for (int i = 0; i < A.nList && n < 64; i++) {
+        const CaseSummary *cs = &A.list[i];
+        if (cs->prog != 0 || cs->nTimes <= 0 || (c && !strcmp(cs->path, c->s.path))) continue;
+        pl_strlcpy(names[n], cs->name, sizeof names[n]);
+        items[n] = names[n]; idx[n] = i;
+        if (!strcmp(cs->path, s->mapFrom)) sel = n;
+        n++;
+    }
+    Rectangle cr = prop_row(x, &y, w, "Case", "One of your cases with results; its last results are interpolated onto this mesh. The boundaries keep this setup's conditions.", 34);
+    if (n) {
+        if (ui_select(ui_id("su-map-case"), (Rectangle){ cr.x, cr.y, fminf(300, cr.width), 34 }, items, n, &sel) && sel >= 0) {
+            pl_strlcpy(s->mapFrom, A.list[idx[sel]].path, sizeof s->mapFrom); save();
+        }
+    } else ui_text_clip(F_REG, 13, "None of your other cases has results yet: type a folder below", cr.x, cr.y + 9, cr.width, TH.text3);
+    cr = prop_row(x, &y, w, "Folder", NULL, 34);
+    char b[512]; pl_strlcpy(b, s->mapFrom, sizeof b);
+    if (ui_input(ui_id("su-map-dir"), (Rectangle){ cr.x, cr.y, cr.width, 34 }, b, sizeof b, "/path/to/case", INPUT_MONO)) {
+        pl_trim_inplace(b); pl_strlcpy(s->mapFrom, b, sizeof s->mapFrom); save();
+    }
+    char t[64], why[600], line[700];
+    bool ok = sim_map_source(s->mapFrom, t, sizeof t, why, sizeof why);
+    if (ok && c && !strcmp(s->mapFrom, c->s.path)) { ok = false; pl_strlcpy(why, "That is this case: choose another", sizeof why); }
+    if (ok) pl_fmt_ui(line, sizeof line, "Starts from %s at t = %s (the Run page's Starting values step runs mapFields before the solver).", pl_basename(s->mapFrom), t);
+    else pl_strlcpy(line, why, sizeof line);
+    float ch = callout_height(w, NULL, line);
+    callout((Rectangle){ x, y, w, ch }, ok ? TOAST_INFO : TOAST_WARN, ok ? ICON_INFO : ICON_TRIANGLE_ALERT, NULL, line);
+    y += ch + 10;
+    return y - y0;
+}
+
 static float start_step(float x, float y, float w)
 {
     float y0 = y;
     SimSetup *s = &P.s;
+    Case *c = A.cs;
     y += note(x, y, w, "What the fluid inside starts as. A steady run forgets them; a good guess only gets there sooner.");
-    row_vec(x, &y, w, true, "su-u0", "Velocity", P.external ? "The free stream, for a body in a wind tunnel." : "Usually still (0 0 0) inside a part.", s->U0, "m/s");
-    row_num(x, &y, w, true, "su-p0", "Pressure", "Gauge.", &s->p0, -1e9, 1e9, "Pa", NULL);
-    if (s->energy != EN_OFF) {
-        char c[48]; pl_fmt_ui(c, sizeof c, "%.4g °C", s->T0 - 273.15);
+    y += issues_callout(SS_START, x, y, w);
+    /* plan step 9: uniform, potential flow, or another case's results */
+    Rectangle sr = prop_row(x, &y, w, "Start from", "Uniform: the values below. Potential flow: potentialFoam works out a flow that already goes round the part. "
+                                                    "Another case: its last results, interpolated onto this mesh.", 34);
+    {
+        int sv = s->start;
+        const char *sw[SV__N]; for (int i = 0; i < SV__N; i++) sw[i] = sim_start_why_not(s, i);
+        if (ui_segmented_why(ui_id("su-start"), (Rectangle){ sr.x, sr.y, fminf(480, sr.width), 34 }, (const char **)START_NAME, SV__N, &sv, sw) && sv != s->start) {
+            s->start = sv; save();
+        }
+    }
+    bool plainPot = s->start == SV_POTENTIAL && s->energy == EN_OFF && !sim_is_gas(s);
+    if (s->start == SV_MAP) y += map_source(c, x, y, w);
+    if (s->start == SV_POTENTIAL)
+        y += note(x, y, w, plainPot ? "The Run page's Starting values step runs potentialFoam before the solver: the velocity, the pressure and the flux of an "
+                                      "inviscid flow from these boundaries. The turbulence below starts uniform."
+                                    : "The Run page's Starting values step runs potentialFoam before the solver: the velocity of an inviscid flow from these "
+                                      "boundaries. The pressure and temperature start at the values below.") + 6;
+    if (s->start == SV_UNIFORM)
+        row_vec(x, &y, w, true, "su-u0", "Velocity", P.external ? "The free stream, for a body in a wind tunnel." : "Usually still (0 0 0) inside a part.", s->U0, "m/s");
+    if (s->start != SV_MAP && !plainPot)
+        row_num(x, &y, w, true, "su-p0", "Pressure", sim_is_vof(s) ? "Gauge, without the water's weight (p_rgh: the hydrostatic part is added by itself)." : "Gauge.",
+                &s->p0, -1e9, 1e9, "Pa", NULL);
+    if (s->energy != EN_OFF && s->start != SV_MAP) {
+        char cc[48]; pl_fmt_ui(cc, sizeof cc, "%.4g °C", s->T0 - 273.15);
         double was = s->T0;
-        if (row_num(x, &y, w, true, "su-T0", "Temperature", "In kelvin. New boundaries start at it too.", &s->T0, 1, 1e4, "K", c)) {
+        if (row_num(x, &y, w, true, "su-T0", "Temperature", "In kelvin. New boundaries start at it too.", &s->T0, 1, 1e4, "K", cc)) {
             /* the boundaries still at the old start follow it (they were never set) */
             for (int i = 0; i < s->nB; i++) {
                 SimBoundary *b = &s->b[i];
@@ -1605,7 +2176,16 @@ static float start_step(float x, float y, float w)
             save();
         }
     }
-    if (s->turb == TURB_LAMINAR) return y - y0;
+    /* a steady run's inlets ramped up over the first iterations: for a case that diverges early */
+    if (s->flow == FLOW_STEADY) {
+        Rectangle rr = prop_row(x, &y, w, "Ramp the inlets", "The inlet speeds and flow rates rise from a tenth to their value over the first iterations, "
+                                                          "for a run that diverges early. Free-stream openings stay as they are.", 24);
+        bool on = s->ramp >= 1;
+        if (ui_switch(ui_id("su-ramp"), rr.x, rr.y + 2, &on)) { s->ramp = on ? fmax(50, fmin(200, 0.1 * s->iterations)) : 0; save(); }
+        if (on) row_num(x, &y, w, true, "su-rampn", "Over", NULL, &s->ramp, 1, 1e7, "iterations", NULL);
+    }
+    y += regions_start(x, y, w);
+    if (s->turb == TURB_LAMINAR || s->start == SV_MAP) return y - y0;
     if (P.more[SS_START]) {
         double k, om, ep, nt;
         sim_turbulence(s, sim_ref_speed(s), s->intensity, s->length, &k, &om, &ep, &nt);
@@ -1620,6 +2200,50 @@ static float start_step(float x, float y, float w)
 }
 
 /* ---------------------------------------------------------------------------- 6 Solver */
+/* the numerics preset (plan step 9): schemes, linear solvers and relaxation together. Hand edits to system/fvSchemes or
+   fvSolution since the setup wrote them make it Custom: they are kept, and Back to the preset drops them */
+static const char *const NUM_HINT[NUM__N] = {
+    "First-order upwind and firmly relaxed SIMPLE: gets a hard case going (a coarse mesh, a high speed, a run that diverged). Less "
+    "accurate: once it runs, Balanced from its results (Starting values, Another case) sharpens it.",
+    "Second order for the velocity, first order for the turbulence, SIMPLEC: the usual choice.",
+    "Second order everywhere and little limiting: for a good mesh. Can diverge on a poor one." };
+
+static float numerics_rows(float x, float y, float w)
+{
+    float y0 = y;
+    SimSetup *s = &P.s;
+    Case *c = A.cs;
+    bool edited = c && sim_numerics_edited(c->s.path);
+    Rectangle nr = prop_row(x, &y, w, "Numerics", NUM_HINT[s->numerics], 34);
+    int nm = s->numerics;
+    if (ui_segmented(ui_id("su-num"), (Rectangle){ nr.x, nr.y, fminf(360, nr.width), 34 }, (const char **)NUM_NAME, NUM__N, &nm) && nm != s->numerics) {
+        s->numerics = nm; save();
+    }
+    if (edited) {
+        char t[300]; pl_fmt_ui(t, sizeof t, "Custom: system/fvSchemes or fvSolution has hand edits since the setup wrote them. Writing the case files keeps them "
+                                             "(where %s sets the same setting, %s's value goes in). Back to %s drops them.", NUM_NAME[s->numerics], NUM_NAME[s->numerics], NUM_NAME[s->numerics]);
+        char back[48]; pl_fmt_ui(back, sizeof back, "Back to %s", NUM_NAME[s->numerics]);
+        float b1 = ui_button_width(ICON_ROTATE_CCW, back), b2 = ui_button_width(ICON_ARROW_RIGHT, "Numerics page");
+        float bw = fmaxf(b1, b2);
+        bool side = w - bw - 16 >= 360;
+        float cw = side ? w - bw - 16 : w;
+        float ch = fmaxf(callout_height(cw, "Custom numerics", t), side ? 2 * 36 + 8 : 0);
+        callout((Rectangle){ x, y, cw, ch }, TOAST_INFO, ICON_PENCIL, "Custom numerics", t);
+        float bx = side ? x + w - bw : x, by = side ? y : y + ch + 8;
+        ui_disable(A.cj->active);
+        if (ui_button(ui_id("su-num-back"), (Rectangle){ bx, by, bw, 36 }, ICON_ROTATE_CCW, back, BTN_SECONDARY)) {
+            sim_numerics_reset(c->s.path);
+            case_drop_file(c, "system/fvSchemes"); case_drop_file(c, "system/fvSolution");
+            if (write_files(c, false)) ui_toast(TOAST_OK, "fvSchemes and fvSolution are %s's again", NUM_NAME[s->numerics]);
+        }
+        ui_disable(false);
+        if (ui_button(ui_id("su-num-open"), side ? (Rectangle){ bx, by + 44, bw, 36 } : (Rectangle){ bx + bw + 8, by, bw, 36 }, ICON_ARROW_RIGHT, "Numerics page", BTN_GHOST))
+            app_go(PG_NUMERICS);
+        y += side ? ch + 12 : ch + 56;
+    }
+    return y - y0;
+}
+
 static float solver_step(float x, float y, float w)
 {
     float y0 = y;
@@ -1627,6 +2251,7 @@ static float solver_step(float x, float y, float w)
     y += note(x, y, w, s->flow == FLOW_STEADY ? TextFormat("%s stops at this many iterations, or sooner once the residuals are under their targets (when that is on).", sim_app(s))
                                               : TextFormat("%s steps through time%s.", sim_app(s), s->algo != ALG_PISO ? "; with an adjustable step it keeps the Courant number under the limit" : ""));
     y += issues_callout(SS_SOLVER, x, y, w);
+    y += numerics_rows(x, y, w);
     if (s->flow == FLOW_STEADY) {
         row_num(x, &y, w, true, "su-it", "Iterations", NULL, &s->iterations, 1, 1e8, NULL, NULL);
         row_num(x, &y, w, true, "su-we", "Write every", "Results are saved this often (iterations).", &s->writeEvery, 1, 1e8, NULL,
@@ -1661,6 +2286,21 @@ static float solver_step(float x, float y, float w)
     }
     row_num(x, &y, w, true, "su-wt", "Write every", "Results are saved this often.", &s->writeTime, 1e-12, 1e12, "s",
             s->writeTime > s->endTime ? "Past the end time: saved at the end" : NULL);
+    if (sim_is_vof(s)) {
+        /* the surface's own limits: interFoam keeps both Courant numbers under theirs when the step adjusts */
+        if (s->adjustDt) row_num(x, &y, w, true, "su-aco", "Max interface Courant", "The Courant number at the water's surface: 1 is safe, 0.5 for a sharper "
+                                 "surface. The step is cut to keep both under their limits.", &s->maxAlphaCo, 0.01, 10, NULL, NULL);
+        if (P.more[SS_SOLVER]) {
+            Rectangle ir = prop_row(x, &y, w, "Sharper surface (interIsoFoam)", "Geometric isoAdvector instead of MULES: a surface one cell thin, for waves "
+                                                                                 "and sloshing. Slower per step.", 24);
+            if (ui_switch(ui_id("su-iso"), ir.x, ir.y + 2, &s->iso)) save();
+            if (!s->iso) {
+                row_count(x, &y, w, true, "su-nac", "Alpha correctors", "MULES passes over the water fraction a step: 2 is usual (nAlphaCorr).", &s->nAlphaCorr, 1, 5);
+                row_num(x, &y, w, true, "su-calpha", "Interface compression", "cAlpha: 1 keeps the surface sharp, 0 lets it smear.", &s->cAlpha, 0, 4, NULL, NULL);
+            }
+            row_count(x, &y, w, true, "su-nas", "Alpha sub-cycles", "Water-fraction steps a time step (nAlphaSubCycles): 1, more for a big Courant number.", &s->nAlphaSub, 1, 10);
+        }
+    }
     int ap = sim_approach(s->turb);
     if (ap == APPR_LES || ap == APPR_DES) {
         /* plan step 5: the time averages (fieldAverage) start once the start-up has washed out */
@@ -1684,7 +2324,7 @@ static float solver_step(float x, float y, float w)
     }
     if (P.more[SS_SOLVER]) {
         row_count(x, &y, w, true, "su-ncorr", "Pressure correctors", "2 is usual; 3 for a tighter pressure-velocity coupling each step.", &s->nCorr, 1, 10);
-        char autoTs[64]; pl_fmt_ui(autoTs, sizeof autoTs, "Automatic (%s)", TS_NAME[sim_time_scheme(&(SimSetup){ .turb = s->turb, .timeScheme = TS_AUTO })]);
+        char autoTs[64]; pl_fmt_ui(autoTs, sizeof autoTs, "Automatic (%s)", TS_NAME[sim_time_scheme(&(SimSetup){ .turb = s->turb, .timeScheme = TS_AUTO, .numerics = s->numerics })]);
         const char *ts[TS__N] = { autoTs, TS_NAME[TS_EULER], TS_NAME[TS_BACKWARD], TS_NAME[TS_CN] };
         Rectangle cr = prop_row(x, &y, w, "Time scheme", "Euler: first order, robust. Backward: second order, for LES and DES. Crank-Nicolson (0.9): second order, less damping.", 34);
         int tsel = s->timeScheme;
@@ -1780,7 +2420,8 @@ float page_setup(float x, float y, float w)
     /* what will be written, whether it is, and the buttons */
     bool stale = files_stale(c);
     char t[200], d[400];
-    pl_fmt_ui(t, sizeof t, "%s · %s · %s", sim_app(&P.s), TURB_NAME[P.s.turb], sim_is_gas(&P.s) ? TextFormat("%s (ideal gas)", GAS_NAME[P.s.gas]) : FLUID_NAME[P.s.fluid]);
+    pl_fmt_ui(t, sizeof t, "%s · %s · %s", sim_app(&P.s), TURB_NAME[P.s.turb], sim_is_vof(&P.s) ? TextFormat("%s and air", LIQ_NAME[P.s.liquid])
+              : sim_is_gas(&P.s) ? TextFormat("%s (ideal gas)", GAS_NAME[P.s.gas]) : FLUID_NAME[P.s.fluid]);
     pl_fmt_ui(d, sizeof d, "%s Write case files puts the setup into 0/, constant/ and system/ (a file that wasn't written here is kept as .orig).",
               stale ? "Changed since the case files were written." : "The case files match this setup.");
     float bw1 = ui_button_width(ICON_FILE_TEXT, "Write case files"), bw2 = ui_button_width(ICON_PLAY, "Write and go to Run");
@@ -1827,6 +2468,7 @@ float page_setup(float x, float y, float w)
     case SS_MODELS:     y += models_step(c, cx, y, cwid); break;
     case SS_MATERIALS:  y += materials_step(cx, y, cwid); break;
     case SS_BOUNDARIES: y += boundaries_step(c, cx, y, cwid); break;
+    case SS_ZONES:      y += zones_step(c, cx, y, cwid); break;
     case SS_START:      y += start_step(cx, y, cwid); break;
     case SS_REPORTS:    y += reports_step(c, cx, y, cwid); break;
     case SS_SOLVER:     y += solver_step(cx, y, cwid); break;

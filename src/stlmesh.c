@@ -53,7 +53,8 @@ const MesherInfo MESHERS[MESHER__N] = {
     [MESHER_FOAMY] = { "foamy", "OpenFOAM · Conformal Voronoi: foamyHexMesh (experimental)", "foamyHexMesh", ENG_OPENFOAM,
         MF_3D | MF_2D | MF_POLY | MF_SLOW, "foamyHexMesh",
         "Experimental: OpenFOAM's conformal Voronoi mesher, polyhedra aligned to the surface. Minutes even for a small part, no "
-        "prism layers, and a few bad faces are common: for trying out, not for a first mesh.",
+        "prism layers, and a few bad faces are common: for trying out, not for a first mesh. It has one surface size, the target: the "
+        "curvature setting and the minimum size are not used, so it makes far fewer cells than the other meshers.",
         "2-D, experimental: foamyQuadMesh, the same Voronoi method in the plane, extruded one cell deep (extrude2DMesh). A minute or "
         "two for an airfoil; no layers." },
     [MESHER_SGMSH] = { "sgmsh", "SALOME · Tetrahedral: Gmsh", "SALOME Gmsh", ENG_SALOME, MF_3D | MF_LAYERS | MF_CAD, NULL,
@@ -987,10 +988,20 @@ double mesher_surface_cell(const MeshCfg *m)
 
 bool mesher_even_layers(const MeshCfg *m)
 {
-    /* on by itself (evenLayers -1), in 3-D too since 2026-11-10: on the user's intake (level 0..2 walls) the outer layer was
-       held to 0.3 of the 5 mm target cell, so the stack was 8.6 mm on the flat level-0 walls and 2.2 mm on the curved
-       level-2 ones and broke at every step; even: 9.3 of 10 layers (was 9.1), 0 illegal faces (31), +18 % cells */
-    return m->mesher == MESHER_SNAPPY && m->prism && m->layers > 0 && (m->evenLayers < 0 || m->evenLayers == 1);
+    /* automatic (evenLayers -1): see mesher_resolve_even. On the user's intake (level 0..2 walls) the outer layer was held
+       to 0.3 of the 5 mm target cell, so the stack was 8.6 mm on the flat level-0 walls and 2.2 mm on the curved level-2
+       ones and broke at every step; even: 9.3 of 10 layers (was 9.1), 0 illegal faces (31), +18 % cells */
+    return m->mesher == MESHER_SNAPPY && m->prism && m->layers > 0 && (m->evenLayers < 0 ? (m->twoD || m->evenAuto) : m->evenLayers == 1);
+}
+
+void mesher_resolve_even(MeshCfg *m, const Stl *s)
+{
+    m->evenAuto = false;
+    if (m->mesher != MESHER_SNAPPY || !m->prism || m->layers <= 0 || m->evenLayers >= 0 || m->twoD || !s) return;
+    MeshCfg off = *m, on = *m;
+    off.evenLayers = 0; on.evenLayers = 1;
+    double e0 = mesher_estimate_cells(&off, s), e1 = mesher_estimate_cells(&on, s);
+    m->evenAuto = e0 > 0 && e1 <= 1.5 * e0;
 }
 
 double mesher_layer_cell(const MeshCfg *m)
@@ -1062,6 +1073,12 @@ static void snappy_levels(const MeshCfg *m, const Stl *s, double Age[16], double
 
 double mesher_estimate_cells(const MeshCfg *m, const Stl *s)
 {
+    if (m->evenLayers < 0 && !m->twoD && m->mesher == MESHER_SNAPPY && m->prism && m->layers > 0) {   /* automatic: settle it */
+        MeshCfg mm = *m;
+        mesher_resolve_even(&mm, s);
+        mm.evenLayers = mm.evenAuto ? 1 : 0;
+        return mesher_estimate_cells(&mm, s);
+    }
     double lo[3], hi[3];
     mesher_domain(m, s, lo, hi);
     double box = (hi[0] - lo[0]) * (hi[1] - lo[1]) * (hi[2] - lo[2]);
@@ -1815,6 +1832,9 @@ void mesher_type_script(const MeshCfg *m, const Stl *s, Str *out)
 
 bool mesher_prepare(const char *casePath, const MeshCfg *m, Stl *s, char *err, int cap)
 {
+    MeshCfg resolved = *m;                                  /* automatic even layers settled for this part */
+    mesher_resolve_even(&resolved, s);
+    m = &resolved;
     if (!s->nTri) { snprintf(err, (size_t)cap, "No STL loaded"); return false; }
     if (m->base <= 0) { snprintf(err, (size_t)cap, "The base size must be above zero"); return false; }
     char p[PL_PATH], d[PL_PATH];

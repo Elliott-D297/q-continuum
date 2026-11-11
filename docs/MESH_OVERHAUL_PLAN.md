@@ -40,14 +40,16 @@ tests/run_journey.sh tests/journeys/<name>.qcs <outdir>     # one GUI journey in
 install -m755 build/q-continuum ~/.local/bin/               # the user's installed copy
 ```
 
-Journey notes: `wait N` counts frames; `click stl-step#4` opens the mesher's Generate step; `QC_SEED_CASES=<dir>`
+Journey notes: run mesher suites and journeys one after another, not in parallel (under load they hit their 600 s limits); a
+new journey needs its seed case in `SEEDS` in `tests/run_all_journeys.sh`; `assert text` sees only the start of a long
+drawn line; `wait N` counts frames; `click stl-step#4` opens the mesher's Generate step; `QC_SEED_CASES=<dir>`
 copies a case into the sandbox; a failed job never satisfies `wait-until job finished`.
 
 ## Steps
 
 | Step | Contents | Gaps (see `FEATURE_GAPS.md`) | Effort | State |
 |---|---|---|---|---|
-| 0 | Commit the existing work; fix the `build/` cache; open defects from the 2026-11-10 bug run | defects | M | **approved, in progress** |
+| 0 | Commit the existing work; fix the `build/` cache; open defects from the 2026-11-10 bug run | defects | M | **done 2026-11-11** |
 | 1 | Shared teaching pieces: glossary widget (hover or click any term), "show the working" panel (equations, steps, units, collapsed by default) | L1 | M | not approved |
 | 2 | Calculators: y+ / wall spacing with cryogens (LN2, LH2, LOX), grading / expansion ratio, cells / memory / runtime; one dimensionless-numbers panel (Re, Ma, Pr, Ra, Fr, We, Co) with flags | L2, L7, L9, L10 | M | not approved |
 | 3 | Pre-flight: 2-D is one cell thick, wedge angle under 5 degrees, warning for cases on `/mnt/c`; say on the page when a SALOME tet / poly mesh has no layers | L4, L11 | S | not approved |
@@ -88,3 +90,4 @@ copies a case into the sandbox; a failed job never satisfies `wait-until job fin
 |---|---|---|
 | 2026-11-10 | Phase 0, 1 | Audit and gap list written; plan presented and approved as above |
 | 2026-11-10 | 0 | Started |
+| 2026-11-11 | 0 | Done and installed. Existing work committed (4 commits); CMake finds the packaged OpenFOAM, so tutorial tests run from `build/`. Defects closed: checkMesh's boundary-only skewness is reported as a note (`case_mesh_verdict`, test `mesh_verdict`, journey `t_mesh_verdict`); foamyHexMesh's one surface size is stated on the page (no curvature keyword could be verified in v2606); all cfMesh meshers re-mesh with half the layers when cells invert. Two regressions from the bug-run fixes were caught by the suites and fixed: the SALOME per-region CAD route is kept for small parts (a box lost its boundary groups and layers), and "even surface cells" is automatic only where cheap (a cube went to 4.2 M cells). Verified: ctest fast 25/25, stlmesh_layers / openfoam / salome / smooth, salome_tool, salome_import; journeys t_stl_mesher, t_stl_to_run, t_stl_smooth, t_stl_2d, t_stl_cfmesh, t_stl_meshers, t_stl_salome_algos, t_mesh_quality, t_mesh_view, t_mesh_verdict, t_bc_no_remesh, t_forces_3d, t_tmpl_external. Not run: the full journey suite (154) and the full ctest set. **Next: step 1, when the user approves it.** |

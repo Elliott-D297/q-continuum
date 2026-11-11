@@ -52,8 +52,8 @@ Effort figures are estimates, not measurements.
 
 ### Open defects (from `MESH_AUDIT.md`)
 
-snappy skewness (18 faces); layer check for cartesianMesh and tetMesh; foamyHexMesh sizing; SALOME meshing on
-CAD-from-STL unverified; `build/` cache path. Each S, except the SALOME one (unknown until run).
+None left after plan step 0 (2026-11-10). Two findings turned out not to be defects and are explained in the app
+instead: the snappy skewness "failure" (boundary faces only) and foamyHexMesh's low cell count (one surface size).
 
 ## Proposed plan
 
@@ -79,11 +79,7 @@ Each step ends with its tests and a GUI check at 1440x900 and 1920x1080 at 1.5 s
 Every dictionary keyword a step writes is checked against the v2606 tutorials and `$FOAM_ETC/caseDicts/annotated`
 before it ships, and each calculator gets a hand-worked example in `docs/`.
 
-## Decisions needed before starting
+## Decisions
 
-1. **Committing.** The branch holds 82 uncommitted files from earlier sessions. The plan commits them first (grouped
-   by feature) so later commits stay small. Nothing has been committed without being asked so far.
-2. **Scope.** The whole list is several weeks of work. Steps 0 to 4 give the learner layer on today's meshers; steps 5
-   and 6 add the missing paths; 9 to 11 are expert depth. Any of these can be cut or reordered.
-3. **Step 10 of the earlier setup plan** ("physics check and finish") is still open and overlaps step 12 here: fold
-   it in, or keep it separate.
+Made on 2026-11-10 and recorded in `MESH_OVERHAUL_PLAN.md`, which is the live copy of this plan: commit the existing
+work first; start with step 0 only; fold the earlier setup plan's step 10 into step 12.

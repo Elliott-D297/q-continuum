@@ -91,12 +91,12 @@ slice plane, all in raylib and LCARS-styled. There is no preview of blockMesh bl
 | Finding | State |
 |---|---|
 | Mesh > View could not read cfMesh meshes (binary `faceList`) | Fixed, test added |
-| snappy layers collapsed on walls with mixed cell sizes | Fixed (even surface size under layers is now the default) |
-| SALOME CAD-from-STL crashed ("unclosed shape") for four meshers | Crash fixed; **meshing on the result not verified** (run stopped) |
-| cfMesh pMesh with 10 layers: 117 inside-out cells | Now retried with half the layers; cartesianMesh and tetMesh have no such check |
-| polyDualMesh crashes on the snappy mesh, inverts cells after cfMesh layers | Now restores the mesh and explains |
-| snappy final mesh has 18 faces with skewness over 4 | Open |
-| foamyHexMesh ignores the minimum size (31 k cells where others make 0.6 to 3.5 M) | Open |
-| SALOME tet / poly make no layers for internal flow from an STL | By design (NETGEN layers need CAD faces); only the log says so |
-| Build cache in `build/` points at a nonexistent OpenFOAM path | Open (tests that need tutorials run from `build-s3/`) |
-| 82 files of uncommitted work on this branch | Open |
+| snappy layers collapsed on walls with mixed cell sizes | Fixed: one surface size under the layers, on by itself where the estimate says it costs at most half again as many cells (the intake: +18 %); off on flat-sided parts, where it multiplied the cells (a cube in a tunnel: 0.5 to 4.2 million) |
+| SALOME CAD-from-STL crashed ("unclosed shape") for four meshers | Crash fixed: parts over 20 000 triangles, or whose regions do not sew, are built from one combined STL (a face per triangle); small flat-faced parts keep the per-region route, which their boundary groups and layers need. Meshing on the 110 k-face result was not run to the end; by the user's decision the page tells people to use a STEP file and no more work goes into this route |
+| cfMesh with 10 layers: 117 inside-out cells (pMesh) | Fixed: all three cfMesh meshers check their result and mesh again with half the layers |
+| polyDualMesh crashes on the snappy mesh, inverts cells after cfMesh layers | Fixed: the mesh before is put back, with the reason |
+| snappy mesh "fails" checkMesh on skewness | Explained, not a defect: all 18 faces are boundary faces of the inlet where the layers end (snappy allows 20 there, checkMesh 4). The app now reports it as a note (`case_mesh_verdict`) |
+| foamyHexMesh makes 31 k cells where others make 0.6 to 3.5 M | A limit of the mesher as shipped: every v2606 tutorial uses one uniform surface size, and no curvature sizing keyword could be verified. The page now says so |
+| SALOME tet / poly make no layers for internal flow from an STL | By design (NETGEN layers need CAD faces; verified in SALOME 9.16: the hypothesis is accepted and makes 0 prisms). Only the log says so: plan step 3 |
+| Tests needing tutorials failed from `build/` | Fixed: CMake finds the packaged OpenFOAM |
+| 82 files of uncommitted work | Committed 2026-11-10 |

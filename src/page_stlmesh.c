@@ -2271,12 +2271,14 @@ static float prism_section(float x, float y, float w)
     if (m->mesher == MESHER_SNAPPY) {
         /* snappy's layers collapse where the surface cells halve: a coarse STL's facet corners and the curvature refinement
            make steps all along a profile, and the layers broke at each (user's airfoil, 2026-10-26: 12 of 20 layers) */
-        bool even = mesher_even_layers(m), was = even;
+        mesher_resolve_even(m, &T.stl);
+        bool even = mesher_even_layers(m), was = even, autoEven = m->twoD || m->evenAuto;
         Rectangle er = prop_row(x, &y, w, "Even surface cells under the layers",
                                 "The walls with layers all at the minimum surface size, so the layers don't break where the size steps. "
-                                "More cells (a fifth more on a part with much curvature, more on a flat one); on by itself.", 24);
+                                "More cells: a fifth more on a curved part, many times more on a flat-sided one. On by itself in 2-D and where it "
+                                "costs at most half again as many cells.", 24);
         ui_switch(ui_id("stl-even"), er.x, er.y + 2, &even);
-        if (even != was) { m->evenLayers = even ? -1 : 0; save_cfg(); }
+        if (even != was) { m->evenLayers = even == autoEven ? -1 : even; save_cfg(); }
     }
     double T0 = m->base * m->prismPct / 100, h = mesher_layer_cell(m), Tm = mesher_layer_rel(m, NULL) * h;
     char a[96], l[32], t0[32]; fmt_len(t0, sizeof t0, T0); snprintf(a, sizeof a, "= %s", t0);

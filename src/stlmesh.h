@@ -119,7 +119,8 @@ typedef struct {
     double prismPct;        /* prism layer total thickness, % of base   */
     double stretch;         /* prism layer stretching                    */
     int    evenLayers;      /* snappy: the layered walls' surface cells all one size (the minimum), so the layers don't
-                               break where the size steps: -1 automatic (yes), 0 no, 1 yes */
+                               break where the size steps: -1 automatic (evenAuto), 0 no, 1 yes */
+    bool   evenAuto;        /* not saved: what automatic comes to for this part (mesher_resolve_even) */
     double maxNonOrtho, maxSkew;
     int    nZones;
     MeshZone zone[STL_MAX_ZONES];
@@ -192,6 +193,10 @@ void mesher_near_box(const MeshCfg *m, const Stl *s, double lo[3], double hi[3])
 #define LAYER_OUTER_MAX 1.0
 double mesher_layer_rel(const MeshCfg *m, double *outer);
 double mesher_surface_cell(const MeshCfg *m);      /* a surface cell at the target size, m (snappyHexMesh: base / 2^level) */
+/* automatic even layers for this part: yes in 2-D; in 3-D when the estimate says it costs at most half again as many cells
+   (a curved part, already fine nearly everywhere: the user's intake, +18 %); no on a flat-sided one (a cube in a tunnel
+   went from about 0.5 to 4.2 million cells, 2026-11-11). The estimate and mesher_prepare call it themselves. */
+void   mesher_resolve_even(MeshCfg *m, const Stl *s);
 bool   mesher_even_layers(const MeshCfg *m);       /* snappy with layers: the layered walls one surface size (MeshCfg.evenLayers) */
 double mesher_layer_cell(const MeshCfg *m);        /* the surface cell the layers sit on: the minimum size when even, else the target */
 

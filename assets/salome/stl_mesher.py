@@ -572,9 +572,36 @@ def cad_from_stl():
     if brep:
         solid, by_name = cad_parts(brep)
         return cad_domain(solid, by_name)
-    # one STL of every region's triangles, imported at once so that neighbouring regions share their edges: sewing the
-    # regions imported one by one left an edge open on the user's intake (110 k triangles), and so did merging coplanar
-    # triangles (UnionFaces) of the closed shell, which no sewing or ShapeFix closed again (2026-11-10)
+    # each region imported, its coplanar triangles merged into faces, the regions sewn: right for CAD-made STL with flat
+    # faces (a box: 6 faces, each a boundary), where the faces must stay per region for the groups and the prism layers
+    shells, by_name = [], {}
+    ntri = 0
+    for name, _ in BOUNDARIES:
+        with open(region_file(name), "rb") as f:
+            ntri += struct.unpack("<I", f.read(84)[80:84])[0]
+    try:
+        if ntri > 20000:                                     # a fine, curved STL: this route took 12 minutes to fail on 110 k
+            raise ValueError("%d triangles" % ntri)
+        for name, _ in BOUNDARIES:
+            s = geompy.ImportSTL(region_file(name))
+            try:
+                s = geompy.UnionFaces(s)                     # coplanar triangles into one face
+            except Exception:
+                pass
+            by_name[name] = s
+            shells.append(s)
+        sewn = geompy.MakeSewing(shells, 1e-6 * L) if len(shells) > 1 else None   # one shell: nothing to sew (it returns None)
+        if sewn is None:
+            sewn = shells[0] if len(shells) == 1 else geompy.MakeCompound(shells)
+        solid = geompy.MakeSolid([geompy.MakeShell(geompy.SubShapeAll(sewn, geompy.ShapeType["FACE"]))])
+        say("CAD: a solid of %d faces, %g m3" % (geompy.NumberOfFaces(solid), geompy.BasicProperties(solid)[2]))
+        return cad_domain(solid, by_name)
+    except Exception as e:
+        say("%s: building the solid from all the triangles at once" %
+            ("a fine STL (%s)" % e if ntri > 20000 else "the regions did not sew into a closed solid (%s)" % e))
+    # that left an edge open on the user's intake (110 k triangles, curved), and so did merging coplanar triangles of the
+    # closed shell, which no sewing or ShapeFix closed again (2026-11-10). One STL of every region's triangles, imported
+    # at once, shares the edges between regions and closes without sewing: a face per triangle (slow to mesh)
     tris, by_name = [], {}
     for name, _ in BOUNDARIES:
         with open(region_file(name), "rb") as f:
@@ -592,19 +619,9 @@ def cad_from_stl():
         raise SystemExit("Q-Continuum: the STL's surface is not closed (%d open loops of edges): SALOME cannot make a solid of it. "
                          "Prepare the geometry (Geometry step) or use snappyHexMesh or cfMesh, which take it as it is" %
                          (len(free[1]) + len(free[2])))
-    vol = geompy.BasicProperties(solid)[2]
-    try:                                                     # coplanar triangles into one face, when that stays closed
-        merged = geompy.UnionFaces(solid)
-        mvol = geompy.BasicProperties(geompy.MakeSolid([geompy.MakeShell(geompy.SubShapeAll(merged, geompy.ShapeType["FACE"]))]))[2]
-        if vol > 0 and abs(mvol - vol) < 1e-6 * vol:
-            solid = merged
-        else:
-            raise ValueError("volume %g, was %g" % (mvol, vol))
-    except Exception as e:
-        say("the coplanar triangles stay separate faces (merging them opened the surface: %s)" % e)
     for name, _ in BOUNDARIES:
         by_name[name] = geompy.ImportSTL(region_file(name))
-    say("CAD: a solid of %d faces, %g m3" % (geompy.NumberOfFaces(solid), vol))
+    say("CAD: a solid of %d faces (one per triangle), %g m3" % (geompy.NumberOfFaces(solid), geompy.BasicProperties(solid)[2]))
     return cad_domain(solid, by_name)
 
 

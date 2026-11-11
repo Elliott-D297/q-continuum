@@ -705,7 +705,7 @@ static void wf_status(Case *c, WfStep st[WF__N])
     else {
         st[WF_MESH].state = WF_DONE;
         int lc = logset_find(&A.logs, "log.checkMesh");
-        bool failed = lc >= 0 && A.logs.logs[lc].meshFailed;
+        bool failed = lc >= 0 && A.logs.logs[lc].meshFailed && !app_mesh_verdict(c)->boundarySkewOnly;
         char n[32];
         if (c->s.nCells >= 1000000) snprintf(n, sizeof n, "%.2f million", c->s.nCells / 1e6);
         else snprintf(n, sizeof n, "%ld", c->s.nCells);

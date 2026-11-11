@@ -201,7 +201,11 @@ int  logo_export(const char *dir);                           /* --export-logos: 
 void page_cpl_case(Rectangle r, int which);                  /* page_coupling.c: a coupled run's pages (0 overview, 1 setup, 2 participants, 3 run) */                                /* page_away.c: AWAY MISSION, a case packed for aerofly (5.1) */
 int  run_steps_script(Case *c, int np, Str *out);             /* page_run.c: the run as a Slurm job's shell steps */                               /* page_cases.c: the impinging-plume starter (4.4) */                       /* page_run.c: its solver's parallel probe has answered */
 bool app_deme_running(void);
-void app_generate_mesh(void);                  /* page_case.c: blockMesh (and the region steps) as a job */
+void app_generate_mesh(void);
+/* log.checkMesh read for what its failed checks amount to (foamcase.h), re-read when the log changes */
+const MeshVerdict *app_mesh_verdict(const Case *c);
+/* the words for a mesh whose only failed check is boundary skewness snappyHexMesh allows; buf empty when it is not that */
+void app_mesh_verdict_text(const MeshVerdict *v, char *buf, size_t cap);                  /* page_case.c: blockMesh (and the region steps) as a job */
 void app_start_tool(const char *title, const char *id, const char *label, const char *cmd, const char *log);
 
 /* app_widgets.c -- page furniture and dictionary-bound controls */

@@ -161,7 +161,7 @@ function(qc_unit name)
   target_link_libraries(${name} PRIVATE qc_core m)
   qc_target(${name})
 endfunction()
-foreach(t test_foamdict test_logparse test_xml test_coupling test_sync test_tutorials test_oracle test_props test_dictsem test_units test_explain test_sweep test_deme test_program test_params test_textdiff test_plume test_cplbuild test_monitor test_simsetup test_stlmesh test_qjson test_xsection)
+foreach(t test_foamdict test_logparse test_xml test_coupling test_sync test_tutorials test_oracle test_props test_dictsem test_units test_explain test_sweep test_deme test_program test_params test_textdiff test_plume test_cplbuild test_monitor test_simsetup test_stlmesh test_qjson test_xsection test_meshverdict)
   qc_unit(${t})
 endforeach()
 target_compile_definitions(test_units PRIVATE QC_LOG_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/logs")
@@ -251,6 +251,8 @@ add_custom_target(check-full COMMAND ${CMAKE_CTEST_COMMAND} --output-on-failure 
 add_test(NAME qjson COMMAND test_qjson)
 # cfMesh writes binary faceList (raw labels inside each N(...)); Mesh > View read only ASCII faceList / faceCompactList
 add_test(NAME xsection_layouts COMMAND test_xsection ${QC_SCRATCH})
+# checkMesh fails a mesh for boundary faces snappyHexMesh allows (layers ending on an inlet): told apart from a real failure
+add_test(NAME mesh_verdict COMMAND test_meshverdict ${QC_SCRATCH})
 set_tests_properties(qjson PROPERTIES LABELS fast)
 add_test(NAME stlmesh_smooth COMMAND test_stlmesh smooth ${CMAKE_CURRENT_SOURCE_DIR}/tests/tools/NACA_Airfoil.STL ${QC_SCRATCH}/naca_smooth.stl)
 set_tests_properties(stlmesh_smooth PROPERTIES LABELS fast)

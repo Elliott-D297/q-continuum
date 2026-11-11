@@ -242,8 +242,11 @@ float page_meshquality(Case *c, float x, float y, float w)
         if (CM.nFail) {
             Str d; str_init(&d);
             for (int i = 0; i < CM.nFail; i++) str_catf(&d, "%s%s", i ? "\n" : "", CM.fail[i]);
+            char soft[420]; app_mesh_verdict_text(CM.ok ? NULL : app_mesh_verdict(c), soft, sizeof soft);
+            if (soft[0]) str_catf(&d, "\n%s", soft);
             float ch = callout_height(w, "What checkMesh flags", d.s);
-            callout((Rectangle){ x, y, w, ch }, CM.ok ? TOAST_INFO : TOAST_WARN, ICON_TRIANGLE_ALERT, "What checkMesh flags", d.s);
+            callout((Rectangle){ x, y, w, ch }, CM.ok || soft[0] ? TOAST_INFO : TOAST_WARN, soft[0] ? ICON_INFO : ICON_TRIANGLE_ALERT,
+                    "What checkMesh flags", d.s);
             y += ch + 14;
             str_free(&d);
         } else if (CM.ok) {

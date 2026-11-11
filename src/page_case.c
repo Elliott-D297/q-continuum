@@ -26,6 +26,25 @@ static const char *mesh_tool(void)
     return NULL;
 }
 
+const MeshVerdict *app_mesh_verdict(const Case *c)
+{
+    static struct { char path[PL_PATH]; time_t mt; MeshVerdict v; } K;
+    char p[PL_PATH]; pl_join(p, sizeof p, c->s.path, "log.checkMesh");
+    time_t mt = pl_mtime(p);
+    if (strcmp(K.path, p) || mt != K.mt) { pl_strlcpy(K.path, p, sizeof K.path); K.mt = mt; case_mesh_verdict(c->s.path, &K.v); }
+    return &K.v;
+}
+
+void app_mesh_verdict_text(const MeshVerdict *v, char *buf, size_t cap)
+{
+    buf[0] = 0;
+    if (!v || !v->boundarySkewOnly) return;
+    pl_fmt_ui(buf, cap, "The one check that failed is skewness on %ld boundary face%s%s%s (largest %.3g; checkMesh's limit is 4). "
+              "A skew face is one whose centre sits off the line between the cells it joins. These are faces of the boundary "
+              "itself, where the prism layers run out onto it: snappyHexMesh allows up to 20 there, and no cell inside the flow is "
+              "affected. The mesh is fine to run.", v->nSkew, v->nSkew == 1 ? "" : "s", v->skewPatch[0] ? " of " : "", v->skewPatch, v->maxSkew);
+}
+
 void app_generate_mesh(void)
 {
     char p[PL_PATH];
@@ -558,8 +577,11 @@ void page_mesh(Rectangle r)
         const char *t = m->meshOk ? "checkMesh: Mesh OK" : "checkMesh reported failed checks";
         const char *d = m->meshOk ? "All quality checks passed the last time the mesh was checked." :
                                     "Open log.checkMesh on the Run page for details. Skewness and non-orthogonality are the usual culprits.";
+        char soft[420]; app_mesh_verdict_text(m->meshOk ? NULL : app_mesh_verdict(c), soft, sizeof soft);
+        if (soft[0]) { t = "checkMesh: usable, with a note"; d = soft; }
         float ch = callout_height(w, t, d);
-        callout((Rectangle){ x, y, w, ch }, m->meshOk ? TOAST_OK : TOAST_WARN, m->meshOk ? ICON_CIRCLE_CHECK : ICON_TRIANGLE_ALERT, t, d);
+        callout((Rectangle){ x, y, w, ch }, m->meshOk ? TOAST_OK : soft[0] ? TOAST_INFO : TOAST_WARN,
+                m->meshOk ? ICON_CIRCLE_CHECK : soft[0] ? ICON_INFO : ICON_TRIANGLE_ALERT, t, d);
         y += ch + 20;
     }
 

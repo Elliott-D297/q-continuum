@@ -176,34 +176,70 @@ static bool read_faces(const char *path, long **off, long **idx, long *nFaces)
                 }
             }
         }
-    } else {                                                    /* faceList: N ( 4(a b c d) ... ) */
+    } else {                       /* faceList: N ( 4(a b c d) ... ); binary (cfMesh) has raw labels inside each ( ) */
         long n = fl_begin(&f);
         if (n > 0) {
             *off = malloc(sizeof(long) * (size_t)(n + 1));
             long cap = n * 4 + 16, used = 0;
             *idx = malloc(sizeof(long) * (size_t)cap);
-            char *p = f.t + f.pos, *e;
-            ok = true;
+            ok = *off && *idx;
             for (long i = 0; i < n && ok; i++) {
-                long k = strtol(p, &e, 10);
-                if (e == p) { ok = false; break; }
-                p = strchr(e, '(');
-                if (!p) { ok = false; break; }
-                p++;
+                skip_space(&f);
+                char *e;
+                long k = strtol(f.t + f.pos, &e, 10);
+                if (e == f.t + f.pos || k < 0) { ok = false; break; }
+                f.pos = (size_t)(e - f.t);
+                skip_space(&f);
+                if (f.pos >= f.len || f.t[f.pos] != '(') { ok = false; break; }
+                f.pos++;
                 (*off)[i] = used;
-                if (used + k > cap) { cap = (used + k) * 2; *idx = realloc(*idx, sizeof(long) * (size_t)cap); }
-                for (long j = 0; j < k; j++) { (*idx)[used++] = strtol(p, &e, 10); p = e; }
-                p = strchr(p, ')');
-                if (!p) { ok = false; break; }
-                p++;
+                if (used + k > cap) {
+                    cap = (used + k) * 2;
+                    long *grown = realloc(*idx, sizeof(long) * (size_t)cap);
+                    if (!grown) { ok = false; break; }
+                    *idx = grown;
+                }
+                if (f.binary) {
+                    size_t need = (size_t)k * (size_t)f.labelBytes;
+                    if (f.pos + need > f.len) { ok = false; break; }
+                    for (long j = 0; j < k; j++) {
+                        const char *q = f.t + f.pos + (size_t)j * (size_t)f.labelBytes;
+                        if (f.labelBytes == 8) { int64_t v; memcpy(&v, q, 8); (*idx)[used++] = (long)v; }
+                        else { int32_t v; memcpy(&v, q, 4); (*idx)[used++] = v; }
+                    }
+                    f.pos += need;
+                } else {
+                    for (long j = 0; j < k; j++) {
+                        long v = strtol(f.t + f.pos, &e, 10);
+                        if (e == f.t + f.pos) { ok = false; break; }
+                        (*idx)[used++] = v;
+                        f.pos = (size_t)(e - f.t);
+                    }
+                    if (!ok) break;
+                    skip_space(&f);
+                }
+                if (f.pos >= f.len || f.t[f.pos] != ')') { ok = false; break; }
+                f.pos++;
             }
-            (*off)[n] = used;
+            if (ok) (*off)[n] = used;
             *nFaces = n;
         }
     }
     fl_close(&f);
     if (!ok) { free(*off); free(*idx); *off = *idx = NULL; }
     return ok;
+}
+
+/* why a polyMesh would not read: compressed files are named, otherwise the files that failed */
+static void unread_reason(char *err, size_t cap, const char *dir, bool pts, bool faces, bool owner)
+{
+    static const char *names[] = { "points", "faces", "owner", "neighbour" };
+    for (int i = 0; i < 4; i++) {
+        char gz[PL_PATH], n[32]; snprintf(n, sizeof n, "%s.gz", names[i]); pl_join(gz, sizeof gz, dir, n);
+        if (pl_is_file(gz)) { snprintf(err, cap, "The mesh is compressed (.gz): Q-Continuum reads uncompressed polyMesh files."); return; }
+    }
+    snprintf(err, cap, "Could not read the mesh files (%s): the format is not one this view understands.",
+             !pts ? "points" : !faces ? "faces" : !owner ? "owner" : "neighbour");
 }
 
 static long *read_label_list(const char *path, long *n)
@@ -295,7 +331,7 @@ bool xs_load(XSection *x, const char *casePath)
     pl_join(p, sizeof p, d, "owner");
     long *own = fok ? read_label_list(p, &no) : NULL;
     if (!pt || !fok || !own) {
-        snprintf(x->err, sizeof x->err, "Could not read the mesh (compressed .gz files are not read here).");
+        unread_reason(x->err, sizeof x->err, d, pt, fok, own);
         free(pt); free(off); free(idx); free(own);
         return false;
     }
@@ -458,7 +494,7 @@ bool ms_load(MeshSurf *m, const char *dir, long maxEdges)
     pl_join(p, sizeof p, dir, "owner");
     long *own = fok ? read_label_list(p, &no) : NULL;
     if (!pt || !fok || !own) {
-        snprintf(m->err, sizeof m->err, "Could not read the mesh files (compressed .gz files are not read here).");
+        unread_reason(m->err, sizeof m->err, dir, pt, fok, own);
         free(pt); free(off); free(idx); free(own);
         return false;
     }
@@ -550,7 +586,7 @@ static bool slice_mesh(const char *dir, char *err, int cap)
     pl_join(p, sizeof p, dir, "owner"); SM.own = fok ? read_label_list(p, &SM.nOwn) : NULL;
     pl_join(p, sizeof p, dir, "neighbour"); SM.nei = SM.own ? read_label_list(p, &SM.nNei) : NULL;
     if (!SM.pt || !fok || !SM.own || (!SM.nei && SM.nNei != 0)) {
-        snprintf(err, (size_t)cap, "Could not read the mesh files (compressed .gz files are not read here).");
+        unread_reason(err, (size_t)cap, dir, SM.pt, fok, SM.own);
         sm_free();
         return false;
     }

@@ -66,6 +66,9 @@ set(QC_FONTS
   ${CMAKE_CURRENT_SOURCE_DIR}/packaging/q-continuum.png
   ${CMAKE_CURRENT_SOURCE_DIR}/assets/salome/mesh_template.py
   ${CMAKE_CURRENT_SOURCE_DIR}/assets/salome/stl_mesher.py
+  ${CMAKE_CURRENT_SOURCE_DIR}/assets/salome/cad_to_stl.py
+  ${CMAKE_CURRENT_SOURCE_DIR}/assets/salome/mesh_import.py
+  ${CMAKE_CURRENT_SOURCE_DIR}/assets/salome/salome_tool.py
   ${CMAKE_CURRENT_SOURCE_DIR}/assets/paraview/movie_template.py
   ${CMAKE_CURRENT_SOURCE_DIR}/assets/deme/settle_template.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/assets/deme/CMakeLists_template.txt
@@ -98,14 +101,14 @@ configure_file(${QC_ASSETS_C}.tmp ${QC_ASSETS_C} COPYONLY)
 
 # ---------------------------------------------------------------- core (no graphics) + app
 add_library(qc_core STATIC
-  src/pl_util.c src/foamdict.c src/foamcase.c src/runner.c src/env.c src/xmlspan.c src/coupling.c src/safety.c src/precheck.c src/monitor.c src/xsection.c src/explain.c src/physics.c src/fieldinfo.c src/redalert.c src/sweep.c src/demeparams.c src/program.c src/params.c src/textdiff.c src/runlog.c src/plume.c src/cplbuild.c src/stlmesh.c src/simsetup.c src/simmodels.c
+  src/pl_util.c src/foamdict.c src/foamcase.c src/runner.c src/env.c src/xmlspan.c src/coupling.c src/safety.c src/precheck.c src/monitor.c src/xsection.c src/explain.c src/physics.c src/fieldinfo.c src/redalert.c src/sweep.c src/demeparams.c src/program.c src/params.c src/textdiff.c src/runlog.c src/plume.c src/cplbuild.c src/stlmesh.c src/simsetup.c src/simmodels.c src/qjson.c
   ${QC_ASSETS_C})   # the embedded fonts and starters (program.c writes the Chrono starter)
 target_include_directories(qc_core PUBLIC src)
 target_link_libraries(qc_core PUBLIC m)
 
 add_executable(q-continuum
   src/app.c src/app_widgets.c src/suggest.c src/ui.c src/input.c src/script.c
-  src/page_cases.c src/page_case.c src/page_bc.c src/page_dicts.c src/page_run.c src/logview.c src/undo.c src/actions.c src/palette.c src/page_settings.c src/page_env.c src/texteditor.c src/page_coupling.c src/page_salome.c src/page_history.c src/page_queue.c src/page_studies.c src/page_deme.c src/page_prog.c src/page_review.c src/page_away.c src/flavour.c src/logo.c src/terms.c src/page_movie.c src/page_xsection.c src/page_meshview.c src/orbit.c src/tour.c src/sound.c src/page_stlmesh.c src/page_setup.c)
+  src/page_cases.c src/page_case.c src/page_bc.c src/page_dicts.c src/page_run.c src/logview.c src/undo.c src/actions.c src/palette.c src/page_settings.c src/page_env.c src/texteditor.c src/page_coupling.c src/page_salome.c src/page_history.c src/page_queue.c src/page_studies.c src/page_deme.c src/page_prog.c src/page_review.c src/page_away.c src/flavour.c src/logo.c src/terms.c src/page_movie.c src/page_xsection.c src/page_meshview.c src/orbit.c src/tour.c src/sound.c src/page_stlmesh.c src/page_setup.c src/salometool.c src/page_meshquality.c)
 target_link_libraries(q-continuum PRIVATE qc_core raylib)
 target_compile_definitions(q-continuum PRIVATE QC_VERSION="${PROJECT_VERSION}")
 
@@ -150,7 +153,7 @@ function(qc_unit name)
   target_link_libraries(${name} PRIVATE qc_core m)
   qc_target(${name})
 endfunction()
-foreach(t test_foamdict test_logparse test_xml test_coupling test_sync test_tutorials test_oracle test_props test_dictsem test_units test_explain test_sweep test_deme test_program test_params test_textdiff test_plume test_cplbuild test_monitor test_simsetup test_stlmesh)
+foreach(t test_foamdict test_logparse test_xml test_coupling test_sync test_tutorials test_oracle test_props test_dictsem test_units test_explain test_sweep test_deme test_program test_params test_textdiff test_plume test_cplbuild test_monitor test_simsetup test_stlmesh test_qjson test_xsection)
   qc_unit(${t})
 endforeach()
 target_compile_definitions(test_units PRIVATE QC_LOG_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/logs")
@@ -237,6 +240,10 @@ add_custom_target(check COMMAND ${CMAKE_CTEST_COMMAND} -L fast --output-on-failu
 add_custom_target(check-full COMMAND ${CMAKE_CTEST_COMMAND} --output-on-failure WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
                   DEPENDS q-continuum test_foamdict test_logparse test_xml test_sync test_tutorials)
 # the STL mesher's prism layers with snappyHexMesh: 3-D outside and inside, and 2-D (user report 2026-10-26)
+add_test(NAME qjson COMMAND test_qjson)
+# cfMesh writes binary faceList (raw labels inside each N(...)); Mesh > View read only ASCII faceList / faceCompactList
+add_test(NAME xsection_layouts COMMAND test_xsection ${QC_SCRATCH})
+set_tests_properties(qjson PROPERTIES LABELS fast)
 add_test(NAME stlmesh_smooth COMMAND test_stlmesh smooth ${CMAKE_CURRENT_SOURCE_DIR}/tests/tools/NACA_Airfoil.STL ${QC_SCRATCH}/naca_smooth.stl)
 set_tests_properties(stlmesh_smooth PROPERTIES LABELS fast)
 add_test(NAME simsetup_solvers COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tests/simsetup_solvers.sh $<TARGET_FILE:test_simsetup> ${QC_BASHRC} ${QC_SCRATCH})
@@ -258,7 +265,19 @@ set_tests_properties(simsetup_transition PROPERTIES LABELS full TIMEOUT 2400)
 # step 6 (reports): pitzDaily's flow rates, outlet pressure and pressure drop against hand calculations from its fields
 add_test(NAME simsetup_reports COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tests/simsetup_reports.sh $<TARGET_FILE:test_simsetup> ${QC_BASHRC} ${QC_SCRATCH})
 set_tests_properties(simsetup_reports PROPERTIES LABELS full TIMEOUT 1800)
+add_test(NAME simsetup_zones COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tests/simsetup_zones.sh $<TARGET_FILE:test_simsetup> ${QC_BASHRC} ${QC_SCRATCH})
+set_tests_properties(simsetup_zones PROPERTIES LABELS full TIMEOUT 1800)
+add_test(NAME simsetup_vof COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tests/simsetup_vof.sh $<TARGET_FILE:test_simsetup> ${QC_BASHRC} ${QC_SCRATCH})
+set_tests_properties(simsetup_vof PROPERTIES LABELS full TIMEOUT 2400)
+add_test(NAME simsetup_start COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tests/simsetup_start.sh $<TARGET_FILE:test_simsetup> ${QC_BASHRC} ${QC_SCRATCH})
+set_tests_properties(simsetup_start PROPERTIES LABELS full TIMEOUT 2400)
 add_test(NAME stlmesh_layers COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tests/stlmesh_layers.sh $<TARGET_FILE:test_stlmesh> ${QC_BASHRC} ${QC_SCRATCH} ${CMAKE_CURRENT_SOURCE_DIR}/tests/tools/NACA_Airfoil.STL)
 # the STL mesher's SALOME route: NETGEN on the STL's triangles and on CAD, Body Fitting, polyhedra (skipped without SALOME)
 add_test(NAME stlmesh_salome COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tests/stlmesh_salome.sh $<TARGET_FILE:test_stlmesh> ${QC_BASHRC} ${QC_SCRATCH} ${CMAKE_CURRENT_SOURCE_DIR}/assets/salome/stl_mesher.py)
 set_tests_properties(stlmesh_salome PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 1800)
+add_test(NAME stlmesh_openfoam COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tests/stlmesh_openfoam.sh $<TARGET_FILE:test_stlmesh> ${QC_BASHRC} ${QC_SCRATCH} ${CMAKE_CURRENT_SOURCE_DIR}/tests/tools/NACA_Airfoil.STL)
+set_tests_properties(stlmesh_openfoam PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 1800 LABELS full)
+add_test(NAME salome_tool COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tests/salome_tool.sh ${QC_SCRATCH} ${CMAKE_CURRENT_SOURCE_DIR}/assets/salome/salome_tool.py)
+set_tests_properties(salome_tool PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 900)
+add_test(NAME salome_import COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tests/salome_import.sh ${QC_BASHRC} ${QC_SCRATCH} ${CMAKE_CURRENT_SOURCE_DIR}/assets/salome/mesh_import.py)
+set_tests_properties(salome_import PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 900 ENVIRONMENT "FOAM_TUTORIALS=${QC_TUTORIALS}")

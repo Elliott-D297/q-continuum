@@ -31,7 +31,7 @@ click stl-next
 wait 3
 click stl-mesher
 wait 3
-click text:Tetrahedral: SALOME NETGEN
+click text:SALOME · Tetrahedral: NETGEN
 wait 5
 assert log mesher/mesher.ini mesher = tet
 assert text SALOME cuts the profile out as CAD

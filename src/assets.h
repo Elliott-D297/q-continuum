@@ -25,6 +25,9 @@ extern const unsigned char asset_Electrolize_Regular_ttf[];   extern const unsig
 extern const unsigned char asset_q_continuum_png[];          extern const unsigned int asset_q_continuum_png_len;   /* window icon */
 extern const unsigned char asset_mesh_template_py[];        extern const unsigned int asset_mesh_template_py_len;  /* SALOME tab */
 extern const unsigned char asset_stl_mesher_py[];          extern const unsigned int asset_stl_mesher_py_len;     /* STL mesher (SALOME) */
+extern const unsigned char asset_cad_to_stl_py[];          extern const unsigned int asset_cad_to_stl_py_len;     /* CAD (STEP, IGES) to STL (SALOME) */
+extern const unsigned char asset_mesh_import_py[];          extern const unsigned int asset_mesh_import_py_len;     /* MED or a SALOME study to UNV/polyMesh */
+extern const unsigned char asset_salome_tool_py[];          extern const unsigned int asset_salome_tool_py_len;     /* the SALOME service: inspect, ops, quality, export */
 extern const unsigned char asset_movie_template_py[];       extern const unsigned int asset_movie_template_py_len; /* movies */
 extern const unsigned char asset_settle_template_cpp[];     extern const unsigned int asset_settle_template_cpp_len;   /* DEME starter */
 extern const unsigned char asset_CMakeLists_template_txt[]; extern const unsigned int asset_CMakeLists_template_txt_len;

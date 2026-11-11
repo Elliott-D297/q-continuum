@@ -34,8 +34,16 @@ mk sphere_lay sphere mesher=tet base_size=0.02 prism_layers=4 $tunnel
 naca="NACA_Airfoil two_d=1 two_d_normal=x flow_direction=+y base_size=0.05 target_size_pct=25 min_size_pct=6.25 prism_layers=5 $tunnel"
 mk naca_2d $naca mesher=tet
 mk naca_quad $naca mesher=bodyfit
+# "every mesher" step 4: Gmsh (two of its 3-D algorithms), structured hexahedra and prism sweeping on a block, MMG's surface
+# remesher, and structured hexahedra refused on a sphere with the reason
+mk box_gmsh box mesher=sgmsh base_size=0.01 gmsh_algorithm=delaunay
+mk sphere_gmsh sphere mesher=sgmsh base_size=0.02 gmsh_algorithm=hxt $tunnel
+mk box_hexa box mesher=shexa base_size=0.01
+mk box_prism box mesher=sprism base_size=0.01
+mk box_mmg box mesher=tet base_size=0.01 surface_remesher=mmg
+mk sphere_hexa sphere mesher=shexa base_size=0.01
 fails=0
-for c in box_tri sphere_tri box_cad box_fit sphere_poly sphere_lay naca_2d naca_quad; do
+for c in box_tri sphere_tri box_cad box_fit sphere_poly sphere_lay naca_2d naca_quad box_gmsh sphere_gmsh box_hexa box_prism box_mmg sphere_hexa; do
     (
         cd "$d/$c" || exit 1
         ( cd salome && rm -rf mesh.unv polyMesh && env -u LD_LIBRARY_PATH -u PYTHONPATH -u PYTHONHOME "$salome" -t --shutdown-servers=1 stl_mesh.py ) > log.salome 2>&1
@@ -51,6 +59,10 @@ for c in box_tri sphere_tri box_cad box_fit sphere_poly sphere_lay naca_2d naca_
     echo "$c: $(grep -m1 -oE 'Mesh OK|Failed [0-9]+ mesh checks' "$log" 2>/dev/null) ${cells:-0} cells; $patches"
     grep '^Q-Continuum:' "$d/$c/log.salome" | sed 's/^/    /'
     bad=""
+    if [ $c = sphere_hexa ]; then                          # refused, with the reason, before anything is meshed
+        grep -q 'need every solid to be a block' "$d/$c/log.salome" || { echo "FAIL $c: not refused with the reason"; tail -5 "$d/$c/log.salome"; fails=$((fails + 1)); }
+        continue
+    fi
     grep -q 'Mesh OK' "$log" 2>/dev/null || bad="checkMesh"
     case $c in
         box_tri)    [ "$(grep -o 'box_[0-9]([0-9]*)' <<< "$patches" | wc -l)" = 6 ] && [ "${cells:-0}" -gt 5000 ] || bad="$bad patches/cells" ;;
@@ -61,6 +73,11 @@ for c in box_tri sphere_tri box_cad box_fit sphere_poly sphere_lay naca_2d naca_
         sphere_poly) grep -q 'polyhedra' "$d/$c/log.checkMesh" || bad="$bad no polyhedra" ;;
         sphere_lay) grep -q 'grown out of' "$d/$c/log.salome" || bad="$bad no grown layers"
                     grep -q 'sphere(' <<< "$patches" || bad="$bad no sphere patch" ;;
+        box_gmsh|sphere_gmsh) grep -q 'Gmsh, 3-D algorithm' "$d/$c/log.salome" || bad="$bad not Gmsh"
+                    [ "$(awk '/tetrahedra:/ {print $2; exit}' "$log")" -gt 500 ] || bad="$bad few tetrahedra" ;;
+        box_hexa)   [ "$(awk '/hexahedra:/ {print $2; exit}' "$log")" -gt 1000 ] && [ "$(awk '/tetrahedra:/ {print $2; exit}' "$log")" = 0 ] || bad="$bad not all hexahedra" ;;
+        box_prism)  [ "$(awk '/prisms:/ {print $2; exit}' "$log")" -gt 1000 ] || bad="$bad few prisms" ;;
+        box_mmg)    grep -q 'surface remeshed by MMG' "$d/$c/log.salome" || bad="$bad not remeshed by MMG" ;;
         naca_*)     grep -q 'boundary layers:' "$d/$c/log.salome" || bad="$bad no boundary layers"
                     grep -q '2 solution (non-empty) directions' "$d/$c/log.checkMesh" || bad="$bad not 2-D"
                     for p in front2D back2D inlet outlet farfield wall_3; do grep -q "$p(" <<< "$patches" || bad="$bad no $p"; done

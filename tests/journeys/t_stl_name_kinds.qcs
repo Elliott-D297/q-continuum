@@ -1,0 +1,29 @@
+# 2026-11-10 bug run: the user's intake had boundaries named Outlet2, Outlet_3, Outlet_4 left Walls (prism layers grown over
+# three outlets, one way out). Boundaries says when names and kinds disagree and sets them from the names in one click;
+# a name only containing the word ("pinlet") says nothing.
+shell python3 "$QC_TESTS/tools/gen_named_box.py" $SB/ws/box.stl
+open $SB/ws/cavity
+click nav:mesh
+wait-until page Mesh
+click text:STL mesher
+wait 5
+click stl-path
+enter $SB/ws/box.stl
+wait 10
+click stl-next
+wait 3
+click stl-next
+wait 5
+assert text Names and kinds disagree
+assert text Inlet (Wall)
+assert text Outlet_2 (Wall)
+assert not text pinlet (Wall)
+click stl-name-kinds
+wait 5
+assert not text Names and kinds disagree
+shell grep -E '^boundary[0-9]+ = ' mesher/mesher.ini > $OUT/kinds.txt
+assert log mesher/mesher.ini Inlet Inlet
+assert log mesher/mesher.ini Outlet_2 Outlet
+assert log mesher/mesher.ini outlet1 Outlet
+assert log mesher/mesher.ini pinlet Wall
+screenshot $OUT/1.png

@@ -23,16 +23,18 @@ const SimSetup *setup_current(Case *c);            /* page_setup.c: NULL without
 #define SH_RUN "qc_sh() { case \"$(head -n1 \"$1\")\" in '#!/bin/sh'*|'#!/usr/bin/env sh'*) bash \"$@\";; *) \"$@\";; esac; }\n"
 
 /* Display order. Multi-region cases restore 0.orig after splitMeshRegions when 0.orig holds per-region folders. */
-enum { ST_RESTORE = 0, ST_BLOCKMESH, ST_FEATURES, ST_SNAPPY, ST_CHECK, ST_TOPOSET, ST_SPLIT, ST_RESTORE_REGIONS, ST_CHANGEDICT,
-       ST_SETFIELDS, ST_DECOMPOSE, ST_SOLVER, ST_RECONSTRUCT, ST_COUNT };
+enum { ST_RESTORE = 0, ST_BLOCKMESH, ST_FEATURES, ST_SNAPPY, ST_CHECK, ST_ZONES, ST_TOPOSET, ST_SPLIT, ST_RESTORE_REGIONS, ST_CHANGEDICT,
+       ST_START, ST_SETFIELDS, ST_DECOMPOSE, ST_SOLVER, ST_RECONSTRUCT, ST_COUNT };
 static const char *STEP_LABEL[ST_COUNT] = { "Copy 0.orig to 0", "blockMesh", "surfaceFeatureExtract", "snappyHexMesh", "checkMesh",
-                                            "topoSet", "splitMeshRegions", "Copy 0.orig to 0", "changeDictionary",
-                                            "setFields", "decomposePar", "Solver", "reconstructPar" };
+                                            "Cell zones", "topoSet", "splitMeshRegions", "Copy 0.orig to 0", "changeDictionary",
+                                            "Starting values", "setFields", "decomposePar", "Solver", "reconstructPar" };
 static const char *STEP_HINT[ST_COUNT] = { "Start from the initial fields you set up", "Build the background mesh",
                                            "Extract feature edges from the geometry", "Fit the mesh to the geometry",
-                                           "Report mesh quality", "Create the cell zones that define each region",
+                                           "Report mesh quality", "Mark the rotating and porous zones (Physics > Setup, Zones)",
+                                           "Create the cell zones that define each region",
                                            "Cut the mesh into one mesh per region", "Per-region initial fields",
-                                           "Apply each region's boundary conditions", "Initialise regions, e.g. the water column",
+                                           "Apply each region's boundary conditions", "potentialFoam or mapFields (Physics > Setup, Starting values)",
+                                           "Initialise regions, e.g. the water column",
                                            "Split the case for parallel processes", "", "Merge the parallel results" };
 
 static bool multi_region(void) { return A.cs->s.nRegions > 0; }
@@ -76,6 +78,7 @@ static bool step_available(int s, int procs)
     switch (s) {
     case ST_RESTORE: return A.cs->s.hasZeroOrig && !zero_orig_by_region();
     case ST_RESTORE_REGIONS: return zero_orig_by_region();
+    case ST_ZONES: return !multi_region() && case_has("system/topoSetDict.zones");
     case ST_TOPOSET: return multi_region() && case_has("system/topoSetDict");
     case ST_SPLIT: return multi_region();
     case ST_CHANGEDICT: return multi_region() && n_change_dicts() > 0;
@@ -83,6 +86,7 @@ static bool step_available(int s, int procs)
     case ST_FEATURES: return case_has("system/surfaceFeatureExtractDict");
     case ST_SNAPPY: return case_has("system/snappyHexMeshDict");
     case ST_CHECK: return true;
+    case ST_START: { char l[32], c[16]; return !multi_region() && sim_start_command(A.cs->s.path, l, sizeof l, c, 0) ; }
     case ST_SETFIELDS: return case_has("system/setFieldsDict");
     case ST_DECOMPOSE: case ST_RECONSTRUCT: return procs > 1;
     case ST_SOLVER: return true;
@@ -431,7 +435,7 @@ static void build_steps(Case *c, Job *j, int np, bool slurm)
         for (int s = 0; s < ST_COUNT; s++) {
             if (!step_available(s, np)) continue;
             bool on = A.stepOn[s] || s == ST_SOLVER || s == ST_DECOMPOSE || s == ST_RECONSTRUCT;
-            if (cont && (s == ST_RESTORE || s == ST_BLOCKMESH || s == ST_SNAPPY || s == ST_FEATURES || s == ST_SETFIELDS ||
+            if (cont && (s == ST_RESTORE || s == ST_BLOCKMESH || s == ST_SNAPPY || s == ST_FEATURES || s == ST_SETFIELDS || s == ST_START ||
                          s == ST_TOPOSET || s == ST_SPLIT || s == ST_RESTORE_REGIONS || s == ST_CHANGEDICT)) on = false;
             if (procResults && s == ST_DECOMPOSE) on = false;
             if (!on) continue;
@@ -441,8 +445,20 @@ static void build_steps(Case *c, Job *j, int np, bool slurm)
             case ST_FEATURES: job_add(j, "features", "surfaceFeatureExtract", "surfaceFeatureExtract", "log.surfaceFeatureExtract", false); break;
             case ST_SNAPPY: job_add(j, "snappy", "snappyHexMesh", SNAPPY_CMD, "log.snappyHexMesh", false); break;
             case ST_CHECK: job_add(j, "checkMesh", "checkMesh", "checkMesh", "log.checkMesh", false); break;
-            case ST_SETFIELDS: job_add(j, "setFields", "setFields", "setFields", "log.setFields", false); break;
+            case ST_SETFIELDS: {
+                /* the setup's fields kept first: they are what writing the setup again merges with (plan step 9) */
+                char cmd[600]; snprintf(cmd, sizeof cmd, "%ssetFields", sim_keep_fields_cmd());
+                job_add(j, "setFields", "setFields", cmd, "log.setFields", false);
+                break;
+            }
+            case ST_START: {
+                char lab[32], cmd[2048];
+                if (sim_start_command(A.cs->s.path, lab, sizeof lab, cmd, sizeof cmd))
+                    job_add(j, "start", STEP_LABEL[s], cmd, !strcmp(lab, "mapFields") ? "log.mapFields" : "log.potentialFoam", false);
+                break;
+            }
             case ST_TOPOSET: job_add(j, "topoSet", "topoSet", "topoSet", "log.topoSet", false); break;
+            case ST_ZONES: job_add(j, "zones", STEP_LABEL[s], "topoSet -dict system/topoSetDict.zones", "log.topoSet.zones", false); break;
             case ST_SPLIT:
                 /* splitMeshRegions copies flat 0/ fields into every region; like the tutorials' Allrun.pre, take the
                    fluid fields out of the solid regions again (per-region 0.orig is restored afterwards instead) */
@@ -539,6 +555,16 @@ static bool precice_participant(Case *c, char *parent, int cap, char *who, int w
     char p[PL_PATH], real[PL_PATH];
     if (cfg[0] && pl_fmt(p, sizeof p, "%s/%s", c->s.path, cfg) && realpath(p, real)) pl_dirname(parent, (size_t)cap, real);
     return true;
+}
+
+/* plan step 9: Robust numerics asked for while a run stops (or after it diverged): started over once it has */
+static bool robustPending;
+
+/* a solver's error that means the solution blew up, not a set-up mistake */
+static bool run_diverged(const char *msg)
+{
+    return strstr(msg, "Floating-point exception") || strstr(msg, "Maximum number of iterations exceeded") ||
+           strcasestr(msg, "negative initial temperature") || strcasestr(msg, "Courant max had reached");
 }
 
 static void start_run(void)
@@ -1442,10 +1468,35 @@ static int export_csv(Case *c, const SimSetup *s, char *dir, size_t cap)
     return n;
 }
 
+/* a rotating zone's torque about its axis at the latest iteration (moment.dat's total, dotted with the axis); false: none yet */
+static MonFile *torque_file(const SimZone *z)
+{
+    char key[96]; snprintf(key, sizeof key, "%s_torque/moment.dat", z->name);
+    int i = monset_find(&A.mons, key);
+    return i >= 0 ? &A.mons.f[i] : NULL;
+}
+
+static bool zone_torque(const SimZone *z, double *T)
+{
+    MonFile *f = torque_file(z);
+    if (!f || !f->n) return false;
+    int col[3] = { -1, -1, -1 };
+    static const char *const W[3] = { "total_x", "total_y", "total_z" };
+    for (int k = 0; k < f->nCols; k++)
+        for (int a = 0; a < 3; a++) { size_t n = strlen(f->col[k]); if (n >= 7 && !strcmp(f->col[k] + n - 7, W[a])) col[a] = k; }
+    if (col[0] < 0 || col[1] < 0 || col[2] < 0) return false;
+    double ax[3], o[3]; sim_zone_axis(z, ax, o);
+    *T = 0;
+    for (int a = 0; a < 3; a++) *T += ax[a] * f->v[col[a]][f->n - 1];
+    return true;
+}
+
 static float reports_panel(Case *c, float x, float y, float w)
 {
     const SimSetup *s = setup_current(c);
-    if (!s || !s->nR) return 0;
+    int nTq = 0;
+    for (int i = 0; s && i < s->nZ; i++) if (s->z[i].kind == ZN_ROTATE && s->z[i].torque[0]) nTq++;
+    if (!s || (!s->nR && !nTq)) return 0;
     float y0 = y;
     ui_text(F_MED, 13.5f, "Reports", x, y + 2, TH.text);
     float bw = ui_button_width(ICON_TABLE, "Export CSV");
@@ -1474,6 +1525,26 @@ static float reports_panel(Case *c, float x, float y, float w)
         ui_text_clip(F_REG, 12.5f, d, x, y, w, TH.text2);
         ui_text_clip(F_MONO_MED, 14, v, x, y + 18, w, f && f->n ? TH.text : TH.text3);
         if (f) ui_tooltip(row, "Click to plot it");
+        y += 46;
+    }
+    for (int i = 0; i < s->nZ; i++) {
+        /* a rotating zone's torque (and the power it takes: the torque times the speed; 2-D: per metre of depth) */
+        const SimZone *z = &s->z[i];
+        if (z->kind != ZN_ROTATE || !z->torque[0]) continue;
+        MonFile *f = torque_file(z);
+        double T;
+        char d[200], v[160];
+        pl_fmt_ui(d, sizeof d, "Torque on %s about %s's axis", z->torque, z->name);
+        if (zone_torque(z, &T)) pl_fmt_ui(v, sizeof v, "%.4g N m, power %.4g W", T, -T * sim_zone_omega(z));
+        else pl_strlcpy(v, "not yet", sizeof v);
+        Rectangle row = { x - 6, y - 4, w + 12, 44 };
+        UiId id = ui_idn(ui_id("rep-tq"), i);
+        if (f && ui_row(id, row, false)) { A.chartTab = 1; mon_select(c, f); }
+        ui_register(id, row, TextFormat("%s: %s", d, v));
+        ui_text_clip(F_REG, 12.5f, d, x, y, w, TH.text2);
+        ui_text_clip(F_MONO_MED, 14, v, x, y + 18, w, f && f->n ? TH.text : TH.text3);
+        if (f) ui_tooltip(row, "The flow's torque on the walls (negative: against the turning, so the rotor drives the flow); the power is what "
+                               "the rotor puts in. Click to plot the moments.");
         y += 46;
     }
     return y + 6 - y0;
@@ -2076,7 +2147,7 @@ void page_run(Rectangle r)
         for (int s = 0; s < ST_COUNT; s++) {
             if (!step_available(s, pn)) continue;
             bool forced = s == ST_SOLVER || s == ST_DECOMPOSE || s == ST_RECONSTRUCT;
-            bool skipCont = A.continueRun && (s == ST_RESTORE || s == ST_BLOCKMESH || s == ST_SNAPPY || s == ST_FEATURES || s == ST_SETFIELDS ||
+            bool skipCont = A.continueRun && (s == ST_RESTORE || s == ST_BLOCKMESH || s == ST_SNAPPY || s == ST_FEATURES || s == ST_SETFIELDS || s == ST_START ||
                                               s == ST_TOPOSET || s == ST_SPLIT || s == ST_RESTORE_REGIONS || s == ST_CHANGEDICT ||
                                               (s == ST_DECOMPOSE && c->s.procTimes > 0));
             /* state from the job, if it ran here */
@@ -2098,6 +2169,13 @@ void page_run(Rectangle r)
             const char *lab = s == ST_SOLVER ? (c->s.app[0] ? c->s.app : "Solver") : STEP_LABEL[s];
             ui_text(s == ST_SOLVER ? F_SEMI : F_MED, 13.5f, lab, row.x + 30, row.y + 3, on ? TH.text : TH.text3);
             const char *hint = s == ST_SOLVER ? (pn > 1 ? "Run in parallel with mpirun" : "Run the solver") : STEP_HINT[s];
+            char sh[160];
+            if (s == ST_START) {
+                char l2[32], c2[8];
+                sim_start_command(c->s.path, l2, sizeof l2, c2, 0);
+                pl_fmt_ui(sh, sizeof sh, !strcmp(l2, "mapFields") ? "mapFields: another case's last results onto this mesh" : "potentialFoam: a flow that already goes round the part");
+                hint = sh;
+            }
             ui_text_clip(F_REG, 12, skipCont ? "Skipped when continuing" : hint, row.x + 30, row.y + 22, w - 110, TH.text3);
             float ix = row.x + w - 12;
             if (stt == JS_RUNNING) ui_spinner(ix, row.y + 12, 7, TH.accent);
@@ -2266,10 +2344,11 @@ void page_run(Rectangle r)
         if (cd) fd_get_resolved(cd, byCo ? "maxCo" : "deltaT", hv, sizeof hv);   /* "deltaT $dtBase": its number (H-19) */
         snprintf(hl, sizeof hl, "Halve %s (%s -> %g)", byCo ? "maxCo" : "Δt", hv, atof(hv) / 2);
         const char *sl = app_can_pause() ? "Stop and write" : "Stop";
+        bool rob = setup_robust_offer(c);                    /* plan step 9: the setup's numerics, Robust with one click */
         float w1 = ui_button_width(ICON_PAUSE, sl), w2 = ui_button_width(ICON_GAUGE, hl), w3 = ui_button_width(NULL, "Continue");
-        float bw = fmaxf(w1, fmaxf(w2, w3));
+        float bw = fmaxf(fmaxf(w1, rob ? ui_button_width(ICON_WRENCH, "Stop, use Robust") : 0), fmaxf(w2, w3));
         float cw = mw - bw - 16;
-        float ch = fmaxf(callout_height(cw, alert_title(&A.alert), A.alert.text), 3 * 38 + 16);
+        float ch = fmaxf(callout_height(cw, alert_title(&A.alert), A.alert.text), (rob ? 4 : 3) * 38 + 16);
         Rectangle cr = { mx, my, cw, ch };
         callout(cr, red ? TOAST_ERR : TOAST_WARN, ICON_TRIANGLE_ALERT, alert_title(&A.alert), A.alert.text);
         if (red && TH.lcars) {                                /* a slow pulse (1 Hz, well under the 3 Hz flash limit) */
@@ -2295,6 +2374,13 @@ void page_run(Rectangle r)
             A.alertDismissSteps = prim2 >= 0 ? A.logs.logs[prim2].steps : 0;
         }
         ui_tooltip((Rectangle){ bx, my + 84, bw, 36 }, "Hide this until it gets worse");
+        if (rob) {
+            if (ui_button(ui_id("ra-robust"), (Rectangle){ bx, my + 126, bw, 36 }, ICON_WRENCH, "Stop, use Robust", BTN_SECONDARY)) {
+                robustPending = true;
+                job_stop(A.cj, GetTime());
+            }
+            ui_tooltip((Rectangle){ bx, my + 126, bw, 36 }, "Stops the run, switches Physics > Setup to Robust numerics (first-order upwind, firmly relaxed) and starts over");
+        }
         my += ch + 14;
     }
     /* the last run can be resumed: say why, with the button at hand */
@@ -2320,6 +2406,32 @@ void page_run(Rectangle r)
         if (ui_button(ui_id("mon-resume"), (Rectangle){ mx + mw - bw, my + (ch - 38) / 2, bw, 38 }, ICON_PLAY, lab, BTN_PRIMARY)) app_resume_run();
         ui_disable(false);
         my += ch + 14;
+    }
+    /* a run of the setup's that diverged (plan step 9): Robust numerics, one click */
+    /* ... or one that ran all its iterations without its residuals getting under their targets (a transonic aerofoil on
+       Balanced stalls at 1e-2: Robust converges it) */
+    bool diverged = !mine && pm && pm->fatal && run_diverged(pm->fatalMsg);
+    bool stalled = !mine && pm && pm->ended && !pm->fatal && !pm->converged && pm->steps > 0 && case_has_results(&c->s) && setup_expects_convergence(c);
+    if ((diverged || stalled) && setup_robust_offer(c)) {
+        const char *t = diverged ? "The run diverged" : "The run didn't converge";
+        const char *d = diverged ? "Robust numerics usually gets a case like this going: first-order upwind and firmly relaxed. It rewrites "
+                                   "system/fvSchemes and fvSolution (Physics > Setup, Solver) and starts over. Once it runs, Balanced "
+                                   "from its results is sharper."
+                                 : "It ran all its iterations with the residuals still above their targets. Robust numerics (first-order upwind, "
+                                   "firmly relaxed) often settles a case that keeps wandering. It rewrites system/fvSchemes and fvSolution and "
+                                   "starts over.";
+        float bw = ui_button_width(ICON_WRENCH, "Use Robust and start over");
+        float cw = mw - bw - 16;
+        float ch = fmaxf(callout_height(cw, t, d), 52);
+        callout((Rectangle){ mx, my, cw, ch }, TOAST_WARN, ICON_WRENCH, t, d);
+        ui_disable(A.cj->active);
+        if (ui_button(ui_id("run-robust"), (Rectangle){ mx + mw - bw, my + (ch - 38) / 2, bw, 38 }, ICON_WRENCH, "Use Robust and start over", BTN_PRIMARY)) robustPending = true;
+        ui_disable(false);
+        my += ch + 14;
+    }
+    if (robustPending && !A.cj->active) {                    /* after the stop above has gone through */
+        robustPending = false;
+        if (setup_go_robust(c)) { A.continueRun = false; A.runConfirmed = true; start_run(); }
     }
     /* fatal error card */
     if (pm && pm->fatal && pm->fatalMsg[0]) {

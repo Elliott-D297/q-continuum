@@ -9,6 +9,7 @@
 #include <sys/wait.h>
 #include <unistd.h>
 #include "app.h"
+#include "salometool.h"
 #include "undo.h"
 #include "actions.h"
 #include "assets.h"
@@ -1642,7 +1643,8 @@ static void frame(void)
     ClearBackground(TH.bg);
     ui_begin_frame();
     stlmesh_tick();
-    salome_tick();                                          /* the mesh-import file dialog */                                         /* the STL file dialog, whichever page is open */
+    salome_tick();
+    stool_tick();                                           /* the SALOME service (salometool.c) */                                          /* the mesh-import file dialog */                                         /* the STL file dialog, whichever page is open */
     ui_backdrop(ui_width(), ui_height());
     float W = ui_width(), H = ui_height();
     float sw = 248;

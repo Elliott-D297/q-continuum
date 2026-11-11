@@ -1,0 +1,32 @@
+# Every mesher, step 7 (2026-11-10): a STEP part's CAD faces are its boundaries' building blocks: read with a solid a face,
+# grouped by default (faces meeting smoothly together), and a face clicked in the view made a boundary of its own by name.
+budget p95 60 max 600
+shell cp "$QC_TESTS/tools/flange_mm.step" $SB/ws/flange.step
+open $SB/ws/cavity
+click nav:mesh
+wait-until page Mesh
+click text:STL mesher
+wait 5
+click stl-path
+enter $SB/ws/flange.step
+wait-until text Prepare the geometry timeout 120
+wait 10
+assert file mesher/faces.ini
+assert log mesher/faces.ini face_1 =
+click stl-next
+wait 3
+click stl-next
+wait 10
+assert text CAD faces: click a face to pick it
+click stl-view
+wait 10
+assert text 1 face picked
+screenshot $OUT/1_picked.png
+click pk-name
+type myface
+click pk-make
+wait 10
+assert log mesher/faces.ini = myface
+assert log mesher/mesher.ini myface
+assert text 1 face now in myface
+screenshot $OUT/2_grouped.png

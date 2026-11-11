@@ -1,0 +1,33 @@
+# Every mesher, step 8 (2026-11-10): Mesh > Quality on an imported SALOME-style mesh: checkMesh's numbers, SALOME's report
+# (histograms, worst cells), and the mesh exported by OpenFOAM's converters (VTK, STL surface) and SALOME (CGNS, MED).
+budget p95 60 max 600
+shell mkdir -p $SB/ws/q/system && python3 "$QC_TESTS/tools/gen_unv.py" $SB/ws/duct.unv && cp "${FOAM_TUTORIALS:-/usr/lib/openfoam/openfoam2606/tutorials}/incompressible/icoFoam/cavity/cavity/system/controlDict" $SB/ws/q/system/
+open $SB/ws/q
+click nav:mesh
+wait-until page Mesh
+click text:SALOME script
+wait 5
+click sa-imp-path
+enter $SB/ws/duct.unv
+wait-until job running timeout 20
+wait-until job finished timeout 120
+click mesh-tabs#4
+wait 10
+assert text Max non-orthogonality
+assert text Every check passed.
+click mq-report
+wait-until text aspect ratio (1 is a perfect cell) timeout 300
+wait 5
+screenshot $OUT/1_report.png
+click mq-exp#0
+wait-until job finished timeout 120
+assert file export/VTK
+click mq-exp#2
+wait-until job finished timeout 120
+assert file export/surface.stl
+click mq-sexp#2
+wait-until file export/mesh.cgns timeout 300
+click mq-sexp#0
+wait-until file export/mesh.med timeout 300
+wait 10
+screenshot $OUT/2_export.png

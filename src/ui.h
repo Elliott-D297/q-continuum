@@ -142,6 +142,7 @@ bool  ui_input(UiId id, Rectangle r, char *buf, int cap, const char *placeholder
 bool  ui_dropdown(UiId id, Rectangle r, const char *current, const char *const *items, int n, int flags,
                   char *out, int cap, const char *placeholder);
 bool  ui_select(UiId id, Rectangle r, const char *const *items, int n, int *sel);
+bool  ui_select_ph(UiId id, Rectangle r, const char *const *items, int n, int *sel, const char *placeholder);
 float ui_badge(float x, float y, const char *icon, const char *text, Color fg, Color bg);
 float ui_badge_width(const char *icon, const char *text);
 void  ui_progress(Rectangle r, float frac, Color c);

@@ -14,6 +14,11 @@
 #   tet      NETGEN tetrahedra
 #   poly     NETGEN tetrahedra here; Q-Continuum then turns them into polyhedra with OpenFOAM's polyDualMesh
 #   bodyfit  SALOME's Body Fitting: a Cartesian (trimmed) hexahedral mesh cut by the surface
+#   sgmsh    Gmsh's tetrahedra (its 3-D algorithm: gmsh_algorithm = delaunay, frontal, hxt, mmg3d or rtree), on the CAD
+#   shexa    structured hexahedra (i,j,k): edges divided, faces mapped to quadrangles, solids to hexahedra; every solid
+#            must be a block (6 faces)
+#   sprism   prisms swept between two opposite faces of each solid (an extruded part), triangles on the source faces
+# surface_remesher = netgen | mmg: what remeshes an STL whose triangles are too coarse or thin for the target size
 # Surface:
 #   remesh_surface = 0   NETGEN meshes on the STL's own triangles (fast, any size of STL; it must be closed). When they are
 #                        much coarser than the target size or over 1 % are slivers, NETGEN's surface remesher redoes them at
@@ -58,7 +63,11 @@ ini.read(os.path.join(CASE, "mesher", "mesher.ini"))
 S = ini["mesher"]
 num = lambda k, d: float(S.get(k, d))
 MESHER = S.get("mesher", "tet")
-REMESH = int(num("remesh_surface", 0)) != 0 or MESHER == "bodyfit"
+CAD_ONLY = ("bodyfit", "sgmsh", "shexa", "sprism")             # meshers that work on CAD faces: the STL is made CAD first
+REMESH = int(num("remesh_surface", 0)) != 0 or MESHER in CAD_ONLY
+GMSH_ALGOS = {"delaunay": 0, "frontal": 1, "mmg3d": 2, "rtree": 3, "hxt": 4}   # GMSHPlugin_Hypothesis.hxx Algo3D
+GMSH_ALGO = S.get("gmsh_algorithm", "delaunay").strip()
+SURF_REMESHER = S.get("surface_remesher", "netgen").strip()
 BASE = num("base_size", 0.01)
 TARGET = BASE * num("target_size_pct", 100) / 100
 MIN = BASE * num("min_size_pct", 25) / 100
@@ -309,9 +318,50 @@ def region_finder(src):
     return find
 
 
+def mmg_remesh(src):
+    """MMG's surface remesher (mmgs, shipped with SALOME) on the STL's triangles: exported as Gmf (.mesh), remeshed between
+    the minimum and target sizes keeping the shape within a hundredth of the target, read back; each new face goes to the
+    region of the source face nearest its centre. None when MMG is missing or fails."""
+    import shutil
+    import subprocess
+    exe = shutil.which("mmgs_O3") or shutil.which("mmgs")
+    if not exe:
+        say("MMG's surface remesher (mmgs) is not in this SALOME: NETGEN remeshes instead")
+        return None
+    find = region_finder(src)
+    a, b = os.path.join(HERE, "mmg_in.mesh"), os.path.join(HERE, "mmg_out.mesh")
+    for f in (a, b):
+        if os.path.exists(f):
+            os.remove(f)
+    src.ExportGMF(a)
+    cmd = [exe, "-in", a, "-out", b, "-hmax", "%g" % TARGET, "-hmin", "%g" % min(MIN, TARGET), "-hausd", "%g" % (0.01 * TARGET),
+           "-hgrad", "%g" % max(1.05, SGROW), "-ar", "30", "-v", "0"]
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    if r.returncode != 0 or not os.path.exists(b):
+        say("MMG could not remesh the surface (%s): NETGEN remeshes instead" % ((r.stderr or r.stdout).strip().splitlines() or ["no reason given"])[-1])
+        return None
+    got = smesh.CreateMeshesFromGMF(b)
+    rm = got[0] if isinstance(got, (list, tuple)) else got
+    rm = smesh.Mesh(rm.GetMesh()) if not hasattr(rm, "MakeGroupByIds") else rm
+    for g in list(rm.GetGroups()):
+        rm.RemoveGroup(g)
+    ids = {}
+    for fid in rm.GetElementsByType(SMESH.FACE):
+        ids.setdefault(find(rm.BaryCenter(fid)), []).append(fid)
+    for name, _ in BOUNDARIES:
+        if name in ids:
+            rm.MakeGroupByIds(name, SMESH.FACE, ids[name])
+    say("surface remeshed by MMG at the target size: %d triangles from the STL's %d" % (rm.NbFaces(), src.NbFaces()))
+    return rm
+
+
 def remesh_body(src):
     """NETGEN's surface remesher on the STL's triangles at the target size, keeping the boundaries: it drops the groups,
-    so each new face goes to the region of the source face nearest its centre"""
+    so each new face goes to the region of the source face nearest its centre (surface_remesher = mmg: MMG's instead)"""
+    if SURF_REMESHER == "mmg":
+        rm = mmg_remesh(src)
+        if rm:
+            return rm
     find = region_finder(src)
     rm = smesh.CopyMesh(src.GetMesh(), "body", False, False)   # a copy: the source keeps its faces for the lookup
     algo = rm.Triangle(algo=smeshBuilder.NETGEN_1D2D)      # on a mesh without a shape: NETGEN_Remesher_2D
@@ -449,20 +499,117 @@ def mesh_from_triangles():
 
 
 # ---- MESH: CAD built from the STL, the surface remeshed -----------------------------------------------------------------
-def cad_from_stl():
-    shells, by_name = [], {}
+def cad_brep():
+    """the exact CAD the STL was made from (Q-Continuum writes it beside the STL, in metres), when the part came from a
+    STEP or IGES file and its unit was not changed since"""
+    if not S.get("cad_source", "").strip() or abs(num("scale", 1) - 1) > 1e-12:
+        return None
+    p = os.path.splitext(S.get("stl", "").strip())[0] + ".brep"
+    return p if os.path.isfile(p) else None
+
+
+def point_tri_dist2(p, t):
+    """squared distance from p to the triangle t (9 floats)"""
+    a, b, c = t[0:3], t[3:6], t[6:9]
+    sub = lambda u, v: (u[0] - v[0], u[1] - v[1], u[2] - v[2])
+    dot = lambda u, v: u[0] * v[0] + u[1] * v[1] + u[2] * v[2]
+    ab, ac, ap = sub(b, a), sub(c, a), sub(p, a)
+    d1, d2 = dot(ab, ap), dot(ac, ap)
+    if d1 <= 0 and d2 <= 0: q = a
+    else:
+        bp = sub(p, b); d3, d4 = dot(ab, bp), dot(ac, bp)
+        cp = sub(p, c); d5, d6 = dot(ab, cp), dot(ac, cp)
+        vc, vb, va = d1 * d4 - d3 * d2, d5 * d2 - d1 * d6, d3 * d6 - d5 * d4
+        if d3 >= 0 and d4 <= d3: q = b
+        elif d6 >= 0 and d5 <= d6: q = c
+        elif vc <= 0 and d1 >= 0 and d3 <= 0:
+            v = d1 / (d1 - d3); q = (a[0] + v * ab[0], a[1] + v * ab[1], a[2] + v * ab[2])
+        elif vb <= 0 and d2 >= 0 and d6 <= 0:
+            w = d2 / (d2 - d6); q = (a[0] + w * ac[0], a[1] + w * ac[1], a[2] + w * ac[2])
+        elif va <= 0 and (d4 - d3) >= 0 and (d5 - d6) >= 0:
+            w = (d4 - d3) / ((d4 - d3) + (d5 - d6)); q = (b[0] + w * (c[0] - b[0]), b[1] + w * (c[1] - b[1]), b[2] + w * (c[2] - b[2]))
+        else:
+            den = 1 / (va + vb + vc); v, w = vb * den, vc * den
+            q = (a[0] + ab[0] * v + ac[0] * w, a[1] + ab[1] * v + ac[1] * w, a[2] + ab[2] * v + ac[2] * w)
+    d = sub(p, q)
+    return dot(d, d)
+
+
+def cad_parts(path):
+    """the CAD's solid, and its faces sorted into the boundaries: each face goes to the region whose triangles pass
+    nearest a point inside it (the regions were cut from the STL made of this CAD)"""
+    shape = geompy.ImportBREP(path)
+    solids = geompy.SubShapeAll(shape, geompy.ShapeType["SOLID"])
+    solid = solids[0] if len(solids) == 1 else shape
+    tris = []                                                # (name, triangle, centroid, radius about the centroid)
     for name, _ in BOUNDARIES:
-        s = geompy.ImportSTL(region_file(name))
+        for t in region_tris(name):
+            c = ((t[0] + t[3] + t[6]) / 3, (t[1] + t[4] + t[7]) / 3, (t[2] + t[5] + t[8]) / 3)
+            r = max(math.sqrt((t[3 * k] - c[0]) ** 2 + (t[3 * k + 1] - c[1]) ** 2 + (t[3 * k + 2] - c[2]) ** 2) for k in range(3))
+            tris.append((name, t, c, r))
+    faces = {}
+    for f in geompy.SubShapeAll(solid, geompy.ShapeType["FACE"]):
         try:
-            s = geompy.UnionFaces(s)                         # coplanar triangles into one face
+            p = geompy.PointCoordinates(geompy.MakeVertexInsideFace(f))
         except Exception:
-            pass
-        by_name[name] = s
-        shells.append(s)
-    sewn = geompy.MakeSewing(shells, 1e-6 * L) if len(shells) > 1 else None   # one shell: nothing to sew (it returns None)
-    if sewn is None:
-        sewn = shells[0] if len(shells) == 1 else geompy.MakeCompound(shells)
-    solid = geompy.MakeSolid([geompy.MakeShell(geompy.SubShapeAll(sewn, geompy.ShapeType["FACE"]))])
+            p = geompy.PointCoordinates(geompy.MakeCDG(f))
+        best, bd = BOUNDARIES[0][0], 1e300
+        for name, t, c, r in tris:
+            dc = math.sqrt((p[0] - c[0]) ** 2 + (p[1] - c[1]) ** 2 + (p[2] - c[2]) ** 2) - r
+            if dc > 0 and dc * dc >= bd:
+                continue                                     # this triangle cannot be nearer
+            d = point_tri_dist2(p, t)
+            if d < bd:
+                best, bd = name, d
+        faces.setdefault(best, []).append(f)
+    say("meshing the exact CAD (%s): %d faces in %d boundaries" % (os.path.basename(S.get("cad_source").strip()),
+        sum(len(v) for v in faces.values()), len(faces)))
+    return solid, {n: geompy.MakeCompound(fs) for n, fs in faces.items()}
+
+
+def cad_from_stl():
+    brep = cad_brep()
+    if brep:
+        solid, by_name = cad_parts(brep)
+        return cad_domain(solid, by_name)
+    # one STL of every region's triangles, imported at once so that neighbouring regions share their edges: sewing the
+    # regions imported one by one left an edge open on the user's intake (110 k triangles), and so did merging coplanar
+    # triangles (UnionFaces) of the closed shell, which no sewing or ShapeFix closed again (2026-11-10)
+    tris, by_name = [], {}
+    for name, _ in BOUNDARIES:
+        with open(region_file(name), "rb") as f:
+            data = f.read()
+        n = struct.unpack_from("<I", data, 80)[0]
+        tris += [data[84 + 50 * t:84 + 50 * t + 50] for t in range(n)]
+    allp = os.path.join(CASE, "salome", "regions_all.stl")
+    with open(allp, "wb") as f:
+        f.write(b"\0" * 80 + struct.pack("<I", len(tris)) + b"".join(tris))
+    whole = geompy.ImportSTL(allp)
+    try:
+        solid = geompy.MakeSolid([geompy.MakeShell(geompy.SubShapeAll(whole, geompy.ShapeType["FACE"]))])
+    except Exception:
+        free = geompy.GetFreeBoundary(geompy.MakeShell(geompy.SubShapeAll(whole, geompy.ShapeType["FACE"])))
+        raise SystemExit("Q-Continuum: the STL's surface is not closed (%d open loops of edges): SALOME cannot make a solid of it. "
+                         "Prepare the geometry (Geometry step) or use snappyHexMesh or cfMesh, which take it as it is" %
+                         (len(free[1]) + len(free[2])))
+    vol = geompy.BasicProperties(solid)[2]
+    try:                                                     # coplanar triangles into one face, when that stays closed
+        merged = geompy.UnionFaces(solid)
+        mvol = geompy.BasicProperties(geompy.MakeSolid([geompy.MakeShell(geompy.SubShapeAll(merged, geompy.ShapeType["FACE"]))]))[2]
+        if vol > 0 and abs(mvol - vol) < 1e-6 * vol:
+            solid = merged
+        else:
+            raise ValueError("volume %g, was %g" % (mvol, vol))
+    except Exception as e:
+        say("the coplanar triangles stay separate faces (merging them opened the surface: %s)" % e)
+    for name, _ in BOUNDARIES:
+        by_name[name] = geompy.ImportSTL(region_file(name))
+    say("CAD: a solid of %d faces, %g m3" % (geompy.NumberOfFaces(solid), vol))
+    return cad_domain(solid, by_name)
+
+
+def cad_domain(solid, by_name):
+    """the fluid: the part's inside, or the wind tunnel less the part; a face group per boundary"""
     shape = solid
     if EXTERNAL:
         lo, hi = tunnel()
@@ -500,7 +647,8 @@ def cad_from_stl():
 
 
 def mesh_remeshed():
-    say("building CAD from the STL's %s (minutes for thousands of triangles)" % ("regions" if len(BOUNDARIES) > 1 else "surface"))
+    if not cad_brep():
+        say("building CAD from the STL's %s (minutes for thousands of triangles)" % ("regions" if len(BOUNDARIES) > 1 else "surface"))
     shape, groups = cad_from_stl()
     mesh = smesh.Mesh(shape, "mesh")
     if MESHER == "bodyfit":
@@ -515,6 +663,41 @@ def mesh_remeshed():
             say("Body Fitting has one cell size: the volumetric controls are skipped")
         if PRISM:
             say("Body Fitting makes no prism layers here: use the tetrahedral or polyhedral mesher for them")
+    elif MESHER == "sgmsh":
+        algo = mesh.Tetrahedron(algo=smeshBuilder.GMSH)
+        p = algo.Parameters()
+        p.SetIs2d(False)
+        p.Set3DAlgo(GMSH_ALGOS.get(GMSH_ALGO, 0))
+        p.SetMaxSize(far_field()[0])
+        p.SetMinSize(MIN)
+        try:
+            p.SetMeshCurvatureSize(int(max(4, CURV)))       # elements across 2 pi of curvature
+        except Exception:
+            pass
+        say("Gmsh, 3-D algorithm %s" % GMSH_ALGO)
+        if ZONES:
+            say("Gmsh here has one size range (minimum to base): the volumetric controls are skipped")
+        if PRISM and WALLS:
+            LAYERS.append(add_layers(algo, mesh, [g for n, g in groups.items() if n in WALLS], False))
+    elif MESHER in ("shexa", "sprism"):
+        solids = geompy.SubShapeAll(shape, geompy.ShapeType["SOLID"]) or [shape]
+        if MESHER == "shexa":
+            bad = [i for i, so in enumerate(solids) if len(geompy.SubShapeAll(so, geompy.ShapeType["FACE"])) != 6]
+            if bad:
+                raise SystemExit("Q-Continuum: structured hexahedra need every solid to be a block (6 faces); %d of %d here are not "
+                                 "(%s). Partition the part into blocks in SALOME first, or pick another mesher." %
+                                 (len(bad), len(solids), "a wind tunnel round a body never is" if EXTERNAL else "a curved or holed part"))
+        mesh.Segment().LocalLength(TARGET)
+        if MESHER == "shexa":
+            mesh.Quadrangle()
+            mesh.Hexahedron()
+            say("structured hexahedra (i,j,k), edges divided every %g m" % TARGET)
+        else:
+            mesh.Triangle(algo=smeshBuilder.NETGEN_2D).Parameters().SetMaxSize(TARGET)
+            mesh.Prism()
+            say("prisms swept between each solid's opposite faces, %g m apart along the sweep" % TARGET)
+        if PRISM:
+            say("this mesher makes no prism layers on the walls")
     else:
         algo = mesh.Tetrahedron(algo=smeshBuilder.NETGEN_1D2D3D)
         p = algo.Parameters()
@@ -765,6 +948,10 @@ if not ok and LAYERED and LAYERED[0]:
     LAYERED.clear()
     mesh = mesh_from_triangles()
     ok = mesh.Compute()
+if not ok and MESHER in ("shexa", "sprism"):
+    raise SystemExit("Q-Continuum: %s could not mesh this part (%s): it needs %s. Pick another mesher." %
+                     ("Structured hexahedra" if MESHER == "shexa" else "Prism sweeping", compute_errors() or "no reason given",
+                      "blocks whose opposite faces match" if MESHER == "shexa" else "solids extruded between two matching faces"))
 if not ok:
     err = compute_errors()
     raise SystemExit("Q-Continuum: SALOME could not mesh the STL%s. Check that it is closed (Mesh > STL mesher says), "

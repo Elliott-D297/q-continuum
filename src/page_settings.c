@@ -903,6 +903,19 @@ void draw_modals(void)
         break;
     case MD_WHATS_NEW: {
         static const char *const NEWS[][2] = {
+            { "Starting values and numerics", "Physics > Setup, Starting values: start from potential flow (potentialFoam) or from another "
+              "case's last results (mapFields onto this mesh, the boundaries kept), give regions their own temperature or velocity, and ramp "
+              "a steady run's inlets. Solver: Robust, Balanced or Accurate numerics; hand edits on the Numerics page make it Custom. A run "
+              "that diverges or doesn't converge offers Robust with one click." },
+            { "Free surface", "Water and air with the surface between them (interFoam): the Free surface card, or Models > Multiphase. "
+              "Materials holds both and the surface tension, Starting values the water (boxes, or below a height), each inlet says whether it "
+              "brings water or air, and the Run page fills the water in with setFields. A dam break takes a minute to set up." },
+            { "STEP and IGES parts", "The STL mesher takes CAD files too: Choose part (or paste the path of) a .step, .stp, .iges "
+              "or .igs file. SALOME reads it in its own unit, makes a fine STL in metres and keeps the exact shape, so its "
+              "tetrahedral and polyhedral meshers mesh the CAD faces themselves (Mesh the exact CAD)." },
+            { "Fans, mixers and filters", "Physics > Setup has a Zones step: a rotating zone (a fan, an impeller, a mixer) turning at "
+              "a speed you give, with the torque and power on the Run page, or a porous zone (a filter, a screen, a radiator) from a "
+              "pressure drop at a speed. The Rotating machinery card sets one up." },
             { "Heat and buoyancy", "Physics > Setup > Models > Energy: Temperature (forced convection) or With buoyancy (warm fluid "
               "rises). Materials gains specific heat and conductivity, every boundary a temperature, walls a heat flux, heat rate or "
               "convection, and the Run page shows each wall's heat as it runs. New cards: Heat transfer and Natural convection." },

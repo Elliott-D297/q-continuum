@@ -20,10 +20,12 @@
 #include <sys/wait.h>
 #include <unistd.h>
 #include "app.h"
+#include "assets.h"
 #include "orbit.h"
 #include "rlgl.h"
 #include "simsetup.h"
 #include "stlmesh.h"
+#include "salometool.h"
 
 static struct {
     char   casePath[PL_PATH];   /* the case S and M belong to          */
@@ -90,23 +92,28 @@ static void save_cfg(void)
     T.dirty = false;
 }
 
+static const char *s_cad;   /* load_stl: the CAD file this STL was converted from (its unit is known: no mm guess) */
+
 static bool load_stl(const char *path, bool fresh)
 {
     Stl s;
     if (!stl_load(path, &s)) { ui_toast(TOAST_ERR, "%s", s.err); return false; }
     stl_free(&T.stl);
     T.stl = s;
+    if (fresh && T.casePath[0]) { char fp[PL_PATH]; pl_join(fp, sizeof fp, T.casePath, "mesher/faces.ini"); unlink(fp); }   /* another part: its own face ids */
     if (T.m.scale <= 0) T.m.scale = 1;
     stl_set_scale(&T.stl, T.m.scale);
-    stl_split(&T.stl, T.m.splitAngle);
+    stl_split_part(&T.stl, T.m.splitAngle, T.casePath);
     if (fresh) {
         pl_strlcpy(T.m.stl, path, sizeof T.m.stl);
+        pl_strlcpy(T.m.cad, s_cad ? s_cad : "", sizeof T.m.cad);
+        if (s_cad) { T.m.scale = 1; stl_set_scale(&T.stl, 1); }   /* converted to metres from the file's own unit */
         /* a part a thousand times too large is in millimetres: say so and pick mm */
         double L = 0; for (int k = 0; k < 3; k++) L = fmax(L, T.stl.bmax[k] - T.stl.bmin[k]);
-        if (L > 20 && T.m.scale == 1) { T.m.scale = 0.001; stl_set_scale(&T.stl, 0.001); stl_split(&T.stl, T.m.splitAngle);
+        if (L > 20 && T.m.scale == 1 && !s_cad) { T.m.scale = 0.001; stl_set_scale(&T.stl, 0.001); stl_split_part(&T.stl, T.m.splitAngle, T.casePath);
                                         ui_toast(TOAST_INFO, "The part is %.0f units across: read as millimetres (Scale changes it)", L); }
         mesher_defaults(&T.m, &T.stl);
-        stl_split(&T.stl, T.m.splitAngle);                /* split again at the default angle */
+        stl_split_part(&T.stl, T.m.splitAngle, T.casePath);                /* split again at the default angle */
         mesher_take_names(&T.m, &T.stl);
         T.sel = -1;
     } else mesher_apply_names(&T.m, &T.stl);
@@ -117,6 +124,7 @@ static bool load_stl(const char *path, bool fresh)
 }
 
 static void view_forget(void);
+static void pick_reset(void);
 
 /* the case the page shows: another one drops everything of the last (its STL, settings, picked boundary, a half-typed
    path or name: an input still focused would otherwise commit the old case's text into this one) */
@@ -128,6 +136,7 @@ static void sync_case(Case *c)
     T.loaded = T.dirty = false;
     T.sel = -1;
     T.adv = false; T.removeArm = 0; T.scrollTo = 0;
+    pick_reset();
     T.typed[0] = 0;
     T.gen++;
     ui_drop_focus();
@@ -164,43 +173,63 @@ static void start_picker(bool newCase)
     unlink(T.pickOut);
     char q[PL_PATH + 8]; pl_shell_quote(q, sizeof q, T.pickOut);
     char cmd[PL_PATH + 1400];
-    if (A.env.wsl)
+    const char *testPick = getenv("QC_TEST_PICK");          /* testing: the dialog "answers" this path */
+    if (testPick && *testPick) {
+        char tq[PL_PATH + 8]; pl_shell_quote(tq, sizeof tq, testPick);
+        if (!pl_fmt(cmd, sizeof cmd, "printf '%%s' %s > %s", tq, q)) return;
+    } else if (A.env.wsl)
         /* Windows' own Open dialog, on top; its path comes back as C:\..., wslpath makes it /mnt/c/... */
         snprintf(cmd, sizeof cmd,
                  "p=$(powershell.exe -NoProfile -STA -Command \"Add-Type -AssemblyName System.Windows.Forms; "
                  "\\$f = New-Object System.Windows.Forms.Form -Property @{TopMost=\\$true}; "
-                 "\\$d = New-Object System.Windows.Forms.OpenFileDialog; \\$d.Title = 'Choose an STL to mesh'; "
-                 "\\$d.Filter = 'STL files (*.stl)|*.stl;*.STL|All files (*.*)|*.*'; "
+                 "\\$d = New-Object System.Windows.Forms.OpenFileDialog; \\$d.Title = 'Choose a part to mesh (STL, STEP, IGES)'; "
+                 "\\$d.Filter = 'Parts (*.stl;*.step;*.stp;*.iges;*.igs;*.brep)|*.stl;*.STL;*.step;*.STEP;*.stp;*.STP;*.iges;*.IGES;*.igs;*.IGS;*.brep|"
+                 "STL (*.stl)|*.stl;*.STL|STEP (*.step;*.stp)|*.step;*.STEP;*.stp;*.STP|All files (*.*)|*.*'; "
                  "if (\\$d.ShowDialog(\\$f) -eq 'OK') { \\$d.FileName }\" 2>/dev/null | tr -d '\\r'); "
                  "[ -n \"$p\" ] && wslpath -u \"$p\" > %s; true", q);
     else
         snprintf(cmd, sizeof cmd,
-                 "{ zenity --file-selection --title='Choose an STL to mesh' --file-filter='STL files | *.stl *.STL' 2>/dev/null "
-                 "|| kdialog --getopenfilename ~ '*.stl *.STL' 2>/dev/null; } > %s; true", q);
+                 "{ zenity --file-selection --title='Choose a part to mesh (STL, STEP, IGES)' "
+                 "--file-filter='Parts | *.stl *.STL *.step *.STEP *.stp *.STP *.iges *.IGES *.igs *.IGS *.brep' "
+                 "--file-filter='All files | *' 2>/dev/null "
+                 "|| kdialog --getopenfilename ~ '*.stl *.STL *.step *.STEP *.stp *.STP *.iges *.IGES *.igs *.IGS *.brep' 2>/dev/null; } > %s; true", q);
     T.picker = pl_spawn_shell(cmd, "/dev/null");
     T.pickNewCase = newCase;
     pl_strlcpy(T.pickCase, A.cs && !newCase ? A.cs->s.path : "", sizeof T.pickCase);
-    if (T.picker <= 0) ui_toast(TOAST_ERR, "Could not open a file dialog: type the STL's path instead");
+    if (T.picker <= 0) ui_toast(TOAST_ERR, "Could not open a file dialog: type the part's path instead");
 }
 
-static void new_case_from(const char *stl)
+/* a new case's folder in the workspace, named after the part (a free name: part, part-2, ...) with its system/ */
+static bool new_case_dir(const char *part, char *dir, size_t cap)
 {
-    char ws[PL_PATH], name[128], dir[PL_PATH];
+    char ws[PL_PATH], name[128];
     pl_expand_home(ws, sizeof ws, A.set.workspace);
-    pl_strlcpy(name, pl_basename(stl), sizeof name);
+    pl_strlcpy(name, pl_basename(part), sizeof name);
     char *dot = strrchr(name, '.'); if (dot) *dot = 0;
     for (char *c = name; *c; c++) if (*c == ' ' || *c == '/' || *c == '\'' || *c == '"') *c = '_';
-    pl_join(dir, sizeof dir, ws, name);
-    for (int k = 2; pl_exists(dir) && k < 100; k++) { char n2[160]; snprintf(n2, sizeof n2, "%s-%d", name, k); pl_join(dir, sizeof dir, ws, n2); }
+    pl_join(dir, cap, ws, name);
+    for (int k = 2; pl_exists(dir) && k < 100; k++) { char n2[160]; snprintf(n2, sizeof n2, "%s-%d", name, k); pl_join(dir, cap, ws, n2); }
     char sys[PL_PATH]; pl_join(sys, sizeof sys, dir, "system");
-    if (!pl_mkdirs(sys)) { ui_toast(TOAST_ERR, "Could not make %s", dir); return; }
+    if (!pl_mkdirs(sys)) { ui_toast(TOAST_ERR, "Could not make %s", dir); return false; }
+    return true;
+}
+
+/* the new case made of an STL (cad: the CAD file it was converted from, or NULL) */
+static void new_case_finish(const char *dir, const char *stl, const char *cad)
+{
     /* the minimal dictionaries go in with the first Generate; a controlDict now, so the folder is a case */
     MeshCfg m; memset(&m, 0, sizeof m); m.scale = 1;
     Stl s;
     if (!stl_load(stl, &s)) { ui_toast(TOAST_ERR, "%s", s.err); return; }
-    stl_split(&s, 30);
+    stl_split_part(&s, 30, dir);                               /* also its box */
+    if (!cad) {                                                /* as load_stl: a part a thousand times too large is in millimetres */
+        double L = 0; for (int k = 0; k < 3; k++) L = fmax(L, s.bmax[k] - s.bmin[k]);
+        if (L > 20) { m.scale = 0.001; stl_set_scale(&s, 0.001); stl_split_part(&s, 30, dir);
+                      ui_toast(TOAST_INFO, "The part is %.0f units across: read as millimetres (Scale changes it)", L); }
+    }
     mesher_defaults(&m, &s);
     pl_strlcpy(m.stl, stl, sizeof m.stl);
+    if (cad) { pl_strlcpy(m.cad, cad, sizeof m.cad); m.remesh = true; }
     char err[256];
     mesher_prepare(dir, &m, &s, err, sizeof err);              /* writes controlDict and friends, the copy of the STL */
     stl_free(&s);
@@ -211,7 +240,129 @@ static void new_case_from(const char *stl)
     A.meshTab = 3;
     pl_strlcpy(T.casePath, "", sizeof T.casePath);            /* sync_case loads it from the new folder */
     if (A.cs && !strcmp(A.cs->s.path, dir)) sync_case(A.cs);
-    ui_toast(TOAST_OK, "Made the case %s for %s", pl_basename(dir), pl_basename(stl));
+    ui_toast(TOAST_OK, "Made the case %s for %s", pl_basename(dir), pl_basename(cad ? cad : stl));
+}
+
+/* ============================================================================ CAD files: STEP, IGES, BREP -> STL
+   SALOME (assets/salome/cad_to_stl.py) reads the file in its own unit and writes <case>/mesher/<part>.stl in metres, and
+   <part>.brep, the exact shape for SALOME's CAD route; without SALOME, Gmsh's command line makes the STL. It runs in the
+   background (SALOME starts in seconds); the part loads when it is done. */
+static struct {
+    pid_t  pid;
+    char   cad[PL_PATH], out[PL_PATH], log[PL_PATH], casePath[PL_PATH];
+    bool   newCase, fresh;
+    double t0;
+} CV = { .pid = -1 };
+
+static bool cad_busy(void) { return CV.pid > 0; }
+
+static void cad_start(const char *cad, const char *casePath, bool newCase, bool fresh)
+{
+    if (cad_busy()) { ui_toast(TOAST_INFO, "Still reading %s: one part at a time", pl_basename(CV.cad)); return; }
+    char gmsh[PL_PATH] = "";
+    if (!A.env.salome[0] && !pl_which("gmsh", gmsh, sizeof gmsh)) {
+        ui_toast(TOAST_ERR, "Reading %s needs SALOME (Settings > Programs installs it) or Gmsh; or save the part as STL from your CAD program",
+                 pl_basename(cad));
+        return;
+    }
+    char md[PL_PATH], stem[128], name[160], script[PL_PATH];
+    pl_join(md, sizeof md, casePath, "mesher");
+    if (!pl_mkdirs(md)) { ui_toast(TOAST_ERR, "Could not make %s", md); return; }
+    pl_strlcpy(stem, pl_basename(cad), sizeof stem);
+    char *dot = strrchr(stem, '.'); if (dot) *dot = 0;
+    for (char *c = stem; *c; c++) if (*c == ' ' || *c == '\'' || *c == '"') *c = '_';
+    snprintf(name, sizeof name, "%s.stl", stem);
+    pl_join(CV.out, sizeof CV.out, md, name);
+    pl_join(CV.log, sizeof CV.log, md, "cad.log");
+    pl_strlcpy(CV.cad, cad, sizeof CV.cad);
+    pl_strlcpy(CV.casePath, casePath, sizeof CV.casePath);
+    CV.newCase = newCase; CV.fresh = fresh;
+    char qi[PL_PATH + 8], qo[PL_PATH + 8], qs[PL_PATH + 8], qd[PL_PATH + 8], cmd[PL_PATH * 5 + 600];
+    pl_shell_quote(qi, sizeof qi, cad);
+    pl_shell_quote(qo, sizeof qo, CV.out);
+    pl_shell_quote(qd, sizeof qd, md);
+    unlink(CV.out);
+    if (A.env.salome[0]) {
+        pl_join(script, sizeof script, md, "cad_to_stl.py");
+        if (!pl_write_file(script, (const char *)asset_cad_to_stl_py, asset_cad_to_stl_py_len)) { ui_toast(TOAST_ERR, "Could not write %s", script); return; }
+        char qp[PL_PATH + 8]; pl_shell_quote(qp, sizeof qp, script);
+        pl_shell_quote(qs, sizeof qs, A.env.salome);
+        if (!pl_fmt(cmd, sizeof cmd, "cd %s && QC_CAD_IN=%s QC_CAD_OUT=%s env -u LD_LIBRARY_PATH -u PYTHONPATH -u PYTHONHOME %s -t --shutdown-servers=1 %s; "
+                                  "[ -s %s ]", qd, qi, qo, qs, qp, qo)) { ui_toast(TOAST_ERR, "The path to %s is too long", pl_basename(cad)); return; }
+    } else {
+        /* Gmsh: OpenCASCADE reads the file's unit into millimetres, scaled to metres (the options go before the file, or
+           they come too late for the import); facets from the curvature (36 a circle, as the mesher's default) */
+        pl_shell_quote(qs, sizeof qs, gmsh);
+        if (!pl_fmt(cmd, sizeof cmd, "cd %s && %s -setnumber Geometry.OCCScaling 0.001 -setnumber Mesh.MeshSizeFromCurvature 36 "
+                                  "-setnumber Mesh.Algorithm 6 %s -2 -format stl -bin -o %s && [ -s %s ] "
+                                  "&& echo 'Q-Continuum: wrote %s with Gmsh'", qd, qs, qi, qo, qo, name)) { ui_toast(TOAST_ERR, "The path to %s is too long", pl_basename(cad)); return; }
+    }
+    CV.pid = pl_spawn_shell(cmd, CV.log);
+    CV.t0 = GetTime();
+    if (CV.pid <= 0) { ui_toast(TOAST_ERR, "Could not start %s", A.env.salome[0] ? "SALOME" : "Gmsh"); return; }
+    ui_toast(TOAST_INFO, "Reading %s with %s%s", pl_basename(cad), A.env.salome[0] ? "SALOME" : "Gmsh",
+             newCase ? ": the case opens when it is done" : "");
+}
+
+/* what the converter said: its summary (the last 'Q-Continuum:' line other than "wrote ..."), else its last line */
+static void cad_last_words(char *out, size_t cap)
+{
+    out[0] = 0;
+    char *b = pl_read_file(CV.log, NULL);
+    if (!b) return;
+    char last[300] = "";
+    for (char *line = strtok(b, "\n"); line; line = strtok(NULL, "\n")) {
+        char *q = strstr(line, "Q-Continuum:");
+        if (q && (strncmp(q + 13, "wrote ", 6) || !out[0])) pl_strlcpy(out, q + 13, cap);
+        else if (!q && !strstr(line, "*****") && line[strspn(line, " \t\r")]) pl_strlcpy(last, line, sizeof last);
+    }
+    free(b);
+    if (!out[0]) pl_strlcpy(out, last, cap);
+    pl_trim_inplace(out);
+    if (out[0] >= 'a' && out[0] <= 'z') out[0] = (char)(out[0] - 32);
+}
+
+static void cad_poll(void)
+{
+    if (CV.pid <= 0) return;
+    ui_request_frames(2);
+    int st;
+    if (waitpid(CV.pid, &st, WNOHANG) != CV.pid) return;
+    CV.pid = -1;
+    bool ok = WIFEXITED(st) && WEXITSTATUS(st) == 0 && pl_is_file(CV.out);
+    char said[300]; cad_last_words(said, sizeof said);
+    if (!ok) { ui_toast(TOAST_ERR, "Could not read %s: %s (mesher/cad.log has it all)", pl_basename(CV.cad), said[0] ? said : "no reason given"); return; }
+    if (CV.newCase) { new_case_finish(CV.casePath, CV.out, CV.cad); return; }
+    if (!A.cs || strcmp(A.cs->s.path, CV.casePath)) {
+        ui_toast(TOAST_INFO, "Not loaded: %s was read for %s, which is no longer open", pl_basename(CV.cad), pl_basename(CV.casePath));
+        return;
+    }
+    sync_case(A.cs);
+    s_cad = CV.cad;
+    bool loaded = load_stl(CV.out, CV.fresh);
+    s_cad = NULL;
+    if (loaded && !CV.fresh) { pl_strlcpy(T.m.cad, CV.cad, sizeof T.m.cad); save_cfg(); }
+    if (loaded) ui_toast(TOAST_OK, "%s", said[0] ? said : "Read the CAD file");
+}
+
+/* a part chosen for this case: an STL loads now, a CAD file is converted first */
+static void take_part(const char *path)
+{
+    if (stl_is_cad(path)) cad_start(path, T.casePath, false, true);
+    else load_stl(path, true);
+}
+
+static void new_case_from(const char *part)
+{
+    char dir[PL_PATH];
+    if (!stl_is_cad(part)) {
+        Stl s;                                                  /* a bad STL makes no folder */
+        if (!stl_load(part, &s)) { ui_toast(TOAST_ERR, "%s", s.err); return; }
+        stl_free(&s);
+    }
+    if (!new_case_dir(part, dir, sizeof dir)) return;
+    if (stl_is_cad(part)) cad_start(part, dir, true, true);
+    else new_case_finish(dir, part, NULL);
 }
 
 static void poll_picker(void)
@@ -229,17 +380,17 @@ static void poll_picker(void)
         if (T.pickNewCase) new_case_from(p);
         else if (!A.cs || strcmp(A.cs->s.path, T.pickCase))   /* chosen for a case that is no longer open: not this one's */
             ui_toast(TOAST_INFO, "Not loaded: %s was chosen for %s, which is no longer open", pl_basename(p), pl_basename(T.pickCase));
-        else { sync_case(A.cs); load_stl(p, true); }
+        else { sync_case(A.cs); take_part(p); }
     }
     free(p);
 }
 
 void stlmesh_new_case(void) { start_picker(true); }
 void stlmesh_choose(void) { start_picker(false); }
-void stlmesh_tick(void) { poll_picker(); }
+void stlmesh_tick(void) { poll_picker(); cad_poll(); }
 
 /* ============================================================================ meshing */
-static bool salome_mesher(void) { return T.m.mesher != MESHER_SNAPPY; }
+static bool salome_mesher(void) { return MESHERS[T.m.mesher].engine == ENG_SALOME; }
 
 static bool prepare(Case *c)
 {
@@ -266,7 +417,44 @@ static void generate(Case *c)
     if (!prepare(c)) return;
     job_reset(A.cj, "Mesh");
     job_add(A.cj, "clear", "Clear the old mesh", "rm -rf constant/polyMesh 0/polyMesh; echo cleared", "log.meshClear", false);
-    if (!salome_mesher()) {
+    if (T.m.mesher == MESHER_FOAMY) {
+        if (T.m.twoD) job_add(A.cj, "foamyQuadMesh", "foamyQuadMesh + extrude2DMesh", mesher_foamy2d_cmd(), "log.foamyQuadMesh", false);
+        else job_add(A.cj, "foamyHexMesh", "foamyHexMesh (slow)", mesher_foamy_cmd(), "log.foamyHexMesh", false);
+        Str ty; str_init(&ty);
+        if (T.m.twoD) mesher_foamy2d_after(&T.m, &T.stl, &ty);
+        str_cat(&ty, "echo 'patch types:'\n");
+        mesher_type_script(&T.m, &T.stl, &ty);
+        job_add(A.cj, "patchTypes", "Patch types", ty.s, "log.patchTypes", false);
+        str_free(&ty);
+    } else if (mesher_is_cfmesh(T.m.mesher)) {
+        /* cfMesh: feature edges into the surface (.fms), the mesher, the patch types, the check */
+        char prog[64];
+        Str fe; str_init(&fe);
+        if (T.m.twoD) mesher_cf2d_script(&T.m, true, &fe);
+        str_catf(&fe, "surfaceFeatureEdges -angle %g constant/triSurface/cfmesh.stl constant/triSurface/cfmesh.fms", T.m.featureAngle);
+        job_add(A.cj, "surfaceFeatureEdges", "surfaceFeatureEdges", fe.s, "log.surfaceFeatureEdges", false);
+        str_free(&fe);
+        pl_strlcpy(prog, mesher_program(&T.m), sizeof prog);
+        /* cfMesh's layers can turn cells inside out (user's intake, pMesh: 117 cells with 10 layers, none with 6 or 3, and
+           cfMesh's own layer optimisation didn't help): checked, and made again with half as many */
+        char cfc[1400];
+        snprintf(cfc, sizeof cfc,
+                 "%s || exit 1\n"
+                 "L=$(grep -oE 'nLayers [0-9]+' system/meshDict | head -1 | grep -oE '[0-9]+')\n"
+                 "if [ -n \"$L\" ] && [ \"$L\" -gt 1 ]; then checkMesh -constant > log.cfCheck 2>&1\n"
+                 "  n=$(grep -oE 'Number of negative volume cells: [0-9]+' log.cfCheck | grep -oE '[0-9]+$')\n"
+                 "  if [ -n \"$n\" ]; then h=$((L / 2)); echo; echo \"Q-Continuum: $n cells inside out with $L prism layers: "
+                 "meshing again with $h (cfMesh's layers fold on this part; system/meshDict says $h until the next Generate)\"; echo\n"
+                 "    sed -i \"s/nLayers $L;/nLayers $h;/g\" system/meshDict && %s || exit 1; fi\n"
+                 "fi", prog, prog);
+        job_add(A.cj, prog, prog, cfc, TextFormat("log.%s", prog), false);
+        Str ty; str_init(&ty);
+        if (T.m.twoD) mesher_cf2d_script(&T.m, false, &ty);
+        str_cat(&ty, "echo 'patch types:'\n");
+        mesher_type_script(&T.m, &T.stl, &ty);
+        job_add(A.cj, "patchTypes", "Patch types", ty.s, "log.patchTypes", false);
+        str_free(&ty);
+    } else if (!salome_mesher()) {
         job_add(A.cj, "surfaceFeatureExtract", "surfaceFeatureExtract", "surfaceFeatureExtract", "log.surfaceFeatureExtract", false);
         job_add(A.cj, "blockMesh", "blockMesh (background)", "blockMesh", "log.blockMesh", false);
         job_add(A.cj, "snappyHexMesh", "snappyHexMesh", SNAPPY_CMD, "log.snappyHexMesh", false);
@@ -291,13 +479,27 @@ static void generate(Case *c)
         str_cat(&conv, "}");
         job_add(A.cj, "ideasUnvToFoam", "ideasUnvToFoam", conv.s, "log.ideasUnvToFoam", false);
         str_free(&conv);
-        if (T.m.mesher == MESHER_POLY && !T.m.twoD) {          /* 2-D: its triangles stay (polyhedra would span the depth) */
-            char pd[96]; snprintf(pd, sizeof pd, "polyDualMesh %g -overwrite -concaveMultiCells", T.m.featureAngle);
-            job_add(A.cj, "polyDualMesh", "polyDualMesh (to polyhedra)", pd, "log.polyDualMesh", false);
-        }
+    }
+    if (mesher_poly_convert(&T.m)) {                      /* any 3-D mesh into polyhedra (2-D: they would span the depth) */
+        /* the dual of thin prism layers can come out inside out (user's intake, 2026-11-10: 125 negative cells after cfMesh
+           tetMesh, 127 after cartesianMesh, none without layers): the mesh before is kept and put back then */
+        char pd[1800];
+        snprintf(pd, sizeof pd,
+                 "rm -rf .qc-prepoly && cp -r constant/polyMesh .qc-prepoly || exit 1\n"
+                 "if ! polyDualMesh %g -overwrite -concaveMultiCells; then rm -rf constant/polyMesh && mv .qc-prepoly constant/polyMesh; "
+                 "echo \"Q-Continuum: polyDualMesh stopped on this mesh (above: usually a face it would make with only two corners, "
+                 "where the layers pinch): kept the mesh as the mesher made it. cfMesh pMesh or SALOME's polyhedral mesher make "
+                 "polyhedra directly.\"; exit 0; fi\n"
+                 "checkMesh -constant > log.polyDualCheck 2>&1\n"
+                 "n=$(grep -oE 'Number of negative volume cells: [0-9]+' log.polyDualCheck | grep -oE '[0-9]+$')\n"
+                 "if [ -n \"$n\" ]; then rm -rf constant/polyMesh && mv .qc-prepoly constant/polyMesh; "
+                 "echo \"Q-Continuum: the polyhedra came out with $n cells inside out (polyDualMesh cannot take this part's thin prism "
+                 "layers): kept the mesh as the mesher made it. To convert, turn the prism layers off.\"; "
+                 "else rm -rf .qc-prepoly; echo 'Q-Continuum: polyhedra checked: no cells inside out'; fi", T.m.featureAngle);
+        job_add(A.cj, "polyDualMesh", "polyDualMesh (to polyhedra)", pd, "log.polyDualMesh", false);
     }
     job_add(A.cj, "checkMesh", "checkMesh", "checkMesh", "log.checkMesh", false);
-    if (job_start(A.cj, c->s.path, app_bashrc(), GetTime())) ui_toast(TOAST_INFO, "Meshing %s: the Run page shows the log", pl_basename(T.m.stl));
+    if (job_start(A.cj, c->s.path, app_bashrc(), GetTime())) ui_toast(TOAST_INFO, "Meshing %s: the Run page shows the log", pl_basename(T.m.cad[0] ? T.m.cad : T.m.stl));
     else ui_toast(TOAST_ERR, "Could not start the mesher");
 }
 
@@ -414,19 +616,169 @@ static float note(float x, float y, float w, const char *t)
     return ui_text_wrap(F_REG, 13, t, (Rectangle){ x, y, w, 200 }, 19, TH.text3, true) + 12;
 }
 
+/* ---------------------------------------------------------------------------- geometry preparation ("every mesher" step 6)
+   A CAD part's operations (salome_tool.py ops), in order, in <case>/mesher/geometry.ini; Apply runs them on the CAD file
+   in the background and the result (mesher/<stem>-prep.stl + .brep) becomes the part. */
+enum { GO_HEAL, GO_SEW, GO_FUSE, GO_MERGE, GO_SMALL, GO_HOLES, GO_CAP, GO_FLUID, GO_REMOVE, GO__N };
+static const char *const GO_WORD[GO__N] = { "heal", "sew", "fuse", "merge_faces", "remove_small_faces", "remove_holes", "cap_openings", "fluid_inside", "remove_faces" };
+static const char *GO_NAME[GO__N] = { "Heal (fix tolerances, drop tiny edges)", "Sew loose faces into a solid", "Fuse the solids into one",
+                                      "Merge faces that continue one another", "Remove faces smaller than", "Fill round holes smaller than",
+                                      "Cap the openings", "Fluid volume: the passage inside the part", "Remove faces picked on Boundaries" };
+#define GO_MAX 16
+static struct { char casePath[PL_PATH]; int n, kind[GO_MAX]; double val[GO_MAX]; char ids[GO_MAX][200]; char result[300]; bool loaded; } G;
+
+static double go_default(int k) { return k == GO_SMALL ? 0.1 : k == GO_HOLES ? 0.005 : 0; }   /* % of the area; m */
+
+static void geo_save(void)
+{
+    if (!T.casePath[0]) return;
+    Str b; str_init(&b);
+    str_cat(&b, "# Q-Continuum: the CAD part's preparation (Mesh > STL mesher > Geometry), in order. remove_small_faces: % of the\n"
+                "# area; remove_holes: radius in m\n");
+    for (int i = 0; i < G.n; i++) str_catf(&b, "op = %s %g %s\n", GO_WORD[G.kind[i]], G.val[i], G.kind[i] == GO_REMOVE ? G.ids[i] : "");
+    char p[PL_PATH]; pl_join(p, sizeof p, T.casePath, "mesher/geometry.ini");
+    pl_write_file(p, b.s, b.len);
+    str_free(&b);
+}
+
+static void geo_load(void)
+{
+    if (G.loaded && !strcmp(G.casePath, T.casePath)) return;
+    memset(&G, 0, sizeof G);
+    pl_strlcpy(G.casePath, T.casePath, sizeof G.casePath);
+    G.loaded = true;
+    char p[PL_PATH]; pl_join(p, sizeof p, T.casePath, "mesher/geometry.ini");
+    char *t = pl_read_file(p, NULL);
+    if (!t) return;
+    for (char *l = strtok(t, "\n"); l && G.n < GO_MAX; l = strtok(NULL, "\n")) {
+        char w[64], ids[200] = ""; double v = 0;
+        if (sscanf(l, "op = %63s %lf %199s", w, &v, ids) < 1) continue;
+        for (int k = 0; k < GO__N; k++) if (!strcmp(w, GO_WORD[k])) { G.kind[G.n] = k; G.val[G.n] = v; pl_strlcpy(G.ids[G.n], ids, sizeof G.ids[0]); G.n++; }
+    }
+    free(t);
+}
+
+/* the original part: the CAD reader's STL (mesher/<stem>.stl), not a prepared one */
+static void geo_original_stl(char *out, size_t cap)
+{
+    char stem[200]; pl_strlcpy(stem, pl_basename(T.m.cad), sizeof stem);
+    char *dot = strrchr(stem, '.'); if (dot) *dot = 0;
+    for (char *c = stem; *c; c++) if (*c == ' ' || *c == '\'' || *c == '"') *c = '_';
+    char f[240]; snprintf(f, sizeof f, "mesher/%s.stl", stem);
+    pl_join(out, cap, T.casePath, f);
+}
+
+static void geo_apply(void)
+{
+    if (!G.n) { ui_toast(TOAST_INFO, "Add an operation first"); return; }
+    char cad[PL_PATH * 2], outq[PL_PATH * 2], out[PL_PATH], orig[PL_PATH];
+    geo_original_stl(orig, sizeof orig);
+    pl_strlcpy(out, orig, sizeof out);
+    char *dot = strrchr(out, '.'); if (dot) *dot = 0;
+    pl_strlcpy(out + strlen(out), "-prep", sizeof out - strlen(out));
+    stool_quote(cad, sizeof cad, T.m.cad); stool_quote(outq, sizeof outq, out);
+    Str r; str_init(&r);
+    str_catf(&r, "{\"cmd\": \"ops\", \"cad\": \"%s\", \"out\": \"%s\", \"ops\": [", cad, outq);
+    for (int i = 0; i < G.n; i++) {
+        int k = G.kind[i];
+        str_catf(&r, "%s{\"op\": \"%s\"", i ? ", " : "", GO_WORD[k]);
+        if (k == GO_SMALL) str_catf(&r, ", \"below\": %g", G.val[i] / 100);
+        if (k == GO_HOLES) str_catf(&r, ", \"radius\": %g", G.val[i]);
+        if (k == GO_REMOVE) str_catf(&r, ", \"faces\": [%s]", G.ids[i]);
+        str_cat(&r, "}");
+    }
+    str_cat(&r, "]}");
+    if (stool_run(T.casePath, "geoprep", r.s)) { G.result[0] = 0; ui_toast(TOAST_INFO, "Preparing the geometry in SALOME"); }
+    str_free(&r);
+}
+
+static void geo_poll(void)
+{
+    QJ *a = stool_take("geoprep");
+    if (!a) return;
+    if (!qj_true(qj_get(a, "ok"))) {
+        pl_fmt_ui(G.result, sizeof G.result, "Not done: %s", qj_str(qj_get(a, "error"), "no reason given"));
+        ui_toast(TOAST_ERR, "%s", G.result);
+    } else if (A.cs && !strcmp(A.cs->s.path, G.casePath)) {
+        const char *stl = qj_str(qj_get(a, "stl"), "");
+        pl_fmt_ui(G.result, sizeof G.result, "Prepared: %d faces (was %d), volume %.4g m³ (was %.4g)%s", (int)qj_num(qj_get(a, "faces"), 0),
+                  (int)qj_num(qj_get(a, "faces_before"), 0), qj_num(qj_get(a, "volume"), 0), qj_num(qj_get(a, "volume_before"), 0),
+                  qj_true(qj_get(a, "closed")) ? "" : ", NOT closed");
+        char cad[PL_PATH]; pl_strlcpy(cad, T.m.cad, sizeof cad);
+        s_cad = cad;
+        if (load_stl(stl, true)) ui_toast(TOAST_OK, "%s", G.result);
+        s_cad = NULL;
+    }
+    qj_free(a);
+}
+
+static float prep_section(float x, float y, float w)
+{
+    geo_load();
+    geo_poll();
+    float y0 = y;
+    y += section_head(x, y, w, "Prepare the geometry", "SALOME works on the CAD file in the background, in this order, and the result "
+                                                        "becomes the part. Fluid volume turns a solid part (an intake, a valve body) into "
+                                                        "the passage inside it, its openings capped.");
+    bool busy = stool_busy("geoprep");
+    int del = -1;
+    for (int i = 0; i < G.n; i++) {
+        ui_push_id(ui_idn(ui_id("geo-op"), i));
+        char lab[96]; snprintf(lab, sizeof lab, "%d.  %s", i + 1, GO_NAME[G.kind[i]]);
+        ui_text_clip(F_MED, 13.5f, lab, x, y + 9, w - 260, TH.text);
+        int k = G.kind[i];
+        if (k == GO_REMOVE) ui_text_clip(F_MONO, 12.5f, TextFormat("faces %s", G.ids[i]), x + w - 240, y + 9, 190, TH.text3);
+        if (k == GO_SMALL || k == GO_HOLES) {
+            double v = k == GO_HOLES ? G.val[i] * 1000 : G.val[i];
+            if (num_field(ui_id("val"), (Rectangle){ x + w - 240, y, 150, 34 }, &v, "%g", 1e-6, 1e6, k == GO_HOLES ? "mm" : "% area"))
+                { G.val[i] = k == GO_HOLES ? v / 1000 : v; geo_save(); }
+        }
+        if (ui_button(ui_id("del"), (Rectangle){ x + w - 40, y + 1, 32, 32 }, ICON_TRASH_2, NULL, BTN_ICON)) del = i;
+        ui_pop_id();
+        y += 42;
+    }
+    if (del >= 0) { for (int i = del; i < G.n - 1; i++) { G.kind[i] = G.kind[i + 1]; G.val[i] = G.val[i + 1]; } G.n--; geo_save(); }
+    ui_disable(busy || G.n >= GO_MAX);
+    int add = -1;
+    if (ui_select_ph(ui_id("geo-add"), (Rectangle){ x, y, fminf(380, w - 240), 34 }, (const char **)GO_NAME, GO__N - 1, &add, "Add an operation...") && add >= 0) {
+        G.kind[G.n] = add; G.val[G.n] = go_default(add); G.n++; geo_save();
+    }
+    ui_disable(busy || !G.n || !A.env.salome[0]);
+    float aw = ui_button_width(ICON_PLAY, "Apply");
+    if (ui_button(ui_id("geo-apply"), (Rectangle){ x + fminf(380, w - 240) + 12, y, aw, 34 }, ICON_PLAY, busy ? "Working..." : "Apply", BTN_PRIMARY)) geo_apply();
+    ui_disable(busy);
+    char orig[PL_PATH]; geo_original_stl(orig, sizeof orig);
+    if (strcmp(T.m.stl, orig) && pl_is_file(orig)) {
+        float ow = ui_button_width(ICON_UNDO_2, "Use the original");
+        if (ui_button(ui_id("geo-orig"), (Rectangle){ x + fminf(380, w - 240) + aw + 22, y, ow, 34 }, ICON_UNDO_2, "Use the original", BTN_GHOST)) {
+            char cad[PL_PATH]; pl_strlcpy(cad, T.m.cad, sizeof cad);
+            s_cad = cad; load_stl(orig, true); s_cad = NULL;
+            G.result[0] = 0;
+        }
+    }
+    ui_disable(false);
+    y += 44;
+    if (busy) {
+        char t[80]; snprintf(t, sizeof t, "SALOME is working on it  ·  %.0f s", stool_seconds());
+        ui_text(F_REG, 13, t, x, y, TH.text3); y += 24;
+    } else if (G.result[0]) y += note(x, y, w, G.result);
+    return y - y0 + 6;
+}
+
 /* ---------------------------------------------------------------------------- 1 Geometry: the STL, its units, its boundaries */
 static float geometry_step(Case *c, float x, float y, float w)
 {
     float y0 = y;
-    float bw = ui_button_width(ICON_FOLDER_OPEN, "Choose STL...");
-    ui_disable(T.picker > 0);
-    if (ui_button(ui_id("stl-pick"), (Rectangle){ x, y, bw, 38 }, ICON_FOLDER_OPEN, T.picker > 0 ? "Choosing..." : "Choose STL...", BTN_PRIMARY)) start_picker(false);
-    ui_disable(false);
+    float bw = ui_button_width(ICON_FOLDER_OPEN, "Choose part...");
+    bool reading = cad_busy() && !strcmp(CV.casePath, T.casePath);
+    ui_disable(T.picker > 0 || reading);
+    if (ui_button(ui_id("stl-pick"), (Rectangle){ x, y, bw, 38 }, ICON_FOLDER_OPEN, T.picker > 0 ? "Choosing..." : reading ? "Reading..." : "Choose part...",
+                  BTN_PRIMARY)) start_picker(false);
     float ix = x + bw + 12, iw = w - bw - 12 - (T.loaded ? 90 : 0);
     UiId tid = ui_id("stl-path");
-    if (!ui_input_focused(tid)) pl_strlcpy(T.typed, T.m.stl, sizeof T.typed);
+    if (!ui_input_focused(tid)) pl_strlcpy(T.typed, T.m.cad[0] ? T.m.cad : T.m.stl, sizeof T.typed);
     unsigned gen = T.gen;
-    if (ui_input(tid, (Rectangle){ ix, y, iw, 38 }, T.typed, sizeof T.typed, A.env.wsl ? "or paste a path: /mnt/c/Users/you/Downloads/part.stl, or C:\\..." : "or a path to an .stl",
+    if (ui_input(tid, (Rectangle){ ix, y, iw, 38 }, T.typed, sizeof T.typed, A.env.wsl ? "or paste a path: /mnt/c/Users/you/Downloads/part.step, or C:\\..." : "or a path to an .stl or .step",
                  INPUT_MONO) && gen == T.gen && T.typed[0]) {
         char p[PL_PATH]; pl_expand_home(p, sizeof p, T.typed); pl_trim_inplace(p);
         /* a Windows path pasted from Explorer (with its quotes, as "Copy as path" gives it) */
@@ -437,16 +789,28 @@ static float geometry_step(Case *c, float x, float y, float w)
             pl_shell_quote(q, sizeof q, p); snprintf(cmd, sizeof cmd, "wslpath -u %s", q);
             if (pl_run_wait(cmd, out, sizeof out) == 0) { pl_trim_inplace(out); pl_strlcpy(p, out, sizeof p); }
         }
-        if (strcmp(p, T.m.stl) || !T.loaded) { if (pl_is_file(p)) load_stl(p, true); else ui_toast(TOAST_ERR, "No file at %s", p); }
+        if ((strcmp(p, T.m.stl) && strcmp(p, T.m.cad)) || !T.loaded) { if (pl_is_file(p)) take_part(p); else ui_toast(TOAST_ERR, "No file at %s", p); }
     }
-    if (T.loaded && ui_button(ui_id("stl-reload"), (Rectangle){ x + w - 80, y, 80, 38 }, ICON_REFRESH_CW, "Reload", BTN_GHOST)) {
+    ui_disable(false);
+    if (T.loaded && !reading && ui_button(ui_id("stl-reload"), (Rectangle){ x + w - 80, y, 80, 38 }, ICON_REFRESH_CW, "Reload", BTN_GHOST)) {
         char p[PL_PATH]; pl_strlcpy(p, T.m.stl, sizeof p);
-        if (pl_is_file(p)) load_stl(p, false); else ui_toast(TOAST_ERR, "%s is gone: choose the STL again", p);
+        if (T.m.cad[0] && pl_is_file(T.m.cad)) cad_start(T.m.cad, T.casePath, false, false);   /* the CAD may have changed */
+        else if (pl_is_file(p)) load_stl(p, false); else ui_toast(TOAST_ERR, "%s is gone: choose the STL again", p);
     }
     y += 52;
+    if (reading) {
+        char t[PL_PATH + 40], d[400];
+        pl_fmt_ui(t, sizeof t, "Reading %s  ·  %.0f s", pl_basename(CV.cad), GetTime() - CV.t0);
+        snprintf(d, sizeof d, "%s turns the CAD into a fine STL in metres (from the file's own unit) and keeps the exact shape for "
+                              "SALOME's CAD route. A few seconds for most parts; a big assembly takes longer.", A.env.salome[0] ? "SALOME" : "Gmsh");
+        float ch = callout_height(w, t, d);
+        callout((Rectangle){ x, y, w, ch }, TOAST_INFO, ICON_REFRESH_CW, t, d);
+        y += ch + 8;
+        if (!T.loaded) return y - y0;
+    }
     if (!T.loaded) {
-        const char *t = "Start with the part", *d = "Choose an STL (ASCII or binary), or paste its path. Next you say whether the fluid is inside it "
-                                                     "(a duct, a manifold) or around it (a wing, a car), then name its boundaries, then mesh it.";
+        const char *t = "Start with the part", *d = "Choose an STL (ASCII or binary) or a CAD file (STEP, IGES), or paste its path. Next you say whether "
+                                                     "the fluid is inside it (a duct, a manifold) or around it (a wing, a car), then name its boundaries, then mesh it.";
         float ch = callout_height(w, t, d);
         callout((Rectangle){ x, y, w, ch }, TOAST_INFO, ICON_FOLDER_OPEN, t, d);
         return y + ch + 8 - y0;
@@ -457,7 +821,8 @@ static float geometry_step(Case *c, float x, float y, float w)
     snprintf(tri, sizeof tri, "%d", s->nTri);
     char th[32] = ""; double thick = part_thickness();
     if (thick > 0) fmt_len(th, sizeof th, thick);
-    pl_fmt_ui(line, sizeof line, "%s  ·  %s triangles (%s)  ·  %s × %s × %s  ·  area %.4g m²%s%s%s", pl_basename(T.m.stl), tri, s->binary ? "binary" : "ASCII",
+    pl_fmt_ui(line, sizeof line, "%s  ·  %s triangles (%s)  ·  %s × %s × %s  ·  area %.4g m²%s%s%s", T.m.cad[0] ? TextFormat("%s (CAD)", pl_basename(T.m.cad)) : pl_basename(T.m.stl), tri,
+              T.m.cad[0] ? "made from the CAD" : s->binary ? "binary" : "ASCII",
               a, b3, c3, s->area, s->openEdges == 0 && s->nonManifold == 0 ? TextFormat("  ·  volume %.4g m³", s->volume) : "",
               th[0] ? "  ·  thinnest about " : "", th);
     y += ui_text_wrap(F_MONO, 12.5f, line, (Rectangle){ x, y, w, 80 }, 19, TH.text2, true) + 8;
@@ -470,7 +835,9 @@ static float geometry_step(Case *c, float x, float y, float w)
     callout((Rectangle){ x, y, w, ch }, closed ? TOAST_OK : TOAST_WARN, closed ? ICON_CIRCLE_CHECK : ICON_TRIANGLE_ALERT, NULL, msg);
     y += ch + 14;
     /* scale: the STL's unit, checked against the size it gives */
-    Rectangle cr = prop_row(x, &y, w, "Units of the STL", "STL files have no units; CAD usually writes millimetres. Check the size above looks right.", 34);
+    Rectangle cr = prop_row(x, &y, w, T.m.cad[0] ? "Units" : "Units of the STL", T.m.cad[0]
+                              ? "Read from the CAD file and converted to metres: change it only if the size above is wrong."
+                              : "STL files have no units; CAD usually writes millimetres. Check the size above looks right.", 34);
     static const char *units[] = { "m", "cm", "mm", "inch" };
     static const double uk[] = { 1, 0.01, 0.001, 0.0254 };
     int us = -1;
@@ -479,7 +846,7 @@ static float geometry_step(Case *c, float x, float y, float w)
     float segW = fminf(280, cr.width - 110), fx = cr.x + segW + 12, fwd = fminf(140, cr.x + cr.width - fx);
     if (ui_segmented(ui_id("stl-units"), (Rectangle){ cr.x, cr.y, segW, 34 }, units, 4, &pick) && pick != us && pick >= 0) {
         T.m.scale = uk[pick];
-        stl_set_scale(&T.stl, T.m.scale); stl_split(&T.stl, T.m.splitAngle);
+        stl_set_scale(&T.stl, T.m.scale); stl_split_part(&T.stl, T.m.splitAngle, T.casePath);
         mesher_apply_names(&T.m, &T.stl);
         mesher_defaults(&T.m, &T.stl);                    /* sizes follow the part's new size */
         pl_strlcpy(T.m.stl, s->path, sizeof T.m.stl);
@@ -487,15 +854,18 @@ static float geometry_step(Case *c, float x, float y, float w)
     }
     double sc = T.m.scale;
     if (num_field(ui_id("stl-scale"), (Rectangle){ fx, cr.y, fwd, 34 }, &sc, "%g", 1e-9, 1e9, "×") && sc != T.m.scale) {
-        T.m.scale = sc; stl_set_scale(&T.stl, sc); stl_split(&T.stl, T.m.splitAngle); mesher_apply_names(&T.m, &T.stl); save_cfg();
+        T.m.scale = sc; stl_set_scale(&T.stl, sc); stl_split_part(&T.stl, T.m.splitAngle, T.casePath); mesher_apply_names(&T.m, &T.stl); save_cfg();
     }
     double ang = T.m.splitAngle;
     char after[96]; snprintf(after, sizeof after, "%d boundar%s", s->nRegions, s->nRegions == 1 ? "y" : "ies");
     if (row_num(x, &y, w, "stl-split", "Split by angle", "Surfaces meeting at a sharper angle become separate boundaries (STAR-CCM+'s split by angle). "
                 "0 keeps the file's own solids. You name them two steps on.", &ang, "%g", 0, 180, "°", after)) {
-        T.m.splitAngle = ang; stl_split(&T.stl, ang); mesher_take_names(&T.m, &T.stl); save_cfg();
+        T.m.splitAngle = ang;
+        if (T.stl.face) { char fp[PL_PATH]; pl_join(fp, sizeof fp, T.casePath, "mesher/faces.ini"); unlink(fp); }   /* CAD faces: regrouped by the angle */
+        stl_split_part(&T.stl, ang, T.casePath); mesher_take_names(&T.m, &T.stl); save_cfg();
     }
     /* start over: the case without an STL (a mistake, or the wrong part) */
+    if (T.m.cad[0]) y += prep_section(x, y + 4, w) + 4;    /* a CAD part: operations on its exact shape */
     bool armed = T.removeArm > 0 && ui_time() - T.removeArm < 4;
     const char *rl = armed ? "Click again to remove" : "Remove STL from this case";
     float rw = ui_button_width(ICON_TRASH_2, rl);
@@ -534,13 +904,22 @@ static void view_forget(void)
     SV.sig = -1; SV.dirty = true; SV.up = -1;
 }
 
+/* the theme's colours: the models carry them, so a theme change builds them again (the view kept another theme's blue
+   while the list beside it showed this one's orange, user 2026-11-10) */
+static double theme_sig(void)
+{
+    double h = TH.dark ? 0.5 : 0;
+    for (int i = 0; i < 10; i++) h += (TH.series[i].r * 3.0 + TH.series[i].g * 5.0 + TH.series[i].b * 7.0) * (i + 1);
+    return h;
+}
+
 static double geometry_sig(void)
 {
     const Stl *s = &T.stl;
     double h = s->nTri * 1.0 + T.gen * 1e3 + s->nRegions * 1e-3 + T.m.scale * 7.1 + T.m.splitAngle * 0.013 + (double)(uintptr_t)s->tri * 1e-9;
     for (int k = 0; k < 3; k++) h += s->bmin[k] * 3.3 + s->bmax[k] * 5.9;
     for (int r = 0; r < s->nRegions; r++) h += s->reg[r].nTri * (r + 1) * 1e-6;
-    return h;
+    return h + theme_sig() * 1e-7;
 }
 
 static void view_unload(void)
@@ -622,6 +1001,21 @@ static Camera3D view_camera(void)
 }
 
 /* the boundary under a point of the view (-1: none): the nearest triangle the ray through it hits */
+static int view_pick_tri(Rectangle view, Vector2 mp)
+{
+    float s = ui_scale();
+    Vector2 pos = { (mp.x - view.x) * s, (mp.y - view.y) * s };
+    Ray ray = GetScreenToWorldRayEx(pos, view_camera(), SV.rtW, SV.rtH);
+    float best = 1e30f; int hit = -1;
+    const Stl *st = &T.stl;
+    for (int t = 0; t < st->nTri; t++) {
+        const float *p = st->tri + 9 * (size_t)t;
+        RayCollision h = GetRayCollisionTriangle(ray, (Vector3){ p[0], p[1], p[2] }, (Vector3){ p[3], p[4], p[5] }, (Vector3){ p[6], p[7], p[8] });
+        if (h.hit && h.distance < best) { best = h.distance; hit = t; }
+    }
+    return hit;
+}
+
 static int view_pick(Rectangle view, Vector2 mp)
 {
     float s = ui_scale();
@@ -756,6 +1150,88 @@ static void view_overlay_labels(Camera3D cam, float s)
     }
 }
 
+/* the picked boundary's border: its triangles' edges used once within it (shared with another boundary, or open). Built
+   again when the pick or the geometry changes. Returns the count, *out the segments (6 floats each). */
+/* the border of a set of triangles: their edges used once within the set (shared with a triangle outside it, or open);
+   6 floats a segment into *seg (grown as needed) */
+static int border_build(bool (*in)(const Stl *, int), float **seg, int *cap)
+{
+    const Stl *st = &T.stl;
+    int n = 0;
+    int ne = 0; for (int t = 0; t < st->nTri; t++) if (in(st, t)) ne += 3;
+    size_t hc = 1;
+    while (hc < (size_t)ne * 2 + 2) hc <<= 1;
+    struct E { float a[3], b[3]; int cnt; bool used; } *h = calloc(hc, sizeof *h);
+    if (!h) return n;
+    float L = 0; for (int k = 0; k < 3; k++) L = fmaxf(L, st->bmax[k] - st->bmin[k]);
+    float q = fmaxf(L * 1e-6f, 1e-12f);
+    for (int t = 0; t < st->nTri; t++) {
+        if (!in(st, t)) continue;
+        const float *p = st->tri + 9 * (size_t)t;
+        for (int e = 0; e < 3; e++) {
+            const float *a = p + 3 * e, *b = p + 3 * ((e + 1) % 3);
+            long ka[3], kb[3]; for (int k = 0; k < 3; k++) { ka[k] = lroundf(a[k] / q); kb[k] = lroundf(b[k] / q); }
+            if (memcmp(ka, kb, sizeof ka) > 0) { const float *x = a; a = b; b = x; long y[3]; memcpy(y, ka, sizeof y); memcpy(ka, kb, sizeof ka); memcpy(kb, y, sizeof kb); }
+            uint64_t hh = 1469598103934665603ULL;
+            for (int k = 0; k < 3; k++) { hh = (hh ^ (uint64_t)ka[k]) * 1099511628211ULL; hh = (hh ^ (uint64_t)kb[k]) * 1099511628211ULL; }
+            size_t j = hh & (hc - 1);
+            while (h[j].used) {
+                long ja[3], jb[3]; for (int k = 0; k < 3; k++) { ja[k] = lroundf(h[j].a[k] / q); jb[k] = lroundf(h[j].b[k] / q); }
+                if (!memcmp(ja, ka, sizeof ja) && !memcmp(jb, kb, sizeof jb)) break;
+                j = (j + 1) & (hc - 1);
+            }
+            if (!h[j].used) { h[j].used = true; memcpy(h[j].a, a, sizeof h[j].a); memcpy(h[j].b, b, sizeof h[j].b); }
+            h[j].cnt++;
+        }
+    }
+    for (size_t j = 0; j < hc; j++) {
+        if (!h[j].used || h[j].cnt != 1) continue;
+        if (n == *cap) { *cap = *cap ? *cap * 2 : 1024; float *ns = realloc(*seg, sizeof(float) * 6 * (size_t)*cap); if (!ns) break; *seg = ns; }
+        memcpy(*seg + 6 * (size_t)n, h[j].a, sizeof(float) * 3); memcpy(*seg + 6 * (size_t)n + 3, h[j].b, sizeof(float) * 3);
+        n++;
+    }
+    free(h);
+    return n;
+}
+
+static bool in_sel(const Stl *st, int t) { return st->region[t] == T.sel; }
+
+/* the picked boundary's border, built again when the pick or the geometry changes */
+static int sel_border(const float **out)
+{
+    static float *seg; static int n, cap, forSel = -2; static double forSig = -1;
+    double sig = geometry_sig();
+    if (forSel != T.sel || forSig != sig) {
+        forSel = T.sel; forSig = sig;
+        n = T.sel >= 0 && T.sel < T.stl.nRegions ? border_build(in_sel, &seg, &cap) : 0;
+    }
+    *out = seg;
+    return n;
+}
+
+/* CAD faces picked (Boundaries, a part from STEP or IGES): by face id, shift-click adds or takes away */
+static struct { bool *on; int cap, n; unsigned gen; } PK;
+static void pick_reset(void) { PK.n = 0; if (PK.on) memset(PK.on, 0, (size_t)PK.cap); PK.gen++; }
+static void pick_clear(void) { if (PK.on) memset(PK.on, 0, (size_t)PK.cap); PK.n = 0; PK.gen++; SV.dirty = true; }
+static void pick_face(int f, bool add)
+{
+    if (f < 1) { if (!add) pick_clear(); return; }
+    if (f >= PK.cap) { int nc = f + 64; bool *no = realloc(PK.on, (size_t)nc); if (!no) return; memset(no + PK.cap, 0, (size_t)(nc - PK.cap)); PK.on = no; PK.cap = nc; }
+    if (!add) pick_clear();
+    PK.on[f] = !PK.on[f];
+    PK.n += PK.on[f] ? 1 : -1;
+    PK.gen++; SV.dirty = true;
+}
+static bool in_pick(const Stl *st, int t) { int f = st->face ? st->face[t] : 0; return f > 0 && f < PK.cap && PK.on[f]; }
+static int pick_border(const float **out)
+{
+    static float *seg; static int n, cap; static unsigned forGen = ~0u; static double forSig = -1;
+    double sig = geometry_sig();
+    if (forGen != PK.gen || forSig != sig) { forGen = PK.gen; forSig = sig; n = PK.n ? border_build(in_pick, &seg, &cap) : 0; }
+    *out = seg;
+    return n;
+}
+
 static void view_redraw(Rectangle r)
 {
     float s = ui_scale();
@@ -786,20 +1262,42 @@ static void view_redraw(Rectangle r)
     Vector3 to = { cam.position.x - cam.target.x, cam.position.y - cam.target.y, cam.position.z - cam.target.z };
     float tl = sqrtf(to.x * to.x + to.y * to.y + to.z * to.z), k = SV.O.dist * 0.0015f / fmaxf(tl, 1e-12f);
     to.x *= k; to.y *= k; to.z *= k;
-    for (int pass = 0; pass < 2; pass++) {
-        if (pass == 0 && st->nTri > VIEW_EDGES) continue;
-        if (pass == 1 && (T.sel < 0 || st->reg[T.sel].nTri > VIEW_EDGES)) continue;
-        Color ec = pass ? TH.accent : TH.dark ? (Color){ 0, 0, 0, 110 } : (Color){ 20, 30, 50, 80 };
+    if (st->nTri <= VIEW_EDGES) {                         /* every triangle's outline, faint */
+        Color ec = TH.dark ? (Color){ 0, 0, 0, 110 } : (Color){ 20, 30, 50, 80 };
         rlBegin(RL_LINES);
         rlColor4ub(ec.r, ec.g, ec.b, ec.a);
         for (int t = 0; t < st->nTri; t++) {
-            if (pass == 1 && st->region[t] != T.sel) continue;
             const float *p = st->tri + 9 * (size_t)t;
             for (int e = 0; e < 3; e++) {
                 const float *a = p + 3 * e, *b = p + 3 * ((e + 1) % 3);
                 rlVertex3f(a[0] + to.x, a[1] + to.y, a[2] + to.z);
                 rlVertex3f(b[0] + to.x, b[1] + to.y, b[2] + to.z);
             }
+        }
+        rlEnd();
+        rlDrawRenderBatchActive();
+    }
+    if (PK.n) {                                           /* CAD faces picked: their border, white over everything */
+        const float *se; int ns = pick_border(&se);
+        rlBegin(RL_LINES);
+        rlColor4ub(255, 255, 255, 255);
+        for (int i = 0; i < ns; i++) {
+            const float *g = se + 6 * (size_t)i;
+            rlVertex3f(g[0] + to.x * 2, g[1] + to.y * 2, g[2] + to.z * 2);
+            rlVertex3f(g[3] + to.x * 2, g[4] + to.y * 2, g[5] + to.z * 2);
+        }
+        rlEnd();
+        rlDrawRenderBatchActive();
+    }
+    if (T.sel >= 0) {                                     /* the picked boundary: its border in the accent, its own colour inside
+                                                             (every triangle outlined painted a fine face all accent) */
+        const float *se; int ns = sel_border(&se);
+        rlBegin(RL_LINES);
+        rlColor4ub(TH.accent.r, TH.accent.g, TH.accent.b, 255);
+        for (int i = 0; i < ns; i++) {
+            const float *g = se + 6 * (size_t)i;
+            rlVertex3f(g[0] + to.x, g[1] + to.y, g[2] + to.z);
+            rlVertex3f(g[3] + to.x, g[4] + to.y, g[5] + to.z);
         }
         rlEnd();
         rlDrawRenderBatchActive();
@@ -872,7 +1370,12 @@ static void view_panel(Rectangle view)
         bool down = SV.dragging ? ui_mouse_down() : (IsMouseButtonDown(MOUSE_BUTTON_RIGHT) || ui_mouse_down());
         if (fabsf(mp.x - SV.down.x) + fabsf(mp.y - SV.down.y) > 4) SV.moved = true;
         if (!down) {
-            if (!SV.moved && hov && T.open == ST_BOUND) select_region(view_pick(view, mp));   /* a click, not a drag: pick the boundary there */
+            if (!SV.moved && hov && T.open == ST_BOUND) {    /* a click, not a drag: pick the boundary there (a CAD part: the face too) */
+                int t = view_pick_tri(view, mp);
+                bool add = inp_key_down(KEY_LEFT_SHIFT) || inp_key_down(KEY_RIGHT_SHIFT);
+                if (T.stl.face) pick_face(t >= 0 ? T.stl.face[t] : 0, add);
+                if (!add) select_region(t >= 0 ? T.stl.region[t] : -1);
+            }
             SV.dragging = SV.panning = false;
         } else {
             float dx = mp.x - SV.last.x, dy = mp.y - SV.last.y;
@@ -965,6 +1468,15 @@ static bool rename_region(int i, const char *typed)
     if (!strcmp(nm, s->reg[i].name)) return true;
     char old[64]; pl_strlcpy(old, s->reg[i].name, sizeof old);
     pl_strlcpy(s->reg[i].name, nm, sizeof s->reg[i].name);
+    if (s->face) {                                        /* a CAD face group: its faces carry the new name */
+        StlName *g = faces_load(T.casePath, s->nFaces);
+        if (g) {
+            for (int f = 1; f <= s->nFaces; f++) if (!strcmp(g[f], old)) pl_strlcpy(g[f], nm, 64);
+            faces_save(T.casePath, (const StlName *)g, s->nFaces);
+            free(g);
+        }
+        for (int t = 0; t < s->nTri; t++) if (!strcmp(s->solid[t], old)) pl_strlcpy(s->solid[t], nm, 64);
+    }
     save_cfg();
     if (A.cs) setup_rename(A.cs, old, nm);                 /* its conditions go with it */
     return true;
@@ -1103,6 +1615,97 @@ static void boundary_counts(int *in, int *out, int *wall, int *other)
     }
 }
 
+/* the kind a boundary's name asks for (-1: it doesn't say): inlet / inflow, outlet / outflow / exhaust; a word in the name,
+   not a part of another (a "pinlet" says nothing) */
+static int name_role(const char *name)
+{
+    char l[64]; int n = 0;
+    for (const char *q = name; *q && n < 63; q++) l[n++] = (char)(*q >= 'A' && *q <= 'Z' ? *q + 32 : *q);
+    l[n] = 0;
+    static const struct { const char *w; int role; } W[] = { { "inlet", BT_INLET }, { "inflow", BT_INLET }, { "outlet", BT_OUTLET },
+                                                           { "outflow", BT_OUTLET }, { "exhaust", BT_OUTLET } };
+    for (size_t i = 0; i < sizeof W / sizeof W[0]; i++) {
+        const char *p = strstr(l, W[i].w);
+        if (!p) continue;
+        bool start = p == l || p[-1] == '_' || (p[-1] >= '0' && p[-1] <= '9');
+        if (start) return W[i].role;
+    }
+    return -1;
+}
+
+/* the picked faces into a boundary (new or one there is): faces.ini changed, the part split by it again */
+static void group_picked(const char *name)
+{
+    Stl *s = &T.stl;
+    StlName *g = faces_load(T.casePath, s->nFaces);
+    if (!g) { g = calloc((size_t)s->nFaces + 1, sizeof *g); faces_default(s, T.m.splitAngle, g); }
+    for (int f = 1; f <= s->nFaces && f < PK.cap; f++) if (PK.on[f]) pl_strlcpy(g[f], name, 64);
+    faces_save(T.casePath, (const StlName *)g, s->nFaces);
+    free(g);
+    MeshCfg keep = T.m;
+    stl_split_part(&T.stl, T.m.splitAngle, T.casePath);
+    mesher_apply_names(&keep, &T.stl);                   /* the kinds by name: the new one a wall until said otherwise */
+    save_cfg();
+    for (int r = 0; r < s->nRegions; r++) if (!strcmp(s->reg[r].name, name)) { T.sel = r; break; }
+    SV.dirty = true;
+    ui_toast(TOAST_OK, "%d face%s now in %s", PK.n, PK.n == 1 ? "" : "s", name);
+}
+
+static float faces_bar(float x, float y, float w)
+{
+    float y0 = y;
+    Stl *s = &T.stl;
+    double area = 0; char ids[200] = ""; int k = 0;
+    for (int t = 0; t < s->nTri; t++) if (in_pick(s, t)) {
+        const float *p = s->tri + 9 * (size_t)t;
+        float e1[3] = { p[3] - p[0], p[4] - p[1], p[5] - p[2] }, e2[3] = { p[6] - p[0], p[7] - p[1], p[8] - p[2] };
+        float c[3] = { e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0] };
+        area += 0.5 * sqrtf(c[0] * c[0] + c[1] * c[1] + c[2] * c[2]);
+    }
+    for (int f = 1; f < PK.cap && f <= s->nFaces; f++) if (PK.on[f]) { if (k++) pl_strlcpy(ids + strlen(ids), ",", sizeof ids - strlen(ids)); snprintf(ids + strlen(ids), sizeof ids - strlen(ids), "%d", f); }
+    Rectangle box = { x, y, w, 96 };
+    ui_rect(box, 10, TH.surface2); ui_rect_lines(box, 10, 1, TH.lineSoft);
+    char t[300];
+    if (PK.n) pl_fmt_ui(t, sizeof t, "%d face%s picked  ·  %.4g m²  ·  CAD face%s %s", PK.n, PK.n == 1 ? "" : "s", area, PK.n == 1 ? "" : "s", ids);
+    else pl_strlcpy(t, "CAD faces: click a face to pick it, shift-click to pick more, then make them a boundary of their own.", sizeof t);
+    ui_text_clip(PK.n ? F_MED : F_REG, 13.5f, t, x + 14, y + 10, w - 60, PK.n ? TH.text : TH.text3);
+    if (PK.n && ui_button(ui_id("pk-clear"), (Rectangle){ x + w - 42, y + 6, 30, 30 }, ICON_X, NULL, BTN_ICON)) pick_clear();
+    ui_disable(!PK.n);                                    /* the same height picked or not: the view doesn't jump on the first click */
+    static char nm[64];
+    float by = y + 46, bx = x + 14;
+    ui_input(ui_id("pk-name"), (Rectangle){ bx, by, 200, 36 }, nm, sizeof nm, "new boundary name", INPUT_MONO);
+    bx += 210;
+    float mw = ui_button_width(ICON_PLUS, "Make a boundary");
+    if (ui_button(ui_id("pk-make"), (Rectangle){ bx, by, mw, 36 }, ICON_PLUS, "Make a boundary", BTN_PRIMARY) || ui_input_entered(ui_id("pk-name"))) {
+        char n2[64]; pl_strlcpy(n2, nm, sizeof n2); pl_trim_inplace(n2);
+        for (char *q = n2; *q; q++) if (*q == ' ' || *q == '-') *q = '_';
+        bool ok = n2[0] && !(n2[0] >= '0' && n2[0] <= '9');
+        for (char *q = n2; *q && ok; q++) if (!((*q >= 'a' && *q <= 'z') || (*q >= 'A' && *q <= 'Z') || (*q >= '0' && *q <= '9') || *q == '_')) ok = false;
+        if (!ok) ui_toast(TOAST_ERR, "A boundary name is letters, digits and _ (not starting with a digit)");
+        else { group_picked(n2); nm[0] = 0; }
+    }
+    bx += mw + 10;
+    static const char *names[STL_MAX_REGIONS]; for (int r = 0; r < s->nRegions; r++) names[r] = s->reg[r].name;
+    int into = -1;
+    float sw = fminf(220, w - (bx - x) - 200);
+    if (sw > 120 && ui_select_ph(ui_id("pk-into"), (Rectangle){ bx, by, sw, 36 }, names, s->nRegions, &into, "Add to a boundary...") && into >= 0) {
+        char n2[64]; pl_strlcpy(n2, s->reg[into].name, sizeof n2); group_picked(n2);
+    }
+    if (sw > 120) bx += sw + 10;
+    float rw = ui_button_width(ICON_TRASH_2, "Remove from the part");
+    ui_disable(!PK.n || !T.m.cad[0] || !A.env.salome[0] || stool_busy(NULL));
+    if (ui_button(ui_id("pk-remove"), (Rectangle){ fminf(bx, x + w - rw - 14), by, rw, 36 }, ICON_TRASH_2, "Remove from the part", BTN_GHOST)) {
+        geo_load();
+        if (G.n < GO_MAX) {
+            G.kind[G.n] = GO_REMOVE; G.val[G.n] = 0; pl_strlcpy(G.ids[G.n], ids, sizeof G.ids[0]); G.n++;
+            geo_save(); geo_apply(); pick_clear();
+            ui_toast(TOAST_INFO, "Removing the faces (Geometry > Prepare the geometry shows it): SALOME heals the part round them");
+        }
+    }
+    ui_disable(false);
+    return box.height + 12 - (y - y0) + (y - y0);
+}
+
 static float boundaries_step(Case *c, float x, float y, float w)
 {
     float y0 = y;
@@ -1110,6 +1713,7 @@ static float boundaries_step(Case *c, float x, float y, float w)
                        "it and say what it is; walls get prism layers. The list under the view picks them too.");
     Stl *s = &T.stl;
     if (T.sel >= s->nRegions) T.sel = -1;
+    if (s->face) y += faces_bar(x, y, w);                /* a CAD part: its faces picked into boundaries (above the view: in sight while picking) */
     float pw = fminf(460, w * 0.42f), vh = 440;
     Rectangle view = { x, y, w - pw - 16, vh };
     view_panel(view);
@@ -1140,6 +1744,35 @@ static float boundaries_step(Case *c, float x, float y, float w)
         ui_text_clip(F_REG, 13, info, x + 448, y + 9, w - 448, TH.text3);
         ui_pop_id();
         y += rh;
+    }
+    /* named like an inlet or outlet but still another kind (the user's intake, 2026-11-10: Outlet2, Outlet_3 and Outlet_4
+       left Walls, so snappy grew prism layers over three of the four outlets and the flow had one way out) */
+    {
+        char names[300] = ""; int nMis = 0;
+        for (int i = 0; i < s->nRegions; i++) {
+            if (!mesher_region_meshed(&T.m, s, i)) continue;
+            int want = name_role(s->reg[i].name), ty = s->reg[i].type;
+            if (want < 0 || ty == want || (want == BT_OUTLET && ty == BT_PATCH)) continue;   /* an outlet as an opening: fine */
+            if (nMis < 4) pl_fmt_ui(names + strlen(names), sizeof names - strlen(names), "%s%s (%s)", nMis ? ", " : "", s->reg[i].name, TYPES[s->reg[i].type]);
+            nMis++;
+        }
+        if (nMis) {
+            char d[600];
+            pl_fmt_ui(d, sizeof d, "%s%s %s named like an inlet or outlet but %s another kind. A wall gets prism layers and no flow "
+                      "through it, so the fluid would have fewer ways in or out than the names say.", names, nMis > 4 ? ", ..." : "",
+                      nMis == 1 ? "is" : "are", nMis == 1 ? "is" : "are");
+            float ch = callout_height(w, "Names and kinds disagree", d) + 46;
+            callout((Rectangle){ x, y + 8, w, ch }, TOAST_WARN, ICON_TRIANGLE_ALERT, "Names and kinds disagree", d);
+            float fw = ui_button_width(ICON_WRENCH, "Make them what their names say");
+            if (ui_button(ui_id("stl-name-kinds"), (Rectangle){ x + 42, y + 8 + ch - 44, fw, 34 }, ICON_WRENCH, "Make them what their names say", BTN_PRIMARY)) {
+                for (int i = 0; i < s->nRegions; i++) {
+                    int want = name_role(s->reg[i].name), ty = s->reg[i].type;
+                    if (want >= 0 && mesher_region_meshed(&T.m, s, i) && ty != want && !(want == BT_OUTLET && ty == BT_PATCH)) set_type(i, want);
+                }
+                ui_toast(TOAST_OK, "Set %d boundar%s from %s name%s", nMis, nMis == 1 ? "y" : "ies", nMis == 1 ? "its" : "their", nMis == 1 ? "" : "s");
+            }
+            y += ch + 18;
+        }
     }
     /* what the flow needs: a way in and a way out (a wind tunnel brings its own) */
     int in, out, wall, other;
@@ -1392,48 +2025,110 @@ static float mesher_section(float x, float y, float w)
     float y0 = y;
     y += section_head(x, y, w, "Mesher", NULL);
     int ms = T.m.mesher;
-    if (ui_select(ui_id("stl-mesher"), (Rectangle){ x, y, 360, 36 }, MESHER_NAME, MESHER__N, &ms) && ms != T.m.mesher) { T.m.mesher = ms; save_cfg(); }
+    /* listed by engine: OpenFOAM's, then SALOME's (MESHERS keeps mesher.ini's order) */
+    static const char *names[MESHER__N]; static int order[MESHER__N]; int no = 0;
+    for (int e = ENG_OPENFOAM; e <= ENG_SALOME; e++) for (int k = 0; k < MESHER__N; k++) if (MESHERS[k].engine == e) { order[no] = k; names[no++] = MESHERS[k].name; }
+    int shown = 0; for (int i = 0; i < no; i++) if (order[i] == ms) shown = i;
+    float dw = fminf(440, w - 230);                       /* the names are long ("OpenFOAM · Cartesian hex: cfMesh cartesianMesh") */
+    if (ui_select(ui_id("stl-mesher"), (Rectangle){ x, y, dw, 36 }, names, no, &shown) && order[shown] != T.m.mesher) { T.m.mesher = order[shown]; save_cfg(); }
     if (salome_mesher() && !T.m.twoD) {                  /* 2-D: SALOME always builds the profile's face as CAD */
-        float sx = x + 380;
-        if (T.m.mesher == MESHER_BODYFIT) ui_disable(true);
+        float sx = x + dw + 20;
+        if (MESHERS[T.m.mesher].flags & MF_CAD) { ui_disable(true); bool on = true; ui_switch(ui_id("stl-remesh-cad"), sx, y + 8, &on); }
+        else
         if (ui_switch(ui_id("stl-remesh"), sx, y + 8, &T.m.remesh)) save_cfg();
         ui_disable(false);
-        ui_text(F_MED, 13, "Remesh surface", sx + 46, y + 9, TH.text2);
-        ui_tooltip((Rectangle){ sx, y, 180, 36 }, "Off: NETGEN meshes on the STL's own triangles (fast, any size); they are remeshed at the target size "
+        if (MESHERS[T.m.mesher].flags & MF_CAD) ui_tooltip((Rectangle){ sx, y, 200, 36 }, "This mesher works on CAD faces: always on");
+        bool cad = T.m.cad[0] && fabs(T.m.scale - 1) < 1e-12;
+        ui_text(F_MED, 13, cad ? "Mesh the exact CAD" : "Remesh surface", sx + 46, y + 9, TH.text2);
+        if (cad) ui_tooltip((Rectangle){ sx, y, 200, 36 }, "On: NETGEN meshes the CAD file's own faces at the target size: round holes stay round, "
+                            "fast, and it can grow prism layers. Off: NETGEN meshes on the STL made from it.");
+        else ui_tooltip((Rectangle){ sx, y, 180, 36 }, "Off: NETGEN meshes on the STL's own triangles (fast, any size); they are remeshed at the target size "
                    "first when they are much coarser than it or many are slivers. On: SALOME builds CAD from the STL and NETGEN remeshes "
                    "the surface at the target size (best for CAD-made STL with flat faces; slow above a few thousand triangles; needed "
                    "for prism layers).");
     }
     y += 44;
-    static const char *const WHAT[MESHER__N] = {
-        "Hexahedra trimmed at the surface, with prism layers on any part. Runs here, with OpenFOAM. The usual choice.",
-        "SALOME's NETGEN tetrahedra: fills any closed shape, the cells are many and less accurate per cell.",
-        "NETGEN tetrahedra joined into polyhedra by OpenFOAM's polyDualMesh: fewer cells, good on complex parts.",
-        "SALOME's body-fitted hexahedra (cut cells at the surface): no prism layers." };
-    static const char *const WHAT2D[MESHER__N] = {
-        "2-D: hexahedra trimmed at the profile, made on a slab and cut to one cell. Its boundary layers can come out patchy on a thin "
-        "profile; SALOME's 2-D meshers make them all round.",
-        "2-D: SALOME cuts the profile out as CAD, meshes it with NETGEN triangles and boundary layers that follow the outline, and "
-        "extrudes one cell (prisms). The best choice for an airfoil.",
-        "2-D: as Tetrahedral (triangles, extruded to prisms): polyhedra would span the depth.",
-        "2-D: as Tetrahedral, but mostly quadrilaterals (extruded to hexahedra), with the same boundary layers." };
-    y += note(x, y, w, T.m.twoD ? WHAT2D[T.m.mesher] : WHAT[T.m.mesher]);
-    /* the one to use, for someone who doesn't know: SALOME's for a 2-D profile (layers all round), else snappyHexMesh */
+    {   /* what it makes; a mesher that can't run here says why */
+        const MesherInfo *M = &MESHERS[T.m.mesher];
+        y += note(x, y, w, T.m.twoD ? (M->what2D ? M->what2D : "2-D: this mesher meshes 3-D parts only; pick another for a profile.") : M->what);
+        if (M->engine == ENG_SALOME && !T.m.twoD && !T.m.cad[0]) {   /* user's intake, 2026-11-10: 110 k STL triangles became
+                                                                            110 k CAD faces, and NETGEN's layers need CAD faces */
+            const char *t = "SALOME works better from a STEP file";
+            const char *d = "From an STL, SALOME has to build CAD out of its triangles: slow on a fine STL (one face per triangle), and "
+                            "its prism layers only grow on CAD faces. Open the part's STEP or IGES file under Geometry instead: SALOME "
+                            "then meshes the real faces, round holes stay round, and the prism layers work.";
+            float ch = callout_height(w, t, d);
+            callout((Rectangle){ x, y, w, ch }, TOAST_INFO, ICON_INFO, t, d);
+            y += ch + 12;
+        }
+        if (T.m.mesher == MESHER_SGMSH) {                 /* Gmsh's own choice */
+            Rectangle cr = prop_row(x, &y, w, "Gmsh 3-D algorithm", "Delaunay: robust. Frontal: better-shaped cells, slower. HXT: fast, "
+                                    "parallel, for big parts. MMG3D: Delaunay then optimised. R-tree: experimental.", 34);
+            int ga = T.m.gmshAlgo;
+            if (ui_segmented(ui_id("stl-gmsh-algo"), (Rectangle){ cr.x, cr.y, fminf(420, cr.width), 34 }, (const char **)GMSH_ALGO_NAME, GMSH_ALGOS, &ga) && ga != T.m.gmshAlgo) {
+                T.m.gmshAlgo = ga; save_cfg();
+            }
+        }
+        if (M->engine == ENG_SALOME && !(M->flags & MF_CAD) && !T.m.remesh && !T.m.twoD) {   /* the STL's triangles: who remeshes them */
+            static const char *RM[2] = { "NETGEN", "MMG" };
+            Rectangle cr = prop_row(x, &y, w, "Surface remesher", "When the STL's triangles are much coarser than the target size, or "
+                                    "slivers, they are remeshed first. MMG keeps sharp edges and the shape closer on curved parts.", 34);
+            int rm = T.m.surfRemesher;
+            if (ui_segmented(ui_id("stl-surf-remesh"), (Rectangle){ cr.x, cr.y, fminf(240, cr.width), 34 }, RM, 2, &rm) && rm != T.m.surfRemesher) {
+                T.m.surfRemesher = rm; save_cfg();
+            }
+        }
+        if (!T.m.twoD && !(M->flags & MF_POLY)) {         /* any 3-D mesh can be made polyhedral afterwards */
+            ui_switch(ui_id("stl-polyconv"), x, y + 2, &T.m.polyConvert) ? save_cfg() : (void)0;
+            ui_text(F_MED, 13, "Convert to polyhedra afterwards (polyDualMesh)", x + 46, y + 3, TH.text2);
+            ui_tooltip((Rectangle){ x, y, 380, 26 }, "Each cell of the finished mesh becomes a polyhedron round its corner points: fewer, better-connected "
+                       "cells, often a faster-converging run. Layers stay layers.");
+            y += 34;
+            if (T.m.polyConvert && T.m.prism && T.m.layers > 0 && (M->flags & MF_LAYERS)) {
+                const char *t = "Polyhedra and prism layers";
+                const char *d = "polyDualMesh can turn thin prism layers inside out (on some parts a hundred or so cells). "
+                                "Generate checks the result and keeps the mesh as the mesher made it if any cell is inside out.";
+                float ch = callout_height(w, t, d);
+                callout((Rectangle){ x, y, w, ch }, TOAST_WARN, ICON_TRIANGLE_ALERT, t, d);
+                y += ch + 12;
+            }
+        }
+        char why[300];
+        const FoamInstall *fi = env_active(&A.env, &A.set);
+        if (!mesher_available(T.m.mesher, fi ? fi->root : "", A.env.salome[0] != 0, why, sizeof why) && M->engine == ENG_OPENFOAM) {
+            float ch = callout_height(w, "Not in this OpenFOAM", why);
+            callout((Rectangle){ x, y, w, ch }, TOAST_WARN, ICON_TRIANGLE_ALERT, "Not in this OpenFOAM", why);
+            y += ch + 12;
+        }
+    }
+
+    /* the one to use, for someone who doesn't know (tests/compare_meshers.sh, 2026-11-10: every mesher on a box, the flange,
+       a sphere in a tunnel and the NACA profile): a block, structured hexahedra (perfect cells, the fewest); a 2-D profile,
+       SALOME's triangles with layers all round (the fewest cells); anything else snappyHexMesh (the only one that passed every
+       check on the curved flange) */
     {
-        int rec = T.m.twoD && A.env.salome[0] ? MESHER_TET : MESHER_SNAPPY;
-        static const char *const SHORT[MESHER__N] = { "snappyHexMesh", "SALOME tetrahedral", "SALOME polyhedral", "SALOME body-fitted" };
-        char t[160];
+        bool block = !T.m.twoD && T.m.domain == DOMAIN_INTERNAL && T.stl.nRegions == 6;
+        for (int i = 0; i < T.stl.nRegions && block; i++) {
+            const float *n = T.stl.reg[i].n;
+            if (fmaxf(fabsf(n[0]), fmaxf(fabsf(n[1]), fabsf(n[2]))) < 0.999f) block = false;   /* a flat face square to an axis */
+        }
+        bool sa = A.env.salome[0] != 0;
+        int rec = block && sa ? MESHER_SHEXA : T.m.twoD && sa ? MESHER_TET : MESHER_SNAPPY;
+        const char *why = rec == MESHER_SHEXA ? "a block: perfect hexahedra in the fewest cells"
+                        : rec == MESHER_TET ? "layers all round the profile, the fewest cells"
+                        : "the most robust: it passed every check on curved parts";
+        char t[200];
+        pl_fmt_ui(t, sizeof t, "Recommended for this part: %s (%s).", MESHERS[rec].shortName, why);
         if (rec == T.m.mesher) {
-            pl_fmt_ui(t, sizeof t, "Recommended for this part: %s.", SHORT[rec]);
             ui_icon(ICON_CIRCLE_CHECK, x + 9, y + 9, 15, TH.ok);
-            ui_text(F_MED, 13, t, x + 24, y + 1, TH.ok);
+            ui_text_clip(F_MED, 13, t, x + 24, y + 1, w - 24, TH.ok);
             y += 28;
         } else {
-            pl_fmt_ui(t, sizeof t, "Recommended for this part: %s%s.", SHORT[rec], T.m.twoD ? " (boundary layers all round the profile)" : "");
             ui_icon(ICON_SPARKLES, x + 9, y + 15, 15, TH.accent);
-            ui_text_clip(F_MED, 13, t, x + 24, y + 7, w - 140, TH.text2);
             float uw = ui_button_width(NULL, "Use it");
-            if (ui_button(ui_id("stl-use-rec"), (Rectangle){ x + fminf(w - uw, 24 + ui_text_w(F_MED, 13, t) + 14), y, uw, 30 }, NULL, "Use it", BTN_SECONDARY)) {
+            float tw = fminf(ui_text_w(F_MED, 13, t), w - uw - 40);
+            ui_text_clip(F_MED, 13, t, x + 24, y + 7, tw, TH.text2);
+            if (ui_button(ui_id("stl-use-rec"), (Rectangle){ x + 24 + tw + 14, y, uw, 30 }, NULL, "Use it", BTN_SECONDARY)) {
                 T.m.mesher = rec; save_cfg();
             }
             y += 40;
@@ -1539,8 +2234,9 @@ static float sizes_section(float x, float y, float w)
    or grown out of the STL's own surface for a body in a wind tunnel that is all walls, off the ground; never Body Fitting's */
 static bool salome_layers(const MeshCfg *m)
 {
-    if (m->twoD) return true;
-    if (m->mesher == MESHER_BODYFIT) return false;
+    if (m->twoD) return m->mesher != MESHER_SGMSH && m->mesher != MESHER_SHEXA && m->mesher != MESHER_SPRISM;
+    if (!(MESHERS[m->mesher].flags & MF_LAYERS)) return false;
+    if (MESHERS[m->mesher].flags & MF_CAD) return true;
     if (m->remesh) return true;
     if (m->domain != DOMAIN_EXTERNAL || m->ground || !T.loaded) return false;
     for (int i = 0; i < T.stl.nRegions; i++) if (T.stl.reg[i].type != BT_WALL) return false;
@@ -1558,8 +2254,9 @@ static float prism_section(float x, float y, float w)
     if (ui_switch(ui_id("stl-prism"), cr.x, cr.y + 2, &m->prism)) save_cfg();
     if (!m->prism) return y - y0;
     if (none) {                                           /* SALOME 3-D on the STL's triangles: viscous layers need CAD faces */
-        const char *t2 = m->mesher == MESHER_BODYFIT ? "Body Fitting makes no prism layers" : "This mesh will have no prism layers";
-        const char *d2 = m->mesher == MESHER_BODYFIT
+        bool noLayers = !(MESHERS[m->mesher].flags & MF_LAYERS);
+        const char *t2 = noLayers ? TextFormat("%s makes no prism layers", MESHERS[m->mesher].shortName) : "This mesh will have no prism layers";
+        const char *d2 = noLayers
             ? "Use the tetrahedral or polyhedral mesher with Remesh surface on (a CAD-made part with flat faces), or snappyHexMesh."
             : "On the STL's own triangles SALOME grows prism layers for a body in a wind tunnel whose boundaries are all walls, off the "
               "ground. Here (internal flow, an inlet or outlet on the part, or on the ground) switch Remesh surface on for a CAD-made "
@@ -1577,9 +2274,9 @@ static float prism_section(float x, float y, float w)
         bool even = mesher_even_layers(m), was = even;
         Rectangle er = prop_row(x, &y, w, "Even surface cells under the layers",
                                 "The walls with layers all at the minimum surface size, so the layers don't break where the size steps. "
-                                "More cells; on by itself in 2-D.", 24);
+                                "More cells (a fifth more on a part with much curvature, more on a flat one); on by itself.", 24);
         ui_switch(ui_id("stl-even"), er.x, er.y + 2, &even);
-        if (even != was) { m->evenLayers = even == m->twoD ? -1 : even; save_cfg(); }
+        if (even != was) { m->evenLayers = even ? -1 : 0; save_cfg(); }
     }
     double T0 = m->base * m->prismPct / 100, h = mesher_layer_cell(m), Tm = mesher_layer_rel(m, NULL) * h;
     char a[96], l[32], t0[32]; fmt_len(t0, sizeof t0, T0); snprintf(a, sizeof a, "= %s", t0);
@@ -1758,6 +2455,10 @@ static float generate_step(Case *c, float x, float y, float w)
             !strcmp(id, "snappyHexMesh") ? "This is usually a gap in the STL (Geometry says if it isn't closed) or a part thinner than its cells: try Fine under Cell size, or SALOME as the mesher."
             : !strcmp(id, "salome") ? "Check that Geometry says the part is closed; a smaller base size, or snappyHexMesh as the mesher, often gets past it."
             : !strcmp(id, "checkMesh") ? "The mesh was made but has bad cells: Fine under Cell size, or fewer prism layers, usually helps."
+            : !strcmp(id, "ideasUnvToFoam") ? "SALOME made the mesh but OpenFOAM could not convert it: the log says which element or group it stopped at."
+            : !strcmp(id, "polyDualMesh") ? "The tetrahedra could not be joined into polyhedra: the Tetrahedral mesher gives a mesh from the same settings."
+            : !strcmp(id, "extrudeMesh") ? "The slab could not be cut to one cell: check that the 2-D axis (Flow) is the one the profile is extruded along."
+            : !strcmp(id, "surfaceFeatureExtract") || !strcmp(id, "blockMesh") ? "A dictionary the mesher wrote could not be read: Write files only, then look at it in system/ on the Files page."
             : "A setting the tool could not read: Write files only, then look at the dictionary in system/ on the Files page.";
         char t[900]; pl_fmt_ui(t, sizeof t, "It stopped at %s.%s %s", fs ? fs->label : "a step", said, fix);
         float ch = callout_height(w, "The mesh could not be made", t) + 46;
@@ -1801,7 +2502,7 @@ static float generate_step(Case *c, float x, float y, float w)
 static const char *const STEP_TITLE[ST__N] = { "Geometry", "Flow", "Boundaries", "Mesh settings", "Generate" };
 /* what each step is for, in a sentence a first-year student needs no CFD for */
 static const char *const STEP_WHY[ST__N] = {
-    "Load the 3-D model of your part (an STL file, which any CAD program can save) and check its size is right.",
+    "Load the 3-D model of your part (an STL, or a STEP or IGES file straight from CAD) and check its size is right.",
     "Say whether the fluid goes through the part or around it. That decides the space the simulation fills.",
     "Name the part's surfaces and say what each one is: where the fluid comes in, where it leaves, and the solid walls.",
     "Choose how fine the mesh is: smaller cells give a more accurate answer but take longer. Medium is a good start.",
@@ -1816,7 +2517,7 @@ static void step_summary(Case *c, int k, char *b, size_t cap)
     if (k == ST_GEOM) {
         char l[32]; double L = 0; for (int q = 0; q < 3; q++) L = fmax(L, s->bmax[q] - s->bmin[q]);
         fmt_len(l, sizeof l, L);
-        pl_fmt_ui(b, cap, "%s  ·  %s across  ·  %s", pl_basename(T.m.stl), l, s->openEdges == 0 && s->nonManifold == 0 ? "closed" : "not watertight");
+        pl_fmt_ui(b, cap, "%s  ·  %s across  ·  %s", pl_basename(T.m.cad[0] ? T.m.cad : T.m.stl), l, s->openEdges == 0 && s->nonManifold == 0 ? "closed" : "not watertight");
     } else if (k == ST_FLOW) {
         if (T.m.domain == DOMAIN_INTERNAL) pl_fmt_ui(b, cap, "Internal flow%s", T.m.twoD ? TextFormat(", 2-D across %c", "XYZ"[T.m.normal2D]) : "");
         else pl_fmt_ui(b, cap, "External: flow %s, up %s%s%s", DIR_NAME[T.m.flowDir], DIR_NAME[mesher_up(&T.m)], T.m.ground ? ", on the ground" : "",
@@ -1828,8 +2529,7 @@ static void step_summary(Case *c, int k, char *b, size_t cap)
         else pl_fmt_ui(b, cap, "%d inlet%s, %d outlet%s, %d wall%s", in, in == 1 ? "" : "s", out, out == 1 ? "" : "s", wall, wall == 1 ? "" : "s");
     } else if (k == ST_MESH) {
         char bs[32], cl[96]; fmt_len(bs, sizeof bs, T.m.base); fmt_cells(cl, sizeof cl, cells_estimate());
-        static const char *const SHORT[MESHER__N] = { "snappyHexMesh", "Tetrahedra", "Polyhedra", "Body fitting" };
-        pl_fmt_ui(b, cap, "%s  ·  base %s  ·  %s  ·  %s", SHORT[T.m.mesher], bs, T.m.prism && T.m.mesher != MESHER_BODYFIT ? TextFormat("%d prism layers", T.m.layers) : "no prism layers", cl);
+        pl_fmt_ui(b, cap, "%s  ·  base %s  ·  %s  ·  %s", MESHERS[T.m.mesher].shortName, bs, T.m.prism && (MESHERS[T.m.mesher].flags & MF_LAYERS) ? TextFormat("%d prism layers", T.m.layers) : "no prism layers", cl);
     } else {
         bool meshing = A.cj->active && !strcmp(A.cj->casePath, c->s.path) && !strcmp(A.cj->title, "Mesh");
         int cur = c->s.meshed ? stlmesh_mesh_current(c) : -1;

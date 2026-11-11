@@ -11,12 +11,101 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
+#include <glob.h>
 #include "stlmesh.h"
 #include "assets.h"
 
 const char *const BT_NAME[BT__N] = { "Wall", "Patch", "Inlet", "Outlet", "Symmetry" };
-const char *const MESHER_NAME[MESHER__N] = { "Trimmed hex: snappyHexMesh", "Tetrahedral: SALOME NETGEN",
-                                             "Polyhedral: NETGEN + polyDualMesh", "Body-fitted hex: SALOME" };
+const MesherInfo MESHERS[MESHER__N] = {
+    [MESHER_SNAPPY] = { "snappy", "OpenFOAM · Trimmed hex: snappyHexMesh", "snappyHexMesh", ENG_OPENFOAM,
+        MF_3D | MF_2D | MF_LAYERS | MF_OCTREE, "snappyHexMesh",
+        "Hexahedra trimmed at the surface, with prism layers on any part. Runs here, with OpenFOAM. The usual choice.",
+        "2-D: hexahedra trimmed at the profile, made on a slab and cut to one cell. Its boundary layers can come out patchy on a thin "
+        "profile; SALOME's 2-D meshers make them all round." },
+    [MESHER_TET] = { "tet", "SALOME · Tetrahedral: NETGEN", "SALOME tetrahedral", ENG_SALOME, MF_3D | MF_2D | MF_LAYERS, NULL,
+        "SALOME's NETGEN tetrahedra: fills any closed shape, the cells are many and less accurate per cell.",
+        "2-D: SALOME cuts the profile out as CAD, meshes it with NETGEN triangles and boundary layers that follow the outline, and "
+        "extrudes one cell (prisms). The best choice for an airfoil." },
+    [MESHER_POLY] = { "poly", "SALOME · Polyhedral: NETGEN + polyDualMesh", "SALOME polyhedral", ENG_SALOME,
+        MF_3D | MF_2D | MF_LAYERS | MF_POLY, "polyDualMesh",
+        "NETGEN tetrahedra joined into polyhedra by OpenFOAM's polyDualMesh: fewer cells, good on complex parts.",
+        "2-D: as Tetrahedral (triangles, extruded to prisms): polyhedra would span the depth." },
+    [MESHER_BODYFIT] = { "bodyfit", "SALOME · Body-fitted hex", "SALOME body-fitted", ENG_SALOME, MF_3D | MF_2D | MF_CAD, NULL,
+        "SALOME's body-fitted hexahedra (cut cells at the surface): no prism layers.",
+        "2-D: as Tetrahedral, but mostly quadrilaterals (extruded to hexahedra), with the same boundary layers." },
+    /* cfMesh (in OpenFOAM since v2306): an octree from the surface, cells fitted to it, then layers; meshes the inside of a
+       closed surface (a wind tunnel: the box and the part together, the part's inside dropped) */
+    [MESHER_CFCART] = { "cfcart", "OpenFOAM · Cartesian hex: cfMesh cartesianMesh", "cfMesh cartesianMesh", ENG_OPENFOAM,
+        MF_3D | MF_2D | MF_LAYERS | MF_OCTREE, "cartesianMesh",
+        "cfMesh's hexahedra fitted to the surface, polyhedra where they meet it, prism layers on the walls. Often meshes dirty CAD "
+        "that snappyHexMesh struggles with, and in far fewer cells.",
+        "2-D: cfMesh's cartesian2DMesh: quadrilaterals fitted to the profile with layers round it, made in the plane, one cell deep. "
+        "Fast: seconds for an airfoil." },
+    [MESHER_CFPOLY] = { "cfpoly", "OpenFOAM · Polyhedral: cfMesh pMesh", "cfMesh pMesh", ENG_OPENFOAM,
+        MF_3D | MF_LAYERS | MF_POLY | MF_OCTREE, "pMesh",
+        "cfMesh's polyhedra throughout, with prism layers on the walls: few cells for their accuracy, no SALOME needed.", NULL },
+    [MESHER_CFTET] = { "cftet", "OpenFOAM · Tetrahedral: cfMesh tetMesh", "cfMesh tetMesh", ENG_OPENFOAM,
+        MF_3D | MF_LAYERS | MF_OCTREE, "tetMesh",
+        "cfMesh's tetrahedra with prism layers on the walls: fills any closed shape; many cells.", NULL },
+    /* foamyHexMesh: a conformal Voronoi mesh (polyhedra, mostly hexagonal-faced) fitted to the surface; slow, and its FPE
+       trap must be off (the flange tutorial itself stops on one in v2606) */
+    [MESHER_FOAMY] = { "foamy", "OpenFOAM · Conformal Voronoi: foamyHexMesh (experimental)", "foamyHexMesh", ENG_OPENFOAM,
+        MF_3D | MF_2D | MF_POLY | MF_SLOW, "foamyHexMesh",
+        "Experimental: OpenFOAM's conformal Voronoi mesher, polyhedra aligned to the surface. Minutes even for a small part, no "
+        "prism layers, and a few bad faces are common: for trying out, not for a first mesh.",
+        "2-D, experimental: foamyQuadMesh, the same Voronoi method in the plane, extruded one cell deep (extrude2DMesh). A minute or "
+        "two for an airfoil; no layers." },
+    [MESHER_SGMSH] = { "sgmsh", "SALOME · Tetrahedral: Gmsh", "SALOME Gmsh", ENG_SALOME, MF_3D | MF_LAYERS | MF_CAD, NULL,
+        "Gmsh's tetrahedra inside SALOME, on the CAD (the STEP's own faces, or CAD made of the STL): its 3-D algorithm below. HXT is "
+        "the fastest on large parts, Delaunay the most robust.", NULL },
+    [MESHER_SHEXA] = { "shexa", "SALOME · Structured hex (i,j,k): block-like parts", "SALOME structured hex", ENG_SALOME, MF_3D | MF_CAD, NULL,
+        "Structured hexahedra: edges divided at the target size, faces mapped to quadrangles, solids to hexahedra. The best cells "
+        "there are, but every solid must be a block (6 faces): a duct, a channel, a box. No prism layers.", NULL },
+    [MESHER_SPRISM] = { "sprism", "SALOME · Prisms swept: extruded parts", "SALOME prism sweep", ENG_SALOME, MF_3D | MF_CAD, NULL,
+        "Prisms swept from one face of each solid to the opposite one: for a part extruded along a line (a pipe of any section, a "
+        "fin). Triangles on the source face at the target size. No prism layers.", NULL },
+};
+
+const char *const GMSH_ALGO_WORD[GMSH_ALGOS] = { "delaunay", "frontal", "hxt", "mmg3d", "rtree" };
+const char *const GMSH_ALGO_NAME[GMSH_ALGOS] = { "Delaunay", "Frontal", "HXT", "MMG3D", "R-tree" };
+
+bool mesher_poly_convert(const MeshCfg *m)
+{
+    if (m->twoD) return false;                            /* polyhedra would span the one cell's depth */
+    if (m->mesher == MESHER_POLY) return true;            /* the polyhedral mesher is NETGEN + this */
+    return m->polyConvert && !(MESHERS[m->mesher].flags & MF_POLY);
+}
+
+bool mesher_is_cfmesh(int k) { return k == MESHER_CFCART || k == MESHER_CFPOLY || k == MESHER_CFTET; }
+
+const char *mesher_program(const MeshCfg *m)
+{
+    if (m->mesher == MESHER_CFCART && m->twoD) return "cartesian2DMesh";
+    if (m->mesher == MESHER_FOAMY && m->twoD) return "foamyQuadMesh";
+    return MESHERS[m->mesher].engine == ENG_OPENFOAM ? MESHERS[m->mesher].needs : NULL;
+}
+
+int mesher_from_word(const char *w)
+{
+    for (int k = 0; k < MESHER__N; k++) if (w && !strcmp(w, MESHERS[k].word)) return k;
+    return MESHER_SNAPPY;
+}
+
+bool mesher_available(int k, const char *foamRoot, bool salome, char *why, int cap)
+{
+    if (why && cap) why[0] = 0;
+    if (k < 0 || k >= MESHER__N) return false;
+    const MesherInfo *M = &MESHERS[k];
+    if (M->engine == ENG_SALOME && !salome) { if (why) snprintf(why, (size_t)cap, "SALOME is not installed"); return false; }
+    if (M->needs && foamRoot && foamRoot[0]) {
+        char pat[PL_PATH]; snprintf(pat, sizeof pat, "%s/platforms/*/bin/%s", foamRoot, M->needs);
+        glob_t g; bool found = glob(pat, 0, NULL, &g) == 0 && g.gl_pathc > 0;
+        if (found) globfree(&g);
+        if (!found) { if (why) snprintf(why, (size_t)cap, "%s is not in this OpenFOAM (%s)", M->needs, foamRoot); return false; }
+    }
+    return true;
+}
 
 /* ============================================================================ reading */
 static void grow_tris(Stl *s, int *cap, int need)
@@ -26,6 +115,7 @@ static void grow_tris(Stl *s, int *cap, int need)
     while (nc < need) nc *= 2;
     s->tri = realloc(s->tri, sizeof(float) * 9 * (size_t)nc);
     s->solid = realloc(s->solid, sizeof *s->solid * (size_t)nc);
+    if (s->face) { s->face = realloc(s->face, sizeof(int) * (size_t)nc); memset(s->face + *cap, 0, sizeof(int) * (size_t)(nc - *cap)); }
     *cap = nc;
 }
 
@@ -58,6 +148,12 @@ static bool load_ascii(Stl *s, const char *buf, size_t len)
                 grow_tris(s, &cap, s->nTri + 1);
                 memcpy(s->tri + 9 * (size_t)s->nTri, v, sizeof v);
                 pl_strlcpy(s->solid[s->nTri], solid, 64);
+                int fid = 0;
+                if (!strncmp(solid, "face_", 5) && sscanf(solid + 5, "%d", &fid) == 1 && fid > 0) {
+                    if (!s->face) s->face = calloc((size_t)cap, sizeof(int));
+                    s->face[s->nTri] = fid;
+                    if (fid > s->nFaces) s->nFaces = fid;
+                }
                 s->nTri++;
             }
             nv = 0;
@@ -95,13 +191,48 @@ bool stl_load(const char *path, Stl *s)
     }
     free(buf);
     if (s->nTri <= 0) { snprintf(s->err, sizeof s->err, "%s has no triangles", pl_basename(path)); return false; }
+    /* degenerate triangles (two corners in one place, or no area) out: CAD exporters leave a few at seams, and they made the
+       user's intake read as not watertight (4 "non-manifold" edges), crashed cfMesh's surface fitting and stopped NETGEN
+       ("some edges multiple times") */
+    {
+        float lo[3] = { 1e30f, 1e30f, 1e30f }, hi[3] = { -1e30f, -1e30f, -1e30f };
+        for (size_t i = 0; i < 3 * (size_t)s->nTri; i++)
+            for (int k = 0; k < 3; k++) { float v = s->tri[3 * i + k]; if (v < lo[k]) lo[k] = v; if (v > hi[k]) hi[k] = v; }
+        double d2 = 0; for (int k = 0; k < 3; k++) d2 += (double)(hi[k] - lo[k]) * (hi[k] - lo[k]);
+        double tol = sqrt(d2) * 1e-7, tol2 = tol * tol;
+        int w = 0;
+        for (int t = 0; t < s->nTri; t++) {
+            const float *p = s->tri + 9 * (size_t)t;
+            bool bad = false;
+            for (int e = 0; e < 3 && !bad; e++) {
+                const float *a = p + 3 * e, *c = p + 3 * ((e + 1) % 3);
+                double dd = 0; for (int k = 0; k < 3; k++) dd += (double)(a[k] - c[k]) * (a[k] - c[k]);
+                if (dd <= tol2) bad = true;
+            }
+            if (!bad) {
+                double e1[3] = { p[3] - p[0], p[4] - p[1], p[5] - p[2] }, e2[3] = { p[6] - p[0], p[7] - p[1], p[8] - p[2] };
+                double c[3] = { e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0] };
+                if (c[0] * c[0] + c[1] * c[1] + c[2] * c[2] <= tol2 * tol2) bad = true;
+            }
+            if (bad) continue;
+            if (w != t) {
+                memmove(s->tri + 9 * (size_t)w, p, sizeof(float) * 9);
+                memcpy(s->solid[w], s->solid[t], 64);
+                if (s->face) s->face[w] = s->face[t];
+            }
+            w++;
+        }
+        s->dropped = s->nTri - w;
+        s->nTri = w;
+        if (!w) { snprintf(s->err, sizeof s->err, "%s has only degenerate triangles", pl_basename(path)); return false; }
+    }
     s->region = calloc((size_t)s->nTri, sizeof(int));
     return true;
 }
 
 void stl_free(Stl *s)
 {
-    free(s->tri); free(s->region); free(s->solid);
+    free(s->tri); free(s->region); free(s->solid); free(s->face);
     memset(s, 0, sizeof *s);
 }
 
@@ -286,6 +417,40 @@ void stl_split(Stl *s, double angleDeg)
         R->nTri++; R->area += ar[t];
         for (int k = 0; k < 3; k++) R->n[k] += (float)(nrm[3 * t + k] * ar[t]);
     }
+    {   /* curvature and edge angles for the cell estimate: across each edge two triangles share, the bend between them */
+        float *kap = calloc((size_t)N, sizeof(float));
+        for (size_t j = 0; j < cap; j++) {
+            if (ek[j] == -1 || ec[j] != 2) continue;
+            int a = et0[j], b = et1[j];
+            double c = nrm[3 * a] * nrm[3 * b] + nrm[3 * a + 1] * nrm[3 * b + 1] + nrm[3 * a + 2] * nrm[3 * b + 2];
+            double th = acos(fmax(-1, fmin(1, c)));
+            if (th < 1e-4) continue;
+            /* the edge's length: its two ends are the vertices the triangles share */
+            int va = -1, vb = -1;
+            for (int e = 0; e < 3; e++) if (triEdge[3 * a + e] == (int)j) { va = 3 * a + e; vb = 3 * a + (e + 1) % 3; }
+            if (va < 0) continue;
+            const float *p0 = s->tri + 3 * (size_t)va, *p1 = s->tri + 3 * (size_t)vb;
+            double len = sqrt((p1[0] - p0[0]) * (p1[0] - p0[0]) + (p1[1] - p0[1]) * (p1[1] - p0[1]) + (p1[2] - p0[2]) * (p1[2] - p0[2]));
+            int ab = (int)(th * 180 / M_PI / 2); if (ab >= STL_ABINS) ab = STL_ABINS - 1;
+            for (int q = 0; q < 2; q++) { int t = q ? b : a; s->reg[reg[t]].edgeLen[ab] += (float)(len / 2); }
+            if (th < 45 * M_PI / 180) {                  /* a bend, not a corner: the curvature across it */
+                const float *A = s->tri + 9 * (size_t)a, *B = s->tri + 9 * (size_t)b;
+                double d2 = 0;
+                for (int k = 0; k < 3; k++) { double dk = (A[k] + A[k + 3] + A[k + 6] - B[k] - B[k + 3] - B[k + 6]) / 3; d2 += dk * dk; }
+                double kp = th / fmax(sqrt(d2), 1e-30);
+                if (kp > kap[a]) kap[a] = (float)kp;
+                if (kp > kap[b]) kap[b] = (float)kp;
+            }
+        }
+        for (int t = 0; t < N; t++) {
+            if (kap[t] <= 0) continue;
+            int k = (int)floor(2 * log2(kap[t])) + STL_KB0;
+            if (k < 0) continue;
+            if (k >= STL_KBINS) k = STL_KBINS - 1;
+            s->reg[reg[t]].kArea[k] += (float)ar[t];
+        }
+        free(kap);
+    }
     int firstTri[STL_MAX_REGIONS];
     for (int k = 0; k < STL_MAX_REGIONS; k++) firstTri[k] = -1;
     for (int t = 0; t < N; t++) if (firstTri[reg[t]] < 0) firstTri[reg[t]] = t;
@@ -306,6 +471,77 @@ void stl_split(Stl *s, double angleDeg)
     }
     free(live); free(final); free(remap); free(rArea); free(solidOf); free(stack);
     free(nrm); free(ar); free(triEdge); free(ek); free(et0); free(et1); free(ec); free(vid);
+}
+
+/* ============================================================================ CAD faces grouped into boundaries */
+StlName *faces_load(const char *casePath, int nFaces)
+{
+    char p[PL_PATH]; pl_join(p, sizeof p, casePath, "mesher/faces.ini");
+    char *t = pl_read_file(p, NULL);
+    if (!t) return NULL;
+    StlName *g = calloc((size_t)nFaces + 1, sizeof *g);
+    for (char *l = strtok(t, "\n"); l; l = strtok(NULL, "\n")) {
+        int id; char nm[64];
+        if (sscanf(l, "face_%d = %63s", &id, nm) == 2 && id > 0 && id <= nFaces) pl_strlcpy(g[id], nm, 64);
+    }
+    free(t);
+    return g;
+}
+
+bool faces_save(const char *casePath, const StlName *group, int nFaces)
+{
+    Str b; str_init(&b);
+    str_cat(&b, "# Q-Continuum: the CAD part's faces grouped into boundaries (Mesh > STL mesher > Boundaries: pick faces, group "
+                "them).\n# face_<id> = boundary; the ids are the faces of the CAD file in SALOME's order\n");
+    for (int i = 1; i <= nFaces; i++) if (group[i][0]) str_catf(&b, "face_%d = %s\n", i, group[i]);
+    char d[PL_PATH], p[PL_PATH]; pl_join(d, sizeof d, casePath, "mesher"); pl_mkdirs(d);
+    pl_join(p, sizeof p, d, "faces.ini");
+    bool ok = pl_write_file(p, b.s, b.len);
+    str_free(&b);
+    return ok;
+}
+
+void faces_default(Stl *s, double angleDeg, StlName *group)
+{
+    /* split by angle across faces (the solid names put aside), then each face goes to the region most of its area is in */
+    char (*keep)[64] = malloc(sizeof *keep * (size_t)s->nTri);
+    memcpy(keep, s->solid, sizeof *keep * (size_t)s->nTri);
+    for (int t = 0; t < s->nTri; t++) strcpy(s->solid[t], "surface");
+    stl_split(s, angleDeg > 0 ? angleDeg : 30);
+    int nf = s->nFaces;
+    double *a = calloc((size_t)(nf + 1) * STL_MAX_REGIONS, sizeof(double));
+    for (int t = 0; t < s->nTri; t++) {
+        int f = s->face ? s->face[t] : 0;
+        if (f < 1 || f > nf) continue;
+        const float *p = s->tri + 9 * (size_t)t;
+        double e1[3] = { p[3] - p[0], p[4] - p[1], p[5] - p[2] }, e2[3] = { p[6] - p[0], p[7] - p[1], p[8] - p[2] };
+        double c[3] = { e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0] };
+        a[(size_t)f * STL_MAX_REGIONS + s->region[t]] += sqrt(c[0] * c[0] + c[1] * c[1] + c[2] * c[2]);
+    }
+    for (int f = 1; f <= nf; f++) {
+        int best = -1; double bv = 0;
+        for (int r = 0; r < s->nRegions; r++) if (a[(size_t)f * STL_MAX_REGIONS + r] > bv) { bv = a[(size_t)f * STL_MAX_REGIONS + r]; best = r; }
+        if (best >= 0) snprintf(group[f], 64, s->nRegions == 1 ? "walls" : "wall_%d", best + 1);
+    }
+    free(a);
+    memcpy(s->solid, keep, sizeof *keep * (size_t)s->nTri);
+    free(keep);
+}
+
+void stl_split_part(Stl *s, double angleDeg, const char *casePath)
+{
+    if (!s->face || s->nFaces < 1) { stl_split(s, angleDeg); return; }
+    StlName *g = casePath && casePath[0] ? faces_load(casePath, s->nFaces) : NULL;
+    bool made = false;
+    if (!g) { g = calloc((size_t)s->nFaces + 1, sizeof *g); faces_default(s, angleDeg, g); made = true; }
+    for (int f = 1; f <= s->nFaces; f++) if (!g[f][0]) snprintf(g[f], 64, "face_%d", f);   /* a face no group has: its own */
+    for (int t = 0; t < s->nTri; t++) {
+        int f = s->face[t];
+        pl_strlcpy(s->solid[t], f > 0 && f <= s->nFaces ? g[f] : "walls", 64);
+    }
+    stl_split(s, 0);                                      /* by solid: a region a group, named by it */
+    if (made && casePath && casePath[0]) faces_save(casePath, (const StlName *)g, s->nFaces);
+    free(g);
 }
 
 /* ray parity along a direction no face is likely to be aligned with */
@@ -445,10 +681,12 @@ static double body_length(const Stl *s) { double L = 0; for (int k = 0; k < 3; k
 
 void mesher_defaults(MeshCfg *m, const Stl *s)
 {
-    char keep[PL_PATH]; pl_strlcpy(keep, m->stl, sizeof keep);
+    char keep[PL_PATH], cad[PL_PATH]; pl_strlcpy(keep, m->stl, sizeof keep); pl_strlcpy(cad, m->cad, sizeof cad);
     double scale = m->scale > 0 ? m->scale : 1;
     memset(m, 0, sizeof *m);
     pl_strlcpy(m->stl, keep, sizeof m->stl);
+    pl_strlcpy(m->cad, cad, sizeof m->cad);
+    m->remesh = cad[0] != 0;                                  /* a CAD part: SALOME meshes its exact faces */
     m->scale = scale;
     m->splitAngle = 30;
     m->domain = s && s->openEdges == 0 ? DOMAIN_INTERNAL : DOMAIN_EXTERNAL;
@@ -524,6 +762,15 @@ static void ini_str(char *ini, const char *key, char *out, size_t cap)
     memcpy(out, v, n); out[n] = 0;
 }
 
+bool stl_is_cad(const char *path)
+{
+    const char *e = strrchr(path, '.');
+    if (!e || strchr(e, '/')) return false;
+    static const char *ext[] = { ".step", ".stp", ".iges", ".igs", ".brep", ".brp" };
+    for (size_t k = 0; k < sizeof ext / sizeof *ext; k++) if (!strcasecmp(e, ext[k])) return true;
+    return false;
+}
+
 static void ini_path(const char *casePath, char *out, size_t cap) { char d[PL_PATH]; pl_join(d, sizeof d, casePath, "mesher"); pl_join(out, cap, d, "mesher.ini"); }
 
 bool mesher_load(const char *casePath, MeshCfg *m)
@@ -531,9 +778,11 @@ bool mesher_load(const char *casePath, MeshCfg *m)
     char p[PL_PATH]; ini_path(casePath, p, sizeof p);
     char *ini = pl_read_file(p, NULL);
     if (!ini) return false;
+    m->cad[0] = m->stl[0] = 0;                                /* defaults keep these: nothing from another case */
     mesher_defaults(m, NULL);
     ini_str(ini, "stl", m->stl, sizeof m->stl);
     ini_str(ini, "stl_original", m->stlOriginal, sizeof m->stlOriginal);
+    ini_str(ini, "cad_source", m->cad, sizeof m->cad);
     m->scale = ini_num(ini, "scale", 1);
     m->splitAngle = ini_num(ini, "split_angle", 30);
     char d[32] = ""; ini_str(ini, "domain", d, sizeof d);
@@ -548,8 +797,11 @@ bool mesher_load(const char *casePath, MeshCfg *m)
     { char w[8] = "z"; ini_str(ini, "two_d_normal", w, sizeof w); m->normal2D = w[0] == 'x' ? 0 : w[0] == 'y' ? 1 : 2; }
     m->ground = ini_num(ini, "ground", 0) != 0;
     char ms[32] = ""; ini_str(ini, "mesher", ms, sizeof ms);
-    m->mesher = !strcmp(ms, "tet") ? MESHER_TET : !strcmp(ms, "poly") ? MESHER_POLY : !strcmp(ms, "bodyfit") ? MESHER_BODYFIT : MESHER_SNAPPY;
+    m->mesher = mesher_from_word(ms);
     m->remesh = ini_num(ini, "remesh_surface", 0) != 0;
+    m->polyConvert = ini_num(ini, "poly_convert", 0) != 0;
+    { char w[32] = ""; ini_str(ini, "gmsh_algorithm", w, sizeof w); m->gmshAlgo = 0; for (int k = 0; k < GMSH_ALGOS; k++) if (!strcmp(w, GMSH_ALGO_WORD[k])) m->gmshAlgo = k; }
+    { char w[32] = ""; ini_str(ini, "surface_remesher", w, sizeof w); m->surfRemesher = !strcmp(w, "mmg"); }
     m->base = ini_num(ini, "base_size", m->base);
     m->targetPct = ini_num(ini, "target_size_pct", m->targetPct); m->minPct = ini_num(ini, "min_size_pct", m->minPct);
     m->curvature = ini_num(ini, "curvature_points", m->curvature);
@@ -584,7 +836,6 @@ bool mesher_load(const char *casePath, MeshCfg *m)
 }
 
 static const char *const ZONE_WORD[3] = { "box", "sphere", "cylinder" };
-static const char *const MESHER_WORD[MESHER__N] = { "snappy", "tet", "poly", "bodyfit" };
 
 static const char *foam_type(int t);
 
@@ -596,6 +847,7 @@ static void cfg_text(const MeshCfg *m, Str *bp, bool sig)
     str_cat(&b, "# Q-Continuum STL mesher settings (Mesh > STL mesher). SALOME's script salome/stl_mesh.py reads them too.\n"
                 "# Sizes in metres; *_pct are percentages of base_size, as in STAR-CCM+'s reference values.\n[mesher]\n");
     str_catf(&b, "stl = %s\nscale = %.10g\nsplit_angle = %g\n", m->stl, m->scale, m->splitAngle);
+    if (!sig && m->cad[0]) str_catf(&b, "# stl was made from this CAD file; SALOME's CAD route meshes its exact shape (stl's name, .brep)\ncad_source = %s\n", m->cad);
     if (!sig && m->stlOriginal[0]) str_catf(&b, "# stl is a smooth profile made of this one (Flow > Smooth the profile)\nstl_original = %s\n", m->stlOriginal);
     str_catf(&b, "domain = %s\nupstream = %g\ndownstream = %g\nsides = %g\ntop = %g\nbelow = %g\nground = %d\n",
              m->domain == DOMAIN_EXTERNAL ? "external" : "internal", m->up, m->down, m->side, m->top, m->below, m->ground);
@@ -604,7 +856,10 @@ static void cfg_text(const MeshCfg *m, Str *bp, bool sig)
              DIR_WORD[m->flowDir], DIR_WORD[mesher_up(m)], m->refLen);
     str_catf(&b, "# 2-D: one cell thick across two_d_normal (a profile extruded along it), front2D and back2D empty\ntwo_d = %d\ntwo_d_normal = %c\n",
              m->twoD, "xyz"[m->normal2D % 3]);
-    str_catf(&b, "mesher = %s\nremesh_surface = %d\n", MESHER_WORD[m->mesher], m->remesh);
+    str_catf(&b, "mesher = %s\nremesh_surface = %d\n# 3-D: the mesh turned into polyhedra afterwards (polyDualMesh)\npoly_convert = %d\n"
+             "# SALOME: Gmsh's 3-D algorithm (delaunay frontal hxt mmg3d rtree); what remeshes a coarse STL (netgen, mmg)\n"
+             "gmsh_algorithm = %s\nsurface_remesher = %s\n", MESHERS[m->mesher].word, m->remesh, m->polyConvert,
+             GMSH_ALGO_WORD[m->gmshAlgo % GMSH_ALGOS], m->surfRemesher ? "mmg" : "netgen");
     str_catf(&b, "base_size = %.6g\ntarget_size_pct = %g\nmin_size_pct = %g\ncurvature_points = %g\nsurface_growth = %g\nvolume_growth = %g\nfeature_angle = %g\n",
              m->base, m->targetPct, m->minPct, m->curvature, m->surfGrowth, m->volGrowth, m->featureAngle);
     str_catf(&b, "prism_layers_on = %d\nprism_layers = %d\nprism_thickness_pct = %g\nprism_stretching = %g\n", m->prism, m->layers, m->prismPct, m->stretch);
@@ -661,6 +916,11 @@ void mesher_take_names(MeshCfg *m, const Stl *s)
 
 void mesher_apply_names(const MeshCfg *m, Stl *s)
 {
+    if (s->face) {                                        /* CAD face groups: their names come from faces.ini, the kinds by name */
+        for (int i = 0; i < s->nRegions; i++)
+            for (int k = 0; k < m->nNames; k++) if (!strcmp(m->names[k], s->reg[i].name)) { s->reg[i].type = m->types[k]; break; }
+        return;
+    }
     if (m->nNames != s->nRegions) return;                 /* split differently since: keep the fresh names */
     for (int i = 0; i < s->nRegions; i++) { if (m->names[i][0]) pl_strlcpy(s->reg[i].name, m->names[i], 64); s->reg[i].type = m->types[i]; }
 }
@@ -694,7 +954,7 @@ double mesher_ref_length(const MeshCfg *m, const Stl *s)
 
 int mesher_far_levels(const MeshCfg *m, const Stl *s)
 {
-    if (m->domain != DOMAIN_EXTERNAL || m->twoD || m->mesher != MESHER_SNAPPY || m->base <= 0) return 0;
+    if (m->domain != DOMAIN_EXTERNAL || m->twoD || (m->mesher != MESHER_SNAPPY && !mesher_is_cfmesh(m->mesher)) || m->base <= 0) return 0;
     int K = (int)floor(log2(mesher_ref_length(m, s) / 2 / m->base) + 1e-9);   /* far cells no larger than half the body */
     return K < 0 ? 0 : K > 3 ? 3 : K;
 }
@@ -722,12 +982,15 @@ static double outer_share(int n, double r)
 /* snappyHexMesh halves its cells per level, so its target rounds to one; SALOME's NETGEN takes the size as it is */
 double mesher_surface_cell(const MeshCfg *m)
 {
-    return m->mesher == MESHER_SNAPPY ? m->base / pow(2, level_of(m->targetPct)) : m->base * m->targetPct / 100;
+    return MESHERS[m->mesher].flags & MF_OCTREE ? m->base / pow(2, level_of(m->targetPct)) : m->base * m->targetPct / 100;
 }
 
 bool mesher_even_layers(const MeshCfg *m)
 {
-    return m->mesher == MESHER_SNAPPY && m->prism && m->layers > 0 && (m->evenLayers < 0 ? m->twoD : m->evenLayers == 1);
+    /* on by itself (evenLayers -1), in 3-D too since 2026-11-10: on the user's intake (level 0..2 walls) the outer layer was
+       held to 0.3 of the 5 mm target cell, so the stack was 8.6 mm on the flat level-0 walls and 2.2 mm on the curved
+       level-2 ones and broke at every step; even: 9.3 of 10 layers (was 9.1), 0 illegal faces (31), +18 % cells */
+    return m->mesher == MESHER_SNAPPY && m->prism && m->layers > 0 && (m->evenLayers < 0 || m->evenLayers == 1);
 }
 
 double mesher_layer_cell(const MeshCfg *m)
@@ -746,6 +1009,57 @@ double mesher_layer_rel(const MeshCfg *m, double *outer)
 }
 static int between_levels(double g) { return g <= 1.0 ? 6 : (int)fmax(1, fmin(8, lround(0.5 / (g - 1)))); }
 
+static double zones_cells(const MeshCfg *m)
+{
+    double n = 0, b = m->base;
+    for (int i = 0; i < m->nZones; i++) {
+        const MeshZone *z = &m->zone[i];
+        double zv = z->kind == ZONE_BOX ? fabs((z->b[0] - z->a[0]) * (z->b[1] - z->a[1]) * (z->b[2] - z->a[2]))
+                  : z->kind == ZONE_SPHERE ? 4.0 / 3 * M_PI * z->r * z->r * z->r
+                  : M_PI * z->r * z->r * sqrt(pow(z->b[0] - z->a[0], 2) + pow(z->b[1] - z->a[1], 2) + pow(z->b[2] - z->a[2], 2));
+        double h = b * z->sizePct / 100;
+        n += zv / (h * h * h) - zv / (b * b * b);
+    }
+    return n;
+}
+
+/* the surface area snappy takes to each level past the target, all of it and the walls' (Wall: the walls' whole area) */
+static void snappy_levels(const MeshCfg *m, const Stl *s, double Age[16], double Wge[16], double *Wall)
+{
+    double b = m->base, res = 2 * M_PI / fmax(3, m->curvature);
+    int L0 = level_of(m->targetPct), L1 = (int)fmin(15, fmax(L0, level_of(m->minPct))), nb = between_levels(m->volGrowth);
+    bool even = mesher_even_layers(m);
+    /* a plate (much thinner one way than the others): a cell thicker than about half of it sees both faces, so snappy
+       refines all of its surface until the cells are thinner (the blade in t_stl_flow_dir: everything at level 4) */
+    double ext[3], tmin, tmax;
+    for (int k = 0; k < 3; k++) ext[k] = s->bmax[k] - s->bmin[k];
+    tmin = fmin(ext[0], fmin(ext[1], ext[2])); tmax = fmax(ext[0], fmax(ext[1], ext[2]));
+    int plate = tmin > 0 && tmin < 0.25 * tmax && !m->twoD ? (int)ceil(log2(2 * b / tmin)) : -1;
+    *Wall = 0;
+    for (int r = 0; r < s->nRegions; r++) {
+        if (!mesher_region_meshed(m, s, r)) continue;
+        const StlRegion *R = &s->reg[r];
+        bool wall = R->type == BT_WALL;
+        if (wall) *Wall += R->area;
+        double ge[16] = { 0 };
+        for (int k = 0; k < STL_KBINS; k++) {             /* curved: until a cell sees less bend than resolveFeatureAngle */
+            if (R->kArea[k] <= 0) continue;
+            double kap = pow(2, (k - STL_KB0 + 0.5) / 2);
+            int need = (int)ceil(log2(b * kap / res)) + (m->domain == DOMAIN_EXTERNAL);   /* (a body in a tunnel: a level more, the sphere) */
+            for (int l = L0 + 1; l <= L1 && l <= need; l++) ge[l] += R->kArea[k];
+        }
+        for (int a = 0; a < STL_ABINS; a++) {             /* the cells along an edge sharper than it, both sides */
+            if (R->edgeLen[a] <= 0 || (a + 0.5) * 2 * M_PI / 180 <= res) continue;
+            for (int l = L0 + 1; l <= L1; l++) ge[l] += R->edgeLen[a] * (2 * nb + 4) * b / pow(2, l);   /* (fitted: a duct, a blade, the flange) */
+        }
+        for (int l = L0 + 1; l <= L1; l++) {
+            double v = (even && wall) || l <= plate ? R->area : fmin(ge[l], R->area);
+            Age[l] += v;
+            if (wall) Wge[l] += v;
+        }
+    }
+}
+
 double mesher_estimate_cells(const MeshCfg *m, const Stl *s)
 {
     double lo[3], hi[3];
@@ -760,34 +1074,83 @@ double mesher_estimate_cells(const MeshCfg *m, const Stl *s)
         double span = fmax(s->bmax[nax] - s->bmin[nax], 1e-12);
         double plane = (hi[a1] - lo[a1]) * (hi[a2] - lo[a2]), prof = fabs(s->volume) / span;
         double perim = fmax(0, (A - 2 * prof) / span);     /* the profile's outline: its side walls over the extrusion */
+        if (m->mesher == MESHER_FOAMY) {                   /* foamyQuadMesh: the base size all over the plane, finer round the profile */
+            double hs = mesher_surface_cell(m);
+            n = (m->domain == DOMAIN_INTERNAL ? prof : plane - prof) / (b * b);
+            for (double h = hs; h < b; h *= 1.5) n += perim / h;
+            return n;
+        }
+        if (m->mesher != MESHER_SNAPPY && m->mesher != MESHER_CFCART) {
+            /* SALOME's 2-D face (stl_mesher.py mesh_2d): triangles (or quads, Body Fitting) graded from the surface size
+               out to the base size round the body, far_field()'s larger cells beyond it in a wind tunnel, extruded one cell.
+               It was the base size everywhere: 5 times too many. */
+            double hs = fmax(b * m->targetPct / 100, 1e-12), g = fmax(1.05, m->volGrowth), far = b, per = m->mesher == MESHER_BODYFIT ? 1.0 : 2.3;
+            double near = m->domain == DOMAIN_INTERNAL ? prof : plane - prof;
+            if (m->domain == DOMAIN_EXTERNAL) {
+                double L = mesher_ref_length(m, s); far = fmax(b, fmin(8 * b, L / 2));
+                double nlo[3], nhi[3]; mesher_near_box(m, s, nlo, nhi);
+                near = fmin(plane, (nhi[a1] - nlo[a1]) * (nhi[a2] - nlo[a2])) - prof;
+            }
+            n = per * (fmax(0, near) / (b * b) + fmax(0, plane - prof - near) / (far * far) * (m->domain == DOMAIN_EXTERNAL));
+            for (double h = hs; h < b; h *= g) n += per * perim / h;              /* the rings grading out from the profile */
+            if (m->prism && m->layers > 0) n += perim / hs * m->layers;
+            return n;
+        }
         n = (m->domain == DOMAIN_INTERNAL ? prof : plane - prof) / (b * b);
         int Ls = mesher_even_layers(m) ? (int)fmax(L0, level_of(m->minPct)) : L0;
         for (int l = 1; l <= Ls; l++) { double h = b / pow(2, l); n += perim * nb * h / (h * h) * 0.75; }
         if (m->prism && m->layers > 0) n += perim / mesher_layer_cell(m) * m->layers;
         return n;
     }
-    if (m->mesher == MESHER_SNAPPY || m->mesher == MESHER_BODYFIT) {
+    if (m->mesher == MESHER_BODYFIT) {                     /* one grid, min(target, base), all through (stl_mesher.py) */
+        double h = fmin(b, b * m->targetPct / 100);
+        return V / (h * h * h);
+    }
+    if (m->mesher == MESHER_SNAPPY || mesher_is_cfmesh(m->mesher) || m->mesher == MESHER_FOAMY) {
         int K = mesher_far_levels(m, s);
         if (K > 0) {                                       /* base-sized near the body, 2^K coarser beyond */
             double nlo[3], nhi[3]; mesher_near_box(m, s, nlo, nhi);
             double near = (nhi[0] - nlo[0]) * (nhi[1] - nlo[1]) * (nhi[2] - nlo[2]) - fabs(s->volume), bg = b * pow(2, K);
             n = near / (b * b * b) + fmax(0, V - near) / (bg * bg * bg) * 1.5;   /* (and the grading between) */
         } else n = V / (b * b * b);
-        int Ls = mesher_even_layers(m) ? (int)fmax(L0, level_of(m->minPct)) : L0;   /* even: the walls' finer cells all over them */
-        for (int l = 1; l <= Ls; l++) { double h = b / pow(2, l); n += A * nb * h / (h * h * h) * 0.875; }
+        double nVol = n;
+        for (int l = 1; l <= L0; l++) { double h = b / pow(2, l); n += (m->domain == DOMAIN_EXTERNAL && m->mesher != MESHER_FOAMY ? 2.2 : 1.0) * A * nb * h / (h * h * h) * 0.875; }
+        if (m->mesher == MESHER_FOAMY)                     /* polyhedra, no layers; its surface size spreads 2.5 cells out, a band
+                                                              wider than snappy's (the box 1.3 k, the sphere 24.5 k, 2026-11-10) */
+            return 0.63 * nVol + 5.3 * (n - nVol) + zones_cells(m);
+        /* past the target level: where snappy refines on (resolveFeatureAngle: a bend sharper than it inside one cell, so
+           curved surfaces until their cells see less, and the cells along every edge sharper than it; the walls under
+           even layers all the way), nb cells deep at each level. It was the target level alone: 6 to 14 times too few. */
+        double Age[16] = { 0 }, Wge[16] = { 0 }, Wall = 0;
+        snappy_levels(m, s, Age, Wge, &Wall);
+        int L1 = (int)fmax(L0, level_of(m->minPct));
+        /* round a body in a tunnel snappy's bands come out about twice as deep (the sphere, 2026-11-10: 6.6 cells at its finest level) */
+        double band = m->domain == DOMAIN_EXTERNAL ? 2.2 : 1.0;
+        for (int l = L0 + 1; l <= L1 && l < 16; l++) { double h = b / pow(2, l); n += band * Age[l] * nb * h / (h * h * h) * 0.875; }
+        if ((m->mesher == MESHER_SNAPPY || mesher_is_cfmesh(m->mesher)) && m->prism && m->layers > 0) {   /* a layer cell on each wall face, at its level */
+            double faces = 0;
+            for (int l = L0; l <= L1 && l < 16; l++) {
+                double h = b / pow(2, l), here = (l == L0 ? Wall : Wge[l]) - (l + 1 <= L1 && l + 1 < 16 ? Wge[l + 1] : 0);
+                faces += fmax(0, here) / (h * h);
+            }
+            n += faces * m->layers;
+        }
+        n += zones_cells(m);
+        /* cfMesh against this estimate for snappy, measured (tests/compare_meshers.sh, 2026-11-10): inside the box and the
+           flange, in a tunnel round the sphere */
+        bool ext = m->domain == DOMAIN_EXTERNAL;
+        if (m->mesher == MESHER_CFCART) n *= ext ? 1.05 : 0.84;
+        else if (m->mesher == MESHER_CFPOLY) n *= ext ? 3.6 : 2.45;
+        else if (m->mesher == MESHER_CFTET) n *= ext ? 13.2 : 7.0;
+        return n;
     } else {
         double h = b * m->targetPct / 100;                 /* tets: ~6 to a cube of the size, coarsening away from the wall */
+        if (m->mesher == MESHER_SHEXA) return V / (h * h * h);           /* one size all through */
+        if (m->mesher == MESHER_SPRISM) return 2.3 * V / (h * h * h);    /* two triangles a square on the source face */
         n = 6 * V / (b * b * b) + 6 * A * 3 * h / (h * h * h) * 0.5;
         if (m->mesher == MESHER_POLY) n /= 5;
     }
-    for (int i = 0; i < m->nZones; i++) {
-        const MeshZone *z = &m->zone[i];
-        double zv = z->kind == ZONE_BOX ? fabs((z->b[0] - z->a[0]) * (z->b[1] - z->a[1]) * (z->b[2] - z->a[2]))
-                  : z->kind == ZONE_SPHERE ? 4.0 / 3 * M_PI * z->r * z->r * z->r
-                  : M_PI * z->r * z->r * sqrt(pow(z->b[0] - z->a[0], 2) + pow(z->b[1] - z->a[1], 2) + pow(z->b[2] - z->a[2], 2));
-        double h = b * z->sizePct / 100;
-        n += zv / (h * h * h) - zv / (b * b * b);
-    }
+    n += zones_cells(m);
     if (m->prism && m->layers > 0) {
         double h = mesher_even_layers(m) ? mesher_layer_cell(m) : b * m->targetPct / 100;
         double wallA = 0;
@@ -912,6 +1275,376 @@ static void location_in_mesh(const MeshCfg *m, const Stl *s, double out[3])
 
 static const char *foam_type(int t) { return t == BT_WALL ? "wall" : t == BT_SYMMETRY ? "symmetry" : "patch"; }
 
+/* ============================================================================ cfMesh: meshDict and its surface
+   cfMesh meshes the inside of one closed surface: the part (internal flow), or the wind tunnel's box and the part in one
+   file (external: the box's faces are solids inlet, outlet, farfield and ground, as snappy's blockMesh names them; the
+   part's inside is dropped). Feature edges come from surfaceFeatureEdges' .fms. */
+static void put_quad(Str *b, const double a[3], const double c[3], const double d[3], const double e[3])
+{
+    const double *t[2][3] = { { a, c, d }, { a, d, e } };
+    for (int k = 0; k < 2; k++) {
+        str_cat(b, " facet normal 0 0 0\n  outer loop\n");
+        for (int j = 0; j < 3; j++) str_catf(b, "   vertex %.9g %.9g %.9g\n", t[k][j][0], t[k][j][1], t[k][j][2]);
+        str_cat(b, "  endloop\n endfacet\n");
+    }
+}
+
+static void tunnel_surface(const MeshCfg *m, const Stl *s, Str *b)
+{
+    double lo[3], hi[3]; mesher_domain(m, s, lo, hi);
+    int n2 = m->twoD ? m->normal2D % 3 : -1;
+    if (n2 >= 0) {                                        /* 2-D: a ribbon as deep as the profile written in geometry.stl */
+        double c = (s->bmin[n2] + s->bmax[n2]) / 2, h = (s->bmax[n2] - s->bmin[n2]) / 2 * twod_stretch(m, s);
+        lo[n2] = c - h; hi[n2] = c + h;
+    }
+    int f = m->flowDir / 2, fs = dir_sign(m->flowDir), ud = mesher_up(m), u = ud / 2, us = dir_sign(ud);
+    static const char *const NAMES[4] = { "inlet", "outlet", "ground", "farfield" };
+    for (int nm = 0; nm < 4; nm++) {                      /* one solid a name: cfMesh refuses a name twice */
+        bool any = false;
+        for (int k = 0; k < 3; k++)
+            for (int e = 0; e < 2; e++) {
+                const char *name = k == f ? ((e == 0) == (fs > 0) ? "inlet" : "outlet")
+                                 : (m->ground && k == u && (e == 0) == (us > 0)) ? "ground" : "farfield";
+                if (strcmp(name, NAMES[nm]) || k == n2) continue;
+                int a1 = (k + 1) % 3, a2 = (k + 2) % 3;
+                double p[4][3];
+                for (int q = 0; q < 4; q++) {
+                    p[q][k] = e ? hi[k] : lo[k];
+                    p[q][a1] = (q == 1 || q == 2) ? hi[a1] : lo[a1];
+                    p[q][a2] = (q >= 2) ? hi[a2] : lo[a2];
+                }
+                if (!any) str_catf(b, "solid %s\n", name);
+                any = true;
+                if (e) put_quad(b, p[0], p[1], p[2], p[3]); else put_quad(b, p[0], p[3], p[2], p[1]);   /* outward */
+            }
+        if (any) str_catf(b, "endsolid %s\n", NAMES[nm]);
+    }
+}
+
+static double layer_first(const MeshCfg *m)
+{
+    double r = m->stretch > 1.0001 ? m->stretch : 1.0001, total = mesher_layer_rel(m, NULL) * mesher_layer_cell(m);
+    return total * (r - 1) / (pow(r, m->layers) - 1);
+}
+
+/* 2-D: the turn surfaceTransformPoints -rotate '((n) (0 0 1))' makes (the extrusion axis onto z, about their cross product) */
+static void rot2d(const MeshCfg *m, const double in[3], double out[3])
+{
+    int n = m->twoD ? m->normal2D % 3 : 2;
+    if (n == 0) { out[0] = -in[2]; out[1] = in[1]; out[2] = in[0]; }
+    else if (n == 1) { out[0] = in[0]; out[1] = -in[2]; out[2] = in[1]; }
+    else { out[0] = in[0]; out[1] = in[1]; out[2] = in[2]; }
+}
+
+/* the shell lines Generate runs for 2-D cfMesh: the surface turned so its depth runs along z before, the mesh turned
+   back after, cartesian2DMesh's empty patches named as ours */
+void mesher_cf2d_script(const MeshCfg *m, bool before, Str *out)
+{
+    static const char *const ROT[3] = { "((1 0 0) (0 0 1))", "((0 1 0) (0 0 1))", NULL };
+    static const char *const BACK[3] = { "((0 0 1) (1 0 0))", "((0 0 1) (0 1 0))", NULL };
+    int n = m->normal2D % 3;
+    if (before) {
+        if (ROT[n]) str_catf(out, "surfaceTransformPoints -rotate '%s' constant/triSurface/cfmesh.stl constant/triSurface/cfmesh.stl && ", ROT[n]);
+        return;
+    }
+    str_cat(out, "sed -i 's/\\bbottomEmptyFaces\\b/back2D/; s/\\btopEmptyFaces\\b/front2D/' constant/polyMesh/boundary && echo 'named the empty patches back2D and front2D'\n");
+    if (BACK[n]) str_catf(out, "transformPoints -rotate '%s' && echo 'turned the mesh back'\n", BACK[n]);
+}
+
+static bool write_quality(const char *casePath, const MeshCfg *m, char *err, int cap)
+{
+    Str b; str_init(&b);
+    str_catf(&b, HEADER("dictionary", "meshQualityDict") OURS "\n#includeEtc \"caseDicts/meshQualityDict\"\n\nmaxNonOrtho %g;\nmaxInternalSkewness %g;\nmaxBoundarySkewness %g;\n",
+             m->maxNonOrtho, m->maxSkew, m->maxSkew * 5);
+    bool ok = put_dict(casePath, "system/meshQualityDict", b.s, err, cap);
+    str_free(&b);
+    return ok;
+}
+
+/* ============================================================================ foamyHexMesh: foamyHexMeshDict, collapseDict
+   The surface it conforms to: the part's regions (internal flow), or the wind tunnel's box and the part in one file (as
+   cfMesh's), kept on the side of locationInMesh. Cells sized from the base, the surface cells by the target. */
+static void location_in_mesh(const MeshCfg *m, const Stl *s, double out[3]);
+/* 2-D foamyQuadMesh: it meshes the plane z = 0 between closed surfaces that cross it, then extrude2DMesh makes it one cell
+   deep. The part (caps and all) and in a wind tunnel a closed box round it are written turned so the extrusion runs along z
+   (rot2d) and centred on z = 0; mesher_foamy2d_after turns the mesh back. */
+static void put_tri_rot(Str *b, const MeshCfg *m, const double *v, double zc)
+{
+    str_cat(b, " facet normal 0 0 0\n  outer loop\n");
+    for (int j = 0; j < 3; j++) { double q[3]; rot2d(m, v + 3 * j, q); str_catf(b, "   vertex %.9g %.9g %.9g\n", q[0], q[1], q[2] - zc); }
+    str_cat(b, "  endloop\n endfacet\n");
+}
+
+static bool write_foamy2d(const char *casePath, const MeshCfg *m, const Stl *s, char *err, int cap)
+{
+    int n = m->normal2D % 3;
+    double cen[3] = { 0, 0, 0 }, rc[3]; cen[n] = (s->bmin[n] + s->bmax[n]) / 2;
+    rot2d(m, cen, rc);
+    double zc = rc[2], depth = s->bmax[n] - s->bmin[n];
+    Str b; str_init(&b);
+    for (int r = 0; r < s->nRegions; r++) {               /* the part, closed: its caps too (they cross nothing) */
+        str_catf(&b, "solid %s\n", s->reg[r].name);
+        for (int t = 0; t < s->nTri; t++) {
+            if (s->region[t] != r) continue;
+            double v[9]; for (int k = 0; k < 9; k++) v[k] = s->tri[9 * (size_t)t + k];
+            put_tri_rot(&b, m, v, zc);
+        }
+        str_catf(&b, "endsolid %s\n", s->reg[r].name);
+    }
+    char p[PL_PATH]; pl_join(p, sizeof p, casePath, "constant/triSurface/part2d.stl");
+    bool ok = pl_write_file(p, b.s, b.len);
+    if (m->domain == DOMAIN_EXTERNAL) {                   /* the tunnel, closed: its front and back beyond the part */
+        double lo[3], hi[3]; mesher_domain(m, s, lo, hi);
+        /* thick, as the tutorials' boxes: a slab a thousandth as thick as it is wide defeats its inside/outside test (19 grid
+           points seeded instead of thousands) */
+        double th = depth;
+        for (int k = 0; k < 3; k++) if (k != n) th = fmax(th, 0.25 * (hi[k] - lo[k]));
+        lo[n] = cen[n] - th; hi[n] = cen[n] + th;
+        int f = m->flowDir / 2, fs = dir_sign(m->flowDir), ud = mesher_up(m), u = ud / 2, us = dir_sign(ud);
+        b.len = 0; b.s[0] = 0;
+        static const char *const NAMES[5] = { "inlet", "outlet", "ground", "farfield", "frontBack" };
+        for (int nm = 0; nm < 5; nm++) {
+            bool any = false;
+            for (int k = 0; k < 3; k++)
+                for (int e = 0; e < 2; e++) {
+                    const char *name = k == n ? "frontBack" : k == f ? ((e == 0) == (fs > 0) ? "inlet" : "outlet")
+                                     : (m->ground && k == u && (e == 0) == (us > 0)) ? "ground" : "farfield";
+                    if (strcmp(name, NAMES[nm])) continue;
+                    int a1 = (k + 1) % 3, a2 = (k + 2) % 3;
+                    double q[4][3];
+                    for (int c = 0; c < 4; c++) {
+                        q[c][k] = e ? hi[k] : lo[k];
+                        q[c][a1] = (c == 1 || c == 2) ? hi[a1] : lo[a1];
+                        q[c][a2] = (c >= 2) ? hi[a2] : lo[a2];
+                    }
+                    if (!any) str_catf(&b, "solid %s\n", name);
+                    any = true;
+                    if (!e) { double t[3]; memcpy(t, q[1], sizeof t); memcpy(q[1], q[3], sizeof t); memcpy(q[3], t, sizeof t); }   /* outward */
+                    double t1[9] = { q[0][0], q[0][1], q[0][2], q[1][0], q[1][1], q[1][2], q[2][0], q[2][1], q[2][2] };
+                    double t2[9] = { q[0][0], q[0][1], q[0][2], q[2][0], q[2][1], q[2][2], q[3][0], q[3][1], q[3][2] };
+                    put_tri_rot(&b, m, t1, zc); put_tri_rot(&b, m, t2, zc);
+                }
+            if (any) str_catf(&b, "endsolid %s\n", NAMES[nm]);
+        }
+        pl_join(p, sizeof p, casePath, "constant/triSurface/tunnel2d.stl");
+        ok = ok && pl_write_file(p, b.s, b.len);
+    }
+    if (!ok) { snprintf(err, (size_t)cap, "Could not write the 2-D surfaces in constant/triSurface"); str_free(&b); return false; }
+    /* feature edges in the plane */
+    b.len = 0; b.s[0] = 0;
+    str_cat(&b, HEADER("dictionary", "surfaceFeatureExtractDict") OURS "\n");
+    for (int i = 0; i < (m->domain == DOMAIN_EXTERNAL ? 2 : 1); i++)
+        str_catf(&b, "%s\n{\n    extractionMethod extractFromSurface;\n    includedAngle %g;\n    subsetFeatures { plane (0 0 1)(0 0 0); nonManifoldEdges no; openEdges no; }\n"
+                     "    writeObj no;\n}\n", i ? "tunnel2d.stl" : "part2d.stl", 180 - m->featureAngle);
+    ok = put_dict(casePath, "system/surfaceFeatureExtractDict", b.s, err, cap);
+    double loc[3], lr[3]; location_in_mesh(m, s, loc); rot2d(m, loc, lr); lr[2] = 0;
+    b.len = 0; b.s[0] = 0;
+    str_cat(&b, HEADER("dictionary", "foamyQuadMeshDict") OURS "\ngeometry\n{\n    part2d.stl\n    {\n        name part;\n        type closedTriSurfaceMesh;\n        regions\n        {\n");
+    for (int r = 0; r < s->nRegions; r++) str_catf(&b, "            %s { name %s; }\n", s->reg[r].name, s->reg[r].name);
+    str_cat(&b, "        }\n    }\n");
+    if (m->domain == DOMAIN_EXTERNAL)
+        str_catf(&b, "    tunnel2d.stl\n    {\n        name tunnel;\n        type closedTriSurfaceMesh;\n        regions\n        {\n            inlet { name inlet; }\n"
+                     "            outlet { name outlet; }\n%s            farfield { name farfield; }\n            frontBack { name frontBack; }\n        }\n    }\n",
+                     m->ground ? "            ground { name ground; }\n" : "");
+    str_catf(&b, "}\n\nsurfaceConformation\n{\n    locationInMesh (%.9g %.9g 0);\n    pointPairDistanceCoeff 0.1;\n    minEdgeLenCoeff 0.1;\n    maxNotchLenCoeff 1.0;\n"
+                 "    minNearPointDistCoeff 0.1;\n    maxQuadAngle 120;\n    insertSurfaceNearestPointPairs yes;\n    mirrorPoints no;\n    insertSurfaceNearPointPairs yes;\n"
+                 "    maxBoundaryConformingIter 5;\n    geometryToConformTo\n    {\n"
+                 /* which side is fluid, against the normals (outward ones): "inside" is its default, which meshed the airfoil's inside */
+                 "        part { featureMethod extendedFeatureEdgeMesh; extendedFeatureEdgeMesh \"part2d.extendedFeatureEdgeMesh\"; meshableSide %s; }\n",
+             lr[0], lr[1], m->domain == DOMAIN_EXTERNAL ? "outside" : "inside");
+    if (m->domain == DOMAIN_EXTERNAL)
+        str_cat(&b, "        tunnel { featureMethod extendedFeatureEdgeMesh; extendedFeatureEdgeMesh \"tunnel2d.extendedFeatureEdgeMesh\"; meshableSide inside; }\n");
+    str_catf(&b, "    }\n    additionalFeatures {}\n    randomiseInitialGrid no;\n    randomPerturbation 0.1;\n}\n\n"
+                 "motionControl\n{\n    minCellSize %.9g;\n    defaultPriority 0;\n    shapeControlFunctions\n    {\n        part\n        {\n"
+                 "            type searchableSurfaceControl;\n            priority 1;\n            mode %s;\n            cellSizeFunction linearDistance;\n"
+                 "            linearDistanceCoeffs { distanceCellSizeCoeff %g; distanceCoeff 20; }\n            uniformCoeffs {}\n"
+                 "            surfaceCellSizeFunction uniformValue;\n            uniformValueCoeffs { surfaceCellSizeCoeff %g; }\n        }\n    }\n"
+                 "    relaxationModel adaptiveLinear;\n    adaptiveLinearCoeffs { relaxationStart 0.5; relaxationEnd 0.0; }\n    objOutput no;\n"
+                 "    meshedSurfaceOutput yes;\n    nearWallAlignedDist 3;\n}\n\nshortEdgeFilter\n{\n    shortEdgeFilterFactor 0.2;\n    edgeAttachedToBoundaryFactor 2.0;\n}\n\n"
+                 "extrusion\n{\n    extrude off;\n    #include \"extrude2DMeshDict\"\n}\n",
+             m->base, m->domain == DOMAIN_INTERNAL ? "inside" : "outside", 1.0, fmin(1.0, mesher_surface_cell(m) / m->base));
+    ok = ok && put_dict(casePath, "system/foamyQuadMeshDict", b.s, err, cap);
+    b.len = 0; b.s[0] = 0;
+    str_catf(&b, HEADER("dictionary", "extrude2DMeshDict") OURS "\nextrudeModel linearDirection;\npatchInfo {}\npatchType empty;\nnLayers 1;\nexpansionRatio 1.0;\n"
+                 "linearDirectionCoeffs\n{\n    direction (0 0 1);\n    thickness %.9g;\n}\n", depth);
+    ok = ok && put_dict(casePath, "system/extrude2DMeshDict", b.s, err, cap);
+    str_free(&b);
+    return ok;
+}
+
+/* after foamyQuadMesh and extrude2DMesh: the extrusion's ends named front2D/back2D, the mesh turned back to the part's frame */
+void mesher_foamy2d_after(const MeshCfg *m, const Stl *s, Str *out)
+{
+    int n = m->normal2D % 3;
+    double cen[3] = { 0, 0, 0 }, rc[3]; cen[n] = (s->bmin[n] + s->bmax[n]) / 2;
+    rot2d(m, cen, rc);
+    double depth = s->bmax[n] - s->bmin[n];
+    static const char *const BACK[3] = { "((0 0 1) (1 0 0))", "((0 0 1) (0 1 0))", NULL };
+    /* faces it could not give a surface's region land in CV2D_default_patch: into the far field (a tunnel) or the part's
+       largest boundary; the extrusion's ends named as ours */
+    const char *into = "farfield";
+    if (m->domain != DOMAIN_EXTERNAL) { int big = 0; for (int r = 1; r < s->nRegions; r++) if (s->reg[r].area > s->reg[big].area) big = r; into = s->reg[big].name; }
+    str_catf(out, "if grep -q CV2D_default_patch constant/polyMesh/boundary; then printf '%%s\\n' 'FoamFile { version 2.0; format ascii; class dictionary; object createPatchDict; }' "
+                  "'pointSync false;' 'patches ( { name %s; patchInfo { type patch; } constructFrom patches; patches (%s CV2D_default_patch); } );' > system/createPatchDict "
+                  "&& createPatch -overwrite > /dev/null && echo 'Q-Continuum: CV2D_default_patch merged into %s'; fi\n", into, into, into);
+    str_cat(out, "sed -i 's/^\\([[:space:]]*\\)front$/\\1front2D/; s/^\\([[:space:]]*\\)back$/\\1back2D/' constant/polyMesh/boundary && echo 'named the ends front2D and back2D'\n");
+    /* extruded from z = 0 by the depth: the profile's middle is half a depth in */
+    str_catf(out, "transformPoints -translate '(0 0 %.9g)' > /dev/null && ", rc[2] - depth / 2);
+    if (BACK[n]) str_catf(out, "transformPoints -rotate '%s' > /dev/null && ", BACK[n]);
+    str_cat(out, "echo 'Q-Continuum: turned the mesh back into the part'\n");
+}
+
+static bool write_foamy(const char *casePath, const MeshCfg *m, const Stl *s, char *err, int cap)
+{
+    if (m->twoD) return write_foamy2d(casePath, m, s, err, cap);
+    Str b; str_init(&b);
+    char p[PL_PATH];
+    if (m->domain == DOMAIN_EXTERNAL) {                   /* the tunnel apart: its fluid is inside it, the part's outside */
+        tunnel_surface(m, s, &b);
+        pl_join(p, sizeof p, casePath, "constant/triSurface/foamytunnel.stl");
+        if (!pl_write_file(p, b.s, b.len)) { snprintf(err, (size_t)cap, "Could not write constant/triSurface/foamytunnel.stl"); str_free(&b); return false; }
+        b.len = 0; b.s[0] = 0;
+    }
+    pl_join(p, sizeof p, casePath, "constant/triSurface/geometry.stl");
+    char *part = pl_read_file(p, NULL);
+    if (!part) { snprintf(err, (size_t)cap, "Could not read constant/triSurface/geometry.stl"); str_free(&b); return false; }
+    str_cat(&b, part); free(part);
+    pl_join(p, sizeof p, casePath, "constant/triSurface/foamy.stl");
+    if (!pl_write_file(p, b.s, b.len)) { snprintf(err, (size_t)cap, "Could not write constant/triSurface/foamy.stl"); str_free(&b); return false; }
+    double loc[3]; location_in_mesh(m, s, loc);
+    /* a surface of one region gives its patch the surface's name, not the region's: name it as its region then */
+    int nMeshed = 0, only = 0; for (int r = 0; r < s->nRegions; r++) if (mesher_region_meshed(m, s, r)) { nMeshed++; only = r; }
+    const char *pn = nMeshed == 1 ? s->reg[only].name : "part";
+    b.len = 0; b.s[0] = 0;
+    str_catf(&b, HEADER("dictionary", "foamyHexMeshDict") OURS "\n#includeEtc \"caseDicts/foamyHexMeshDict\"\n\n"
+                 "geometry\n{\n    foamy.stl\n    {\n        name %s;\n        type triSurfaceMesh;\n    }\n%s}\n\n"
+                 "initialPoints\n{\n    initialPointsMethod autoDensity;\n    autoDensityCoeffs\n    {\n        minLevels 2;\n        maxSizeRatio 3.0;\n"
+                 "        sampleResolution 4;\n        surfaceSampleResolution 5;\n    }\n}\n\n"
+                 "surfaceConformation\n{\n    locationInMesh (%.9g %.9g %.9g);\n    geometryToConformTo\n    {\n        %s\n        {\n"
+                 "            featureMethod extractFeatures;\n            includedAngle %g;\n            meshableSide %s;\n            regions\n            {\n",
+             pn, m->domain == DOMAIN_EXTERNAL ? "    foamytunnel.stl\n    {\n        name tunnel;\n        type triSurfaceMesh;\n    }\n" : "",
+             loc[0], loc[1], loc[2], pn, 180 - m->featureAngle, m->domain == DOMAIN_EXTERNAL ? "outside" : "inside");
+    for (int r = 0; r < s->nRegions; r++)
+        if (mesher_region_meshed(m, s, r))
+            str_catf(&b, "                %s { patchInfo { type %s; } }\n", s->reg[r].name, foam_type(s->reg[r].type));
+    str_cat(&b, "            }\n        }\n");
+    if (m->domain == DOMAIN_EXTERNAL) {
+        str_catf(&b, "        tunnel\n        {\n            featureMethod extractFeatures;\n            includedAngle %g;\n            meshableSide inside;\n"
+                     "            regions\n            {\n                inlet { patchInfo { type patch; } }\n                outlet { patchInfo { type patch; } }\n"
+                     "%s                farfield { patchInfo { type patch; } }\n            }\n        }\n", 180 - m->featureAngle,
+                     m->ground ? "                ground { patchInfo { type wall; } }\n" : "");
+    }
+    str_catf(&b, "    }\n}\n\n"
+                 "motionControl\n{\n    defaultCellSize %.9g;\n    minimumCellSizeCoeff 0;\n    maxSmoothingIterations 100;\n    maxRefinementIterations 0;\n"
+                 "    shapeControlFunctions\n    {\n        %s\n        {\n            type searchableSurfaceControl;\n            priority 1;\n"
+                 "            mode %s;\n            surfaceCellSizeFunction uniformValue;\n            uniformValueCoeffs { surfaceCellSizeCoeff %g; }\n"
+                 "            cellSizeFunction surfaceOffsetLinearDistance;\n            surfaceOffsetLinearDistanceCoeffs\n            {\n"
+                 "                distanceCellSizeCoeff 1;\n                surfaceOffsetCoeff 2.5;\n                linearDistanceCoeff 2.5;\n            }\n"
+                 "        }\n    }\n    adaptiveLinearCoeffs { relaxationStart 1.0; relaxationEnd 0.0; }\n    objOutput no;\n    timeChecks no;\n}\n\n"
+                 "backgroundMeshDecomposition\n{\n    minLevels 1;\n    sampleResolution 4;\n    spanScale 5;\n    maxCellWeightCoeff 10;\n}\n\n"
+                 "meshQualityControls\n{\n    #include \"meshQualityDict\"\n}\n",
+             m->base, pn, m->domain == DOMAIN_INTERNAL ? "inside" : "outside", fmax(0.05, m->targetPct / 100));
+    bool ok = put_dict(casePath, "system/foamyHexMeshDict", b.s, err, cap);
+    b.len = 0; b.s[0] = 0;
+    str_cat(&b, HEADER("dictionary", "collapseDict") OURS "\ncontrolMeshQuality on;\n\ncollapseEdgesCoeffs\n{\n    minimumEdgeLength 1e-6;\n    maximumMergeAngle 180;\n}\n\n"
+                "collapseFacesCoeffs\n{\n    initialFaceLengthFactor 0.5;\n    maxCollapseFaceToPointSideLengthCoeff 0.3;\n    allowEarlyCollapseToPoint on;\n"
+                "    allowEarlyCollapseCoeff 0.2;\n    guardFraction 0.1;\n}\n\ncontrolMeshQualityCoeffs\n{\n    #include \"meshQualityDict\"\n"
+                "    edgeReductionFactor 0.5;\n    faceReductionFactor 0.5;\n    maximumSmoothingIterations 2;\n    maximumIterations 10;\n    maxPointErrorCount 3;\n}\n");
+    ok = ok && put_dict(casePath, "system/collapseDict", b.s, err, cap);
+    ok = ok && write_quality(casePath, m, err, cap);
+    str_free(&b);
+    return ok;
+}
+
+/* what Generate runs for foamyHexMesh: the mesher (its FPE trap off), the edges and faces collapsed, the last time's mesh
+   moved into constant/polyMesh and the time folders it wrote removed */
+/* the foamy meshers iterate to controlDict's endTime (the case's own: 1000 for a steady run): 100 as their tutorials, the
+   controlDict put back afterwards whatever happens; their FPE trap off */
+#define FOAMY_ITERS(prog) "cp system/controlDict system/.controlDict.qc && foamDictionary system/controlDict -entry endTime -set 100 > /dev/null && " \
+    "foamDictionary system/controlDict -entry writeControl -set timeStep > /dev/null && foamDictionary system/controlDict -entry writeInterval -set 100 > /dev/null && " \
+    "foamDictionary system/controlDict -entry startFrom -set startTime > /dev/null; FOAM_SIGFPE=false " prog "; rc=$?; mv -f system/.controlDict.qc system/controlDict; [ $rc = 0 ]"
+
+const char *mesher_foamy2d_cmd(void)
+{
+    return "surfaceFeatureExtract && " FOAMY_ITERS("foamyQuadMesh -overwrite") " && extrude2DMesh -overwrite polyMesh2D";
+}
+
+const char *mesher_foamy_cmd(void)
+{
+    return FOAMY_ITERS("foamyHexMesh") " && collapseEdges -latestTime -collapseFaces && "
+           "{ collapseEdges -latestTime -collapseFaceSet indirectPatchFaces || true; } && t=$(foamListTimes -latestTime | tail -1) && "
+           "[ -n \"$t\" ] && [ -d \"$t/polyMesh\" ] && rm -rf constant/polyMesh && mv \"$t/polyMesh\" constant/ && foamListTimes -rm > /dev/null && "
+           "echo \"Q-Continuum: moved the mesh of time $t into constant/polyMesh\" && "
+           /* its patches are named <surface>_<region>: the surface is "part", the regions are ours */
+           "sed -i 's/^\\([[:space:]]*\\)\\(part\\|tunnel\\)_/\\1/' constant/polyMesh/boundary && echo 'Q-Continuum: patch names without part_ and tunnel_'";
+}
+
+static bool write_cfmesh(const char *casePath, const MeshCfg *m, const Stl *s, char *err, int cap)
+{
+    /* the surface: the part's regions (as geometry.stl), and in a wind tunnel the box round it first */
+    Str b; str_init(&b);
+    if (m->domain == DOMAIN_EXTERNAL) tunnel_surface(m, s, &b);
+    char p[PL_PATH]; pl_join(p, sizeof p, casePath, "constant/triSurface/geometry.stl");
+    char *part = pl_read_file(p, NULL);
+    if (!part) { snprintf(err, (size_t)cap, "Could not read constant/triSurface/geometry.stl"); str_free(&b); return false; }
+    str_cat(&b, part); free(part);
+    pl_join(p, sizeof p, casePath, "constant/triSurface/cfmesh.stl");
+    if (!pl_write_file(p, b.s, b.len)) { snprintf(err, (size_t)cap, "Could not write constant/triSurface/cfmesh.stl"); str_free(&b); return false; }
+    /* sizes: the base size (larger far off in a tunnel, the base kept round the body), the surface cells, the smallest */
+    int K = mesher_far_levels(m, s);
+    double base = m->base, bg = base * pow(2, K), hs = mesher_surface_cell(m), hmin = base / pow(2, level_of(m->minPct));
+    b.len = 0; b.s[0] = 0;
+    char farNote[64] = ""; if (K) snprintf(farNote, sizeof farNote, " (far field %g m)", bg);
+    str_catf(&b, HEADER("dictionary", "meshDict") OURS
+             "// base %g m%s; surface cells %g m (target %g %%); smallest %g m (minimum %g %%)\n\n"
+             "surfaceFile \"constant/triSurface/cfmesh.fms\";\n\nmaxCellSize %.9g;\nboundaryCellSize %.9g;\nminCellSize %.9g;\n",
+             base, farNote, hs, m->targetPct, hmin, m->minPct, bg, m->domain == DOMAIN_EXTERNAL ? base : hs, hmin);
+    /* in a wind tunnel boundaryCellSize would size the tunnel's own walls too (the sphere: 122 k cells, snappy 45 k): there
+       it is the base, and the part's boundaries get the surface size by name */
+    if (m->domain == DOMAIN_EXTERNAL) {
+        str_cat(&b, "\nlocalRefinement\n{\n");
+        for (int r = 0; r < s->nRegions; r++)
+            if (mesher_region_meshed(m, s, r)) str_catf(&b, "    %s { cellSize %.9g; }\n", s->reg[r].name, hs);
+        str_cat(&b, "}\n");
+    }
+    /* refinement: the box at the base size round a body in a tunnel, the volumetric controls */
+    str_cat(&b, "\nobjectRefinements\n{\n");
+    if (K > 0) {
+        double lo[3], hi[3]; mesher_near_box(m, s, lo, hi);
+        str_catf(&b, "    nearBody { type box; cellSize %.9g; centre (%.9g %.9g %.9g); lengthX %.9g; lengthY %.9g; lengthZ %.9g; }\n", base,
+                 (lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2, (lo[2] + hi[2]) / 2, hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]);
+    }
+    for (int i = 0; i < m->nZones; i++) {
+        const MeshZone *z = &m->zone[i];
+        double h = base * z->sizePct / 100;
+        double A[3], B[3]; rot2d(m, z->a, A); rot2d(m, z->b, B);   /* (2-D: in the turned frame the mesher works in) */
+        if (z->kind == ZONE_BOX)
+            str_catf(&b, "    zone%d { type box; cellSize %.9g; centre (%.9g %.9g %.9g); lengthX %.9g; lengthY %.9g; lengthZ %.9g; }\n", i, h,
+                     (A[0] + B[0]) / 2, (A[1] + B[1]) / 2, (A[2] + B[2]) / 2, fabs(B[0] - A[0]), fabs(B[1] - A[1]), fabs(B[2] - A[2]));
+        else if (z->kind == ZONE_SPHERE)
+            str_catf(&b, "    zone%d { type sphere; cellSize %.9g; centre (%.9g %.9g %.9g); radius %.9g; }\n", i, h, A[0], A[1], A[2], z->r);
+        else
+            str_catf(&b, "    zone%d { type cone; cellSize %.9g; p0 (%.9g %.9g %.9g); p1 (%.9g %.9g %.9g); radius0 %.9g; radius1 %.9g; }\n", i, h,
+                     A[0], A[1], A[2], B[0], B[1], B[2], z->r, z->r);
+    }
+    str_cat(&b, "}\n");
+    /* prism layers on the walls (and the ground), the outer one sized to the surface cells as for snappy */
+    if (m->prism && m->layers > 0) {
+        str_catf(&b, "\nboundaryLayers\n{\n    optimiseLayer 1;\n    patchBoundaryLayers\n    {\n");
+        double t1 = layer_first(m);
+        for (int r = 0; r < s->nRegions; r++)
+            if (s->reg[r].type == BT_WALL && mesher_region_meshed(m, s, r))
+                str_catf(&b, "        %s { nLayers %d; thicknessRatio %g; maxFirstLayerThickness %.6g; allowDiscontinuity 0; }\n",
+                         s->reg[r].name, m->layers, m->stretch > 1 ? m->stretch : 1.0, t1);
+        if (m->domain == DOMAIN_EXTERNAL && m->ground)
+            str_catf(&b, "        ground { nLayers %d; thicknessRatio %g; maxFirstLayerThickness %.6g; }\n", m->layers, m->stretch > 1 ? m->stretch : 1.0, t1);
+        str_cat(&b, "    }\n}\n");
+    }
+    bool ok = put_dict(casePath, "system/meshDict", b.s, err, cap);
+    str_free(&b);
+    return ok;
+}
+
 static bool write_snappy(const char *casePath, const MeshCfg *m, const Stl *s, char *err, int cap)
 {
     double lo[3], hi[3];
@@ -962,10 +1695,7 @@ static bool write_snappy(const char *casePath, const MeshCfg *m, const Stl *s, c
                  "    writeObj            no;\n}\n", 180 - m->featureAngle, n2 >= 0 ? "no" : "yes");
     ok = ok && put_dict(casePath, "system/surfaceFeatureExtractDict", b.s, err, cap);
     /* ---- meshQualityDict */
-    b.len = 0; b.s[0] = 0;
-    str_catf(&b, HEADER("dictionary", "meshQualityDict") OURS "\n#includeEtc \"caseDicts/meshQualityDict\"\n\nmaxNonOrtho %g;\nmaxInternalSkewness %g;\nmaxBoundarySkewness %g;\n",
-             m->maxNonOrtho, m->maxSkew, m->maxSkew * 5);
-    ok = ok && put_dict(casePath, "system/meshQualityDict", b.s, err, cap);
+    ok = ok && write_quality(casePath, m, err, cap);
     /* ---- snappyHexMeshDict */
     int L0 = level_of(m->targetPct) + K, L1 = level_of(m->minPct) + K;   /* levels of the background, whose cells are 2^K bases */
     if (L1 < L0) L1 = L0;
@@ -1075,6 +1805,9 @@ void mesher_type_script(const MeshCfg *m, const Stl *s, Str *out)
                  s->reg[r].name, foam_type(s->reg[r].type), s->reg[r].name, foam_type(s->reg[r].type));
     if (m->domain == DOMAIN_EXTERNAL && m->ground)
         str_cat(out, "foamDictionary constant/polyMesh/boundary -entry entry0/ground/type -set wall > /dev/null 2>&1 && echo 'patch ground: wall'\n");
+    if (m->domain == DOMAIN_EXTERNAL && mesher_is_cfmesh(m->mesher))   /* cfMesh makes every patch a wall */
+        str_cat(out, "for p in inlet outlet farfield; do foamDictionary constant/polyMesh/boundary -entry entry0/$p/type -set patch > /dev/null 2>&1 "
+                     "&& echo \"patch $p: patch\"; done\n");
     if (m->twoD)                                          /* SALOME's 2-D mesh: its front and back are the empty ones */
         str_cat(out, "for p in front2D back2D; do foamDictionary constant/polyMesh/boundary -entry entry0/$p/type -set empty > /dev/null 2>&1 "
                      "&& foamDictionary constant/polyMesh/boundary -entry entry0/$p/inGroups -remove > /dev/null 2>&1; echo \"patch $p: empty\"; done\n");
@@ -1133,6 +1866,11 @@ bool mesher_prepare(const char *casePath, const MeshCfg *m, Stl *s, char *err, i
         "laplacianSchemes { default Gauss linear corrected; }\ninterpolationSchemes { default linear; }\nsnGradSchemes { default corrected; }\n");
     put_if_missing(casePath, "system/fvSolution", HEADER("dictionary", "fvSolution") "\nsolvers {}\nSIMPLE {}\n");
     if (m->mesher == MESHER_SNAPPY) return write_snappy(casePath, m, s, err, cap);
+    if (m->mesher == MESHER_FOAMY) return write_foamy(casePath, m, s, err, cap);
+    if (mesher_is_cfmesh(m->mesher)) {
+        if (m->twoD && m->mesher != MESHER_CFCART) { snprintf(err, (size_t)cap, "%s meshes 3-D parts only: cfMesh cartesianMesh does 2-D", MESHERS[m->mesher].shortName); return false; }
+        return write_cfmesh(casePath, m, s, err, cap);
+    }
     return true;
 }
 

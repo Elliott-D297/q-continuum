@@ -1,0 +1,63 @@
+# Every mesher, step 2 (2026-11-10): cfMesh's cartesianMesh picked under Mesh settings meshes a box duct with prism layers
+# on its walls, the patch types set from the boundaries, then Physics > Setup writes the case and simpleFoam runs on it.
+budget p95 60 max 400
+shell mkdir -p $SB/ws/cf/system && python3 "$QC_TESTS/tools/gen_named_box.py" $SB/ws/box.stl && printf 'FoamFile { version 2.0; format ascii; class dictionary; object controlDict; }\napplication simpleFoam;\nstartTime 0;\nendTime 10;\ndeltaT 1;\nwriteControl timeStep;\nwriteInterval 10;\n' > $SB/ws/cf/system/controlDict
+open $SB/ws/cf
+click nav:mesh
+wait-until page Mesh
+click text:STL mesher
+wait 5
+click stl-path
+enter $SB/ws/box.stl
+wait 10
+click stl-next
+wait 3
+click stl-next
+wait 5
+click stl-name-kinds
+wait 5
+click stl-next
+wait 5
+click stl-mesher
+wait 3
+click text:OpenFOAM · Cartesian hex: cfMesh cartesianMesh
+wait 5
+assert text cfMesh's hexahedra fitted to the surface
+assert log mesher/mesher.ini mesher = cfcart
+screenshot $OUT/1_settings.png
+click stl-next
+wait 5
+click stl-gen
+wait-until job running timeout 20
+wait-until job finished timeout 600
+assert log log.cartesianMesh End
+assert log log.checkMesh Mesh OK.
+assert log constant/polyMesh/boundary Inlet
+assert log log.patchTypes patch Inlet: patch
+assert log log.patchTypes patch walls: wall
+wait 10
+screenshot $OUT/2_meshed.png
+# cfMesh writes faces as a binary faceList (raw labels inside each N(...)): Mesh > View read only the other layouts
+click text:View
+wait 20
+assert text cells cut
+assert not text Could not read
+click text:Surface (3-D)
+wait 20
+assert text Inlet
+assert not text Could not read
+screenshot $OUT/2b_view.png
+click text:STL mesher
+wait 5
+click stl-to-physics
+wait 10
+click wf-next
+wait 10
+assert file 0/U
+click wf-next
+wait 10
+click? m-pc-go
+wait-until job running timeout 30
+wait-until job finished timeout 300
+assert log log.simpleFoam End
+screenshot $OUT/3_ran.png

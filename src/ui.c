@@ -2106,11 +2106,14 @@ bool ui_dropdown(UiId id, Rectangle r, const char *current, const char *const *i
     return false;
 }
 
-bool ui_select(UiId id, Rectangle r, const char *const *items, int n, int *sel)
+bool ui_select(UiId id, Rectangle r, const char *const *items, int n, int *sel) { return ui_select_ph(id, r, items, n, sel, "Select"); }
+
+/* as ui_select, saying what to pick while nothing is (an action list: "Add an operation...") */
+bool ui_select_ph(UiId id, Rectangle r, const char *const *items, int n, int *sel, const char *placeholder)
 {
     char out[256];
     const char *cur = (*sel >= 0 && *sel < n) ? items[*sel] : "";
-    if (ui_dropdown(id, r, cur, items, n, 0, out, sizeof out, "Select")) {
+    if (ui_dropdown(id, r, cur, items, n, 0, out, sizeof out, placeholder)) {
         for (int i = 0; i < n; i++) if (!strcmp(items[i], out)) { bool ch = *sel != i; *sel = i; return ch; }
     }
     return false;

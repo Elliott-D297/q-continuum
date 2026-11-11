@@ -21,7 +21,7 @@ typedef enum {
 
 #define MAX_JOBS 8
 
-#define WHATS_NEW_REV 10         /* bump with each batch of changes worth telling about (page_settings.c lists them) */
+#define WHATS_NEW_REV 13         /* bump with each batch of changes worth telling about (page_settings.c lists them) */
 typedef enum { MD_NONE = 0, MD_OPEN_FOLDER, MD_CLONE, MD_CLEAN, MD_DELETE, MD_UNSAVED, MD_QUIT_RUNNING, MD_ADD_ENTRY, MD_RUN_RESULTS, MD_NEW_FILE, MD_RUN_SCRIPT, MD_CPL_NEW, MD_CPL_OPEN, MD_CPL_RESULTS, MD_PV_CLAUDE, MD_HIST_CONFIRM, MD_PRECHECK, MD_QUEUE_ADD, MD_MOVIE, MD_STUDY_NEW, MD_STUDY_OUT, MD_STUDY_EXP, MD_PROG_CLEAN, MD_CONFLICT, MD_SHORTCUTS, MD_WHATS_NEW, MD_PALETTE, MD_ENV, MD_REVIEW, MD_PLUME, MD_AWAY, MD_CPL_BUILD, MD_FLAVOUR, MD_BLANK, MD_DEL_FILE } Modal;
 
 typedef struct {
@@ -343,6 +343,10 @@ int   stlmesh_up_axis(Case *c);                              /* page_stlmesh.c: 
 void  stlmesh_focus(Case *c, int step);                      /* page_stlmesh.c: open a step of its flow (0 geometry, 2 boundaries, 4 generate) */
 float stl_workflow(Case *c, float x, float y, float w);
 bool  setup_refresh_files(Case *c);                         /* page_setup.c: the setup's case files rewritten if out of date (before a run) */      /* page_setup.c: STL > boundaries > mesh > physics > run; returns height (0: not an STL case) */
+void  setup_open_step(int step);                          /* page_setup.c: Setup opened at a step (0 Models ... 6 Solver, 7 Check) */
+bool  setup_robust_offer(Case *c);                        /* page_setup.c: a setup case whose numerics aren't Robust (a diverged run is offered it) */
+bool  setup_go_robust(Case *c);
+bool  setup_expects_convergence(Case *c);                 /* ... a steady setup run that stops on its residuals */                           /* ... Robust written to the case files; the caller starts over */
 bool  setup_after_import(Case *c);                         /* page_setup.c: an imported mesh's 0/ (and setup files) written at once */
 bool  setup_can_write_fields(Case *c);
 bool  setup_write_fields(Case *c);                          /* Boundary conditions with no fields: the setup writes them */
@@ -360,6 +364,7 @@ float page_setup(float x, float y, float w);                 /* page_setup.c: Ph
 float setup_boundary_editor(Case *c, const char *name, float x, float y, float w);   /* one boundary's conditions */
 void  setup_rename(Case *c, const char *from, const char *to);  /* an STL boundary renamed: its conditions follow */
 float page_mesh_patches(float x, float y, float w);
+float page_meshquality(Case *c, float x, float y, float w);   /* Mesh > Quality: checkMesh, SALOME's report, export */
 bool  mesh_change_pending(Case *c, char *why, int cap);       /* page_case.c: the next run meshes again */
 float xsection_panel(Rectangle r, Case *c, bool compact);
 void  meshview_release(void);                               /* page_meshview.c: frees the 3-D view (Mesh > View switched off) */

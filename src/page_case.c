@@ -526,8 +526,12 @@ void page_mesh(Rectangle r)
     snprintf(sub, sizeof sub, mt ? "%s builds this mesh from system/%sDict. Change the settings here, then generate the mesh again."
                                  : c->s.meshed ? "This case brings its own mesh in constant/polyMesh."
                                                : "No mesh yet, and no blockMeshDict to make one: build it on the SALOME tab, or convert one into constant/polyMesh.", mt, mt);
-    if (A.meshTab == 1) snprintf(sub, sizeof sub, "Import a mesh made in SALOME (MED, UNV) or Gmsh, or build one with a SALOME script.");
-    if (A.meshTab == 3) snprintf(sub, sizeof sub, "Mesh any STL: snappyHexMesh here, or SALOME's tetrahedra, polyhedra and body-fitted hexahedra.");
+    {   /* an STL mesher case: its dictionaries are the mesher's output, not the place to change it */
+        char mi[PL_PATH]; pl_join(mi, sizeof mi, c->s.path, "mesher/mesher.ini");
+        if (mt && pl_is_file(mi)) snprintf(sub, sizeof sub, "The STL mesher writes system/%sDict from its settings: change them on the STL mesher tab.", mt);
+    }
+    if (A.meshTab == 1) snprintf(sub, sizeof sub, "Import a mesh made in SALOME (UNV, MED, or the saved study) or Gmsh, or build one with a SALOME script.");
+    if (A.meshTab == 3) snprintf(sub, sizeof sub, "Mesh any STL or STEP part: snappyHexMesh here, or SALOME's tetrahedra, polyhedra and body-fitted hexahedra.");
     float bw = ui_button_width(ICON_PLAY, "Generate mesh"), bw2 = ui_button_width(ICON_CIRCLE_CHECK, "Check mesh");
     y += page_header(x, y, w - bw - bw2 - 30, "Mesh", sub);
     if (A.meshTab == 3 || A.meshTab == 1) y += stl_workflow(c, x, y, w);   /* STL mesher, SALOME (an imported mesh) */
@@ -563,16 +567,17 @@ void page_mesh(Rectangle r)
 
     /* the dictionaries as they are, a SALOME script, or the mesh itself */
     if (A.meshTab < 0) {
-        char q[PL_PATH], st[PL_PATH]; pl_join(q, sizeof q, c->s.path, "salome/mesh.py"); pl_join(st, sizeof st, c->s.path, "mesher/mesher.ini");
-        A.meshTab = pl_is_file(st) ? 3 : pl_is_file(q) ? 1 : 0;
+        char q[PL_PATH], st[PL_PATH], im[PL_PATH]; pl_join(q, sizeof q, c->s.path, "salome/mesh.py"); pl_join(st, sizeof st, c->s.path, "mesher/mesher.ini");
+        pl_join(im, sizeof im, c->s.path, "salome/imported.txt");          /* an imported mesh: where it can be imported again */
+        A.meshTab = pl_is_file(st) ? 3 : pl_is_file(q) || pl_is_file(im) ? 1 : 0;
     }
     /* shown in this order; A.meshTab keeps its numbers (0 dictionaries, 1 SALOME, 2 view, 3 STL mesher) */
-    static const char *mtabs[] = { "Dictionaries", "STL mesher", "SALOME script", "View" };
-    static const int TAB_OF[4] = { 0, 3, 1, 2 };
+    static const char *mtabs[] = { "Dictionaries", "STL mesher", "SALOME script", "View", "Quality" };
+    static const int TAB_OF[5] = { 0, 3, 1, 2, 4 };
     int shown = 0;
-    for (int k = 0; k < 4; k++) if (TAB_OF[k] == A.meshTab) shown = k;
+    for (int k = 0; k < 5; k++) if (TAB_OF[k] == A.meshTab) shown = k;
     float tth;
-    if (ui_tabs(ui_id("mesh-tabs"), x, y, mtabs, 4, &shown, &tth)) A.meshTab = TAB_OF[shown];
+    if (ui_tabs(ui_id("mesh-tabs"), x, y, mtabs, 5, &shown, &tth)) A.meshTab = TAB_OF[shown];
     ui_divider(x, y + tth, w);
     y += tth + 22;
     if (A.meshTab == 2) {                                  /* the mesh: 3-D surface; a 2-D case also its cross section */
@@ -603,6 +608,11 @@ void page_mesh(Rectangle r)
         } else h = meshview_panel((Rectangle){ x, y, vw, h }, c);
         y += h + 20;
         ui_scroll_end(sc, y - top + 20);
+        return;
+    }
+    if (A.meshTab == 4) {                                  /* the mesh's quality, and its export */
+        y += page_meshquality(c, x, y, w);
+        ui_scroll_end(sc, y - top + 40);
         return;
     }
     if (c->region[0]) { y += region_mesh(x, y, w); ui_scroll_end(sc, y - top + 20); return; }
@@ -642,6 +652,22 @@ void page_mesh(Rectangle r)
         float ch = callout_height(w, "Mesh out of date", body);
         callout((Rectangle){ x, y, w, ch }, TOAST_WARN, ICON_TRIANGLE_ALERT, "Mesh out of date", body);
         y += ch + 20;
+    }
+
+    /* an STL mesher case: its Generate writes these dictionaries afresh (the ones before kept as .orig), so a change made
+       here is lost then: say so before anyone types into them */
+    {
+        char mi[PL_PATH]; pl_join(mi, sizeof mi, c->s.path, "mesher/mesher.ini");
+        if (pl_is_file(mi) && (case_dict(c, "system/snappyHexMeshDict") || case_dict(c, "system/blockMeshDict"))) {
+            const char *t = "Written by the STL mesher", *d = "Generate on the STL mesher tab writes blockMeshDict and snappyHexMeshDict afresh from "
+                            "its settings (the ones before are kept as .orig), so changes made here are lost then. Change the mesh there; "
+                            "these are for looking, or for Generate mesh above with the dictionaries as they are.";
+            float ch = callout_height(w, t, d) + 46;
+            callout((Rectangle){ x, y, w, ch }, TOAST_INFO, ICON_INFO, t, d);
+            float bw3 = ui_button_width(ICON_BOX, "Open the STL mesher");
+            if (ui_button(ui_id("mesh-to-stl"), (Rectangle){ x + 42, y + ch - 44, bw3, 34 }, ICON_BOX, "Open the STL mesher", BTN_SECONDARY)) A.meshTab = 3;
+            y += ch + 20;
+        }
     }
 
     /* tiles */
@@ -764,8 +790,8 @@ void page_mesh(Rectangle r)
         y += 24;
     }
     if (!bm && !sn && !c->s.meshed) {
-        const char *msg = "SALOME tab: write a mesh script from the template and run it; Q-Continuum converts the result. "
-                          "Meshes from Gmsh (gmshToFoam) or Fluent (fluentMeshToFoam) can be converted in a terminal; they land in constant/polyMesh.";
+        const char *msg = "STL mesher: mesh a part from an STL or STEP file. SALOME script: import a mesh made in SALOME (UNV, MED or the "
+                          "saved study) or Gmsh (.msh), or build one with a SALOME script. Either way it lands in constant/polyMesh.";
         float ch = callout_height(w, "No mesh yet", msg);
         callout((Rectangle){ x, y, w, ch }, TOAST_WARN, ICON_TRIANGLE_ALERT, "No mesh yet", msg);
         y += ch + 20;

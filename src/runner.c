@@ -585,7 +585,9 @@ static bool launch(Job *j, double now)
     pl_shell_quote(qb, sizeof qb, j->bashrc);
     Str sc; str_init(&sc);
     str_catf(&sc, "cd %s || exit 1\n", qc);
-    str_cat(&sc, "rm -f .qc-step-rc; trap 'echo $? > .qc-step-rc' EXIT\n");   /* the exit code, for steps run after we quit */
+    /* the exit code, for steps run after we quit; by its full path: a step that cds elsewhere (SALOME's, into salome/)
+       left it there, and the steps handed over then never ran */
+    str_cat(&sc, "rm -f .qc-step-rc; __qc_rc=\"$PWD/.qc-step-rc\"; trap 'echo $? > \"$__qc_rc\"' EXIT\n");
     if (j->bashrc[0]) {
         str_catf(&sc, "source %s > /dev/null 2>&1\n", qb);
         str_catf(&sc, "if [ -z \"$WM_PROJECT_DIR\" ]; then echo \"Q-Continuum: could not load the OpenFOAM environment from %s\"; "

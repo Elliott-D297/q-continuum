@@ -1,8 +1,10 @@
 # a 0.4 x 0.1 x 0.1 m duct of hex cells, as SALOME exports UNV: nodes (2411), hexahedra 115 and boundary quads 44 (2412),
 # face groups inlet (x = 0), outlet (x = 0.4) and walls (2467)
+# (--scale k: its coordinates times k, e.g. 1000 for a mesh drawn in millimetres)
 import sys
 nx, ny, nz = 16, 4, 4
-L = (0.4, 0.1, 0.1)
+k_ = float(sys.argv[sys.argv.index("--scale") + 1]) if "--scale" in sys.argv else 1.0
+L = (0.4 * k_, 0.1 * k_, 0.1 * k_)
 nid = lambda i, j, k: 1 + i + (nx + 1) * (j + (ny + 1) * k)
 out = []
 out += ["    -1", "  2411"]

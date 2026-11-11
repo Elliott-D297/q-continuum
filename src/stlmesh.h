@@ -7,11 +7,44 @@
 #include <stdbool.h>
 #include "pl_util.h"
 
-#define STL_MAX_REGIONS 48
+#define STL_MAX_REGIONS 96
+#define STL_KBINS 96
+#define STL_KB0 32
+#define STL_ABINS 91
 #define STL_MAX_ZONES 8
 
 enum { BT_WALL = 0, BT_PATCH, BT_INLET, BT_OUTLET, BT_SYMMETRY, BT__N };
-enum { MESHER_SNAPPY = 0, MESHER_TET, MESHER_POLY, MESHER_BODYFIT, MESHER__N };
+/* the meshers (the order of the first four is mesher.ini's history: keep it; new ones go at the end) */
+enum { MESHER_SNAPPY = 0, MESHER_TET, MESHER_POLY, MESHER_BODYFIT, MESHER_CFCART, MESHER_CFPOLY, MESHER_CFTET, MESHER_FOAMY, MESHER_SGMSH, MESHER_SHEXA, MESHER_SPRISM, MESHER__N };
+enum { ENG_OPENFOAM = 0, ENG_SALOME };
+enum {
+    MF_3D      = 1 << 0,      /* meshes a 3-D part                                         */
+    MF_2D      = 1 << 1,      /* meshes a 2-D profile (one cell thick)                     */
+    MF_LAYERS  = 1 << 2,      /* grows prism layers                                         */
+    MF_POLY    = 1 << 3,      /* its cells are polyhedra                                    */
+    MF_OCTREE  = 1 << 4,      /* sizes halve level by level (a target rounds to a level)    */
+    MF_SLOW    = 1 << 5,      /* experimental or slow: said so where it is picked           */
+    MF_CAD     = 1 << 6,      /* SALOME: works on CAD faces (the STL is made CAD, or the STEP's own) */
+};
+/* a mesher: what it is called, what runs it, what it can do and what it needs (stlmesh.c MESHERS) */
+typedef struct {
+    const char *word;         /* in mesher.ini                                              */
+    const char *name;         /* the Mesher list: "OpenFOAM · Trimmed hex: snappyHexMesh"   */
+    const char *shortName;    /* in sentences and the folded step                           */
+    int         engine;       /* ENG_*                                                      */
+    unsigned    flags;        /* MF_*                                                       */
+    const char *needs;        /* the OpenFOAM program it runs (NULL: SALOME or none)        */
+    const char *what, *what2D;   /* a line on what it makes, in 3-D and 2-D (NULL: no 2-D)  */
+} MesherInfo;
+extern const MesherInfo MESHERS[MESHER__N];
+#define GMSH_ALGOS 5
+extern const char *const GMSH_ALGO_WORD[GMSH_ALGOS], *const GMSH_ALGO_NAME[GMSH_ALGOS];
+int  mesher_from_word(const char *w);              /* MESHER_SNAPPY when unknown                */
+/* can it run here? SALOME found (salome), the program under the OpenFOAM install (foamRoot); why: what is missing */
+bool mesher_available(int k, const char *foamRoot, bool salome, char *why, int cap);
+bool mesher_is_cfmesh(int k);
+const char *mesher_foamy_cmd(void);
+const char *mesher_foamy2d_cmd(void);              /* 2-D: features, foamyQuadMesh, extrude2DMesh */                /* what Generate runs for foamyHexMesh, then collapses, moves the mesh */
 enum { DOMAIN_INTERNAL = 0, DOMAIN_EXTERNAL };
 enum { ZONE_BOX = 0, ZONE_SPHERE, ZONE_CYLINDER };
 enum { DIR_PX = 0, DIR_NX, DIR_PY, DIR_NY, DIR_PZ, DIR_NZ, DIR__N };   /* +x -x +y -y +z -z: axis = d / 2, sign = d % 2 ? -1 : 1 */
@@ -22,6 +55,11 @@ typedef struct {
     int    nTri;
     double area;
     float  n[3];            /* the area-weighted mean normal             */
+    /* for the cell estimate (snappyHexMesh refines curved surfaces and sharp edges): the area by curvature, bin
+       k = 2 log2(kappa / (1/m)) + STL_KB0 (kappa the bend between neighbouring facets over their distance), and the length
+       of edges by their angle, 2 degrees a bin */
+    float  kArea[STL_KBINS];
+    float  edgeLen[STL_ABINS];
 } StlRegion;
 
 typedef struct {
@@ -29,6 +67,9 @@ typedef struct {
     float *tri;             /* 9 floats a triangle, scaled               */
     int   *region;          /* a region a triangle                       */
     char (*solid)[64];      /* the solid a triangle came from (ASCII)    */
+    int   *face;            /* a CAD part's face a triangle is on (solid face_<id>: id), 0 none; NULL: no CAD faces */
+    int    nFaces;          /* the largest face id                       */
+    int    dropped;         /* degenerate triangles left out when read   */
     int    nRegions;
     StlRegion reg[STL_MAX_REGIONS];
     float  bmin[3], bmax[3];
@@ -50,6 +91,8 @@ typedef struct {
 typedef struct {
     char   stl[PL_PATH];    /* the file it came from                     */
     char   stlOriginal[PL_PATH];   /* 2-D: the coarse STL that stl is the smooth profile of ("": none) */
+    char   cad[PL_PATH];    /* the CAD file (STEP, IGES, BREP) stl was made from ("": none); its exact shape is stl's
+                               name with .brep, in metres, for SALOME's CAD route */
     double scale;           /* to metres                                 */
     double splitAngle;      /* degrees; 0 keeps the file's own solids    */
     int    domain;          /* DOMAIN_*                                  */
@@ -63,6 +106,9 @@ typedef struct {
     int    normal2D;        /* the axis (0 x, 1 y, 2 z) the profile was extruded along                              */
     int    mesher;          /* MESHER_*                                  */
     bool   remesh;          /* SALOME: rebuild the surface from CAD made of the STL (else use its triangles) */
+    bool   polyConvert;     /* 3-D: the finished mesh turned into polyhedra (polyDualMesh), whatever made it */
+    int    gmshAlgo;        /* SALOME Gmsh: its 3-D algorithm (GMSH_ALGO_WORD)                          */
+    int    surfRemesher;    /* SALOME on an STL: what remeshes coarse triangles, 0 NETGEN, 1 MMG        */
     double base;            /* base size, m                              */
     double targetPct, minPct;     /* surface sizes, % of base            */
     double curvature;       /* points per circle                         */
@@ -73,7 +119,7 @@ typedef struct {
     double prismPct;        /* prism layer total thickness, % of base   */
     double stretch;         /* prism layer stretching                    */
     int    evenLayers;      /* snappy: the layered walls' surface cells all one size (the minimum), so the layers don't
-                               break where the size steps: -1 as the kind of mesh (2-D yes, 3-D no), 0 no, 1 yes */
+                               break where the size steps: -1 automatic (yes), 0 no, 1 yes */
     double maxNonOrtho, maxSkew;
     int    nZones;
     MeshZone zone[STL_MAX_ZONES];
@@ -83,11 +129,23 @@ typedef struct {
 } MeshCfg;
 
 extern const char *const BT_NAME[BT__N];
-extern const char *const MESHER_NAME[MESHER__N];
+/* the OpenFOAM program Generate runs for it (2-D cartesianMesh: cartesian2DMesh); NULL for SALOME's */
+const char *mesher_program(const MeshCfg *m);
+bool mesher_poly_convert(const MeshCfg *m);        /* will Generate run polyDualMesh after the mesher? */
+void mesher_foamy2d_after(const MeshCfg *m, const Stl *s, Str *out);   /* 2-D foamyQuadMesh: the mesh turned back into the part */
+void mesher_cf2d_script(const MeshCfg *m, bool before, Str *out);   /* 2-D cfMesh: the turn before / naming and turn back after */
 
 bool stl_load(const char *path, Stl *s);           /* ASCII or binary; false with s->err */
 void stl_free(Stl *s);
-void stl_split(Stl *s, double angleDeg);           /* regions by angle (0: by solid), boundary checks, area, volume */
+void stl_split(Stl *s, double angleDeg);
+/* CAD faces grouped into boundaries ("every mesher" step 7): <case>/mesher/faces.ini maps face ids to group names; a part
+   with CAD faces is split by those groups (missing ones: the faces merged across bends flatter than angleDeg, and saved),
+   any other part by angle as stl_split. group: [face id] -> name ("" none), nFaces + 1 entries */
+void stl_split_part(Stl *s, double angleDeg, const char *casePath);
+typedef char StlName[64];
+StlName *faces_load(const char *casePath, int nFaces);            /* NULL when there is no faces.ini; free() it */
+bool     faces_save(const char *casePath, const StlName *group, int nFaces);
+void     faces_default(Stl *s, double angleDeg, StlName *group);   /* faces merged across smooth bends, named wall_<k> */           /* regions by angle (0: by solid), boundary checks, area, volume */
 void stl_set_scale(Stl *s, double scale);          /* rescale the triangles (relative to the last scale) */
 bool stl_inside(const Stl *s, const double p[3]);  /* ray parity: p is inside the closed surface */
 /* 2-D: the outline of a profile extruded along axis n (the side walls at its low end): how many points, and its largest
@@ -103,6 +161,8 @@ void mesher_size_defaults(MeshCfg *m, const Stl *s, double thick);   /* base, su
 double stl_thickness(const Stl *s);                /* how thick the part is where it is thin, m (0: unknown) */
 bool mesher_fits(const MeshCfg *m, double thick);  /* its surface cells fit across that thickness */
 void mesher_fit(MeshCfg *m, double thick);         /* finer surface sizes (whole levels) until they do */
+/* a CAD file the mesher converts to STL first (STEP, IGES, BREP), by its extension */
+bool stl_is_cad(const char *path);
 bool mesher_load(const char *casePath, MeshCfg *m);
 bool mesher_save(const char *casePath, const MeshCfg *m);
 /* the mesh's settings (mesher/mesh.sig, from the last Generate) are these, as far as the mesh goes: 1 yes, 0 no, -1 unknown */

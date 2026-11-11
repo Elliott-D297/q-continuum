@@ -25,7 +25,8 @@ wait 3
 assert text Cell size
 click stl-next
 wait 3
-assert text Not generated yet
+note the cavity seed comes meshed (blockMesh, no mesher signature): Generate shows the estimate, not "Not generated yet"
+assert text (a rough estimate)
 click stl-gen
 wait-until job running timeout 20
 wait-until job finished timeout 900

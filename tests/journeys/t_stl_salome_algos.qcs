@@ -1,0 +1,47 @@
+# Every mesher, step 4 (2026-11-10): SALOME's structured hexahedra picked under Mesh settings mesh a box through the app
+# (headless SALOME, then ideasUnvToFoam); Gmsh's 3-D algorithm is chosen there and saved.
+budget p95 60 max 400
+shell python3 "$QC_TESTS/tools/gen_named_box.py" $SB/ws/box.stl
+open $SB/ws/cavity
+click nav:mesh
+wait-until page Mesh
+click text:STL mesher
+wait 5
+click stl-path
+enter $SB/ws/box.stl
+wait 10
+click stl-next
+wait 3
+click stl-next
+wait 5
+click stl-name-kinds
+wait 3
+click stl-next
+wait 5
+click stl-mesher
+wait 3
+click text:SALOME · Structured hex (i,j,k): block-like parts
+wait 5
+assert text Structured hexahedra: edges divided at the target size
+assert text makes no prism layers
+click stl-next
+wait 5
+click stl-gen
+wait-until job running timeout 20
+wait-until job finished timeout 600
+assert log log.salome structured hexahedra (i,j,k)
+assert log log.checkMesh Mesh OK.
+assert log log.checkMesh hexahedra
+screenshot $OUT/1_hexa.png
+click stl-step#3
+wait 5
+click stl-mesher
+wait 3
+click text:SALOME · Tetrahedral: Gmsh
+wait 5
+assert text Gmsh 3-D algorithm
+click stl-gmsh-algo#2
+wait 3
+assert log mesher/mesher.ini gmsh_algorithm = hxt
+assert log mesher/mesher.ini mesher = sgmsh
+screenshot $OUT/2_gmsh.png

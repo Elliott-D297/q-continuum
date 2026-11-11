@@ -2,6 +2,7 @@
      test_stlmesh init <stl> <case> [scale]   mesher/mesher.ini with the defaults for that STL, as choosing it does
      test_stlmesh prep <case>                 the mesh dictionaries from mesher/mesher.ini, as Generate does; for a 2-D
                                               mesh it writes the extrudeMesh step's shell lines to <case>/mesher/2d.sh
+     test_stlmesh estimate <case>...        the cell estimate for each case's mesher.ini (no files written)
      test_stlmesh smooth <stl> <out.stl>      a 2-D profile (the NACA airfoil, in mm) made smooth: checks it is closed, keeps
                                               its regions, its corners small, its area and its trailing edge
    tests/stlmesh_mesh.sh then runs the tools */
@@ -21,7 +22,7 @@ static int init(const char *stl, const char *casePath, double scale)
     stl_set_scale(&s, scale);
     stl_split(&s, 30);                                     /* as the page does: bounds, area and volume first */
     mesher_defaults(&m, &s);
-    stl_split(&s, m.splitAngle);
+    stl_split_part(&s, m.splitAngle, casePath);
     mesher_take_names(&m, &s);
     pl_mkdirs(casePath);
     bool ok = mesher_save(casePath, &m);
@@ -62,6 +63,20 @@ static int smooth(const char *stl, const char *out)
 
 int main(int argc, char **argv)
 {
+    if (argc >= 3 && !strcmp(argv[1], "estimate")) {
+        for (int i = 2; i < argc; i++) {
+            MeshCfg m; memset(&m, 0, sizeof m);
+            if (!mesher_load(argv[i], &m) || !m.stl[0]) { fprintf(stderr, "no mesher.ini in %s\n", argv[i]); continue; }
+            Stl s;
+            if (!stl_load(m.stl, &s)) { fprintf(stderr, "%s\n", s.err); continue; }
+            stl_set_scale(&s, m.scale > 0 ? m.scale : 1);
+            stl_split_part(&s, m.splitAngle, argv[i]);
+            mesher_apply_names(&m, &s);
+            printf("%.0f %s\n", mesher_estimate_cells(&m, &s), argv[i]);
+            stl_free(&s);
+        }
+        return 0;
+    }
     if (argc == 4 && !strcmp(argv[1], "smooth")) return smooth(argv[2], argv[3]);
     if (argc >= 4 && !strcmp(argv[1], "init")) return init(argv[2], argv[3], argc > 4 ? atof(argv[4]) : 1);
     if (argc != 3 || strcmp(argv[1], "prep")) { fprintf(stderr, "usage: test_stlmesh init <stl> <case> [scale] | prep <case>\n"); return 2; }
@@ -70,7 +85,7 @@ int main(int argc, char **argv)
     Stl s;
     if (!stl_load(m.stl, &s)) { fprintf(stderr, "%s\n", s.err); return 1; }
     stl_set_scale(&s, m.scale > 0 ? m.scale : 1);
-    stl_split(&s, m.splitAngle);
+    stl_split_part(&s, m.splitAngle, argv[2]);
     mesher_apply_names(&m, &s);
     char err[300];
     if (!mesher_prepare(argv[2], &m, &s, err, sizeof err)) { fprintf(stderr, "%s\n", err); return 1; }
@@ -78,6 +93,33 @@ int main(int argc, char **argv)
         Str sh; str_init(&sh);
         mesher_2d_script(&m, &s, &sh);
         char p[PL_PATH]; pl_join(p, sizeof p, argv[2], "mesher/2d.sh");
+        pl_write_file(p, sh.s, sh.len);
+        str_free(&sh);
+    }
+    if (m.mesher == MESHER_FOAMY || (mesher_poly_convert(&m) && m.mesher != MESHER_POLY && !mesher_is_cfmesh(m.mesher))) {
+        Str sh; str_init(&sh);                            /* foamy, or a mesh made polyhedral: what Generate runs after the mesher, as mesher/after.sh */
+        str_cat(&sh, "set -e\n");
+        if (m.mesher == MESHER_FOAMY) {
+            str_catf(&sh, "rm -rf constant/polyMesh\n( %s ) > log.foamy 2>&1\n( ", m.twoD ? mesher_foamy2d_cmd() : mesher_foamy_cmd());
+            if (m.twoD) mesher_foamy2d_after(&m, &s, &sh);
+            mesher_type_script(&m, &s, &sh); str_cat(&sh, ") > log.patchTypes 2>&1\n");
+        }
+        if (mesher_poly_convert(&m)) str_catf(&sh, "polyDualMesh %g -overwrite -concaveMultiCells > log.polyDualMesh 2>&1\n", m.featureAngle);
+        char p[PL_PATH]; pl_join(p, sizeof p, argv[2], "mesher/after.sh");
+        pl_write_file(p, sh.s, sh.len);
+        str_free(&sh);
+    }
+    if (mesher_is_cfmesh(m.mesher)) {                     /* what Generate runs (page_stlmesh.c generate), as mesher/cf.sh */
+        Str sh; str_init(&sh);
+        str_cat(&sh, "set -e\nrm -rf constant/polyMesh\n");
+        if (m.twoD) mesher_cf2d_script(&m, true, &sh);
+        str_catf(&sh, "surfaceFeatureEdges -angle %g constant/triSurface/cfmesh.stl constant/triSurface/cfmesh.fms > log.surfaceFeatureEdges 2>&1\n", m.featureAngle);
+        str_catf(&sh, "%s > log.%s 2>&1\n( ", mesher_program(&m), mesher_program(&m));
+        if (m.twoD) mesher_cf2d_script(&m, false, &sh);
+        mesher_type_script(&m, &s, &sh);
+        str_cat(&sh, ") > log.patchTypes 2>&1\n");
+        if (mesher_poly_convert(&m)) str_catf(&sh, "polyDualMesh %g -overwrite -concaveMultiCells > log.polyDualMesh 2>&1\n", m.featureAngle);
+        char p[PL_PATH]; pl_join(p, sizeof p, argv[2], "mesher/cf.sh");
         pl_write_file(p, sh.s, sh.len);
         str_free(&sh);
     }

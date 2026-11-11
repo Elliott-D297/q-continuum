@@ -138,9 +138,9 @@ void page_cases(Rectangle r)
     pl_fmt_ui(sub, sizeof sub, "OpenFOAM cases in %s, and the projects of the other programs (DEME, CalculiX, MOOSE, code_aster, "
              "code_saturne, Elmer, SPARTA, Chrono) found there and in your home folder. Open one to set it up, run it and watch it.", ws);
     float bw1 = ui_button_width(ICON_FOLDER_PLUS, "New case"), bw2 = ui_button_width(ICON_FOLDER_OPEN, "Open folder");
-    float bw3 = ui_button_width(ICON_BOX, "Mesh an STL"), bw4 = ui_button_width(ICON_GRID_3X3, "Import a mesh");
+    float bw3 = ui_button_width(ICON_BOX, "Mesh a part"), bw4 = ui_button_width(ICON_GRID_3X3, "Import a mesh");
     float hh = page_header(x, y, w - bw1 - bw2 - bw3 - bw4 - 50, "Cases", sub);
-    if (ui_button(ui_id("cases-stl"), (Rectangle){ x + w - bw1 - bw2 - bw3 - 20, y + 2, bw3, 36 }, ICON_BOX, "Mesh an STL", BTN_SECONDARY)) stlmesh_new_case();
+    if (ui_button(ui_id("cases-stl"), (Rectangle){ x + w - bw1 - bw2 - bw3 - 20, y + 2, bw3, 36 }, ICON_BOX, "Mesh a part", BTN_SECONDARY)) stlmesh_new_case();
     if (ui_button(ui_id("cases-import"), (Rectangle){ x + w - bw1 - bw2 - bw3 - bw4 - 30, y + 2, bw4, 36 }, ICON_GRID_3X3, "Import a mesh", BTN_SECONDARY))
         salome_import_new_case();
     if (ui_button(ui_id("cases-new"), (Rectangle){ x + w - bw1, y + 2, bw1, 36 }, ICON_FOLDER_PLUS, "New case", BTN_PRIMARY)) app_go(PG_NEW);
@@ -442,11 +442,11 @@ void blank_modal(bool *close)
     ui_segmented(ui_id("blank-app"), (Rectangle){ x, y + 20, fminf(440, w), 34 }, apps, 2, &BL.app);
     y += 70;
     ui_text(F_MED, 13, ui_cap("Its mesh"), x, y, TH.text2);
-    static const char *starts[] = { "Mesh an STL", "Import a mesh", "A box (blockMesh)", "Later" };
+    static const char *starts[] = { "Mesh a part (STL, STEP)", "Import a mesh", "A box (blockMesh)", "Later" };
     ui_segmented(ui_id("blank-start"), (Rectangle){ x, y + 20, w, 34 }, starts, 4, &BL.start);
     static const char *const SAY[] = {
-        "Opens the STL mesher with the file dialog: snappyHexMesh or SALOME, step by step.",
-        "Opens Mesh > SALOME with the file dialog: a UNV or MED file from SALOME, or a Gmsh .msh.",
+        "Opens the STL mesher with the file dialog (STL, STEP or IGES): snappyHexMesh or SALOME, step by step.",
+        "Opens Mesh > SALOME with the file dialog: a UNV or MED file or a saved study (.hdf) from SALOME, or a Gmsh .msh.",
         "A 1 m box of 20 x 20 x 20 cells with an inlet, an outlet and walls, in system/blockMeshDict: change it on Mesh > Dictionaries.",
         "Just the case: Mesh has the STL mesher, the import and blockMesh when you want them." };
     y += 62;

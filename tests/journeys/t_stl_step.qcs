@@ -1,0 +1,56 @@
+# STEP files in the STL mesher (user request 2026-11-08): a broken STEP says why it can't be read; an IGES part loads
+# (its loose faces sewn into a solid); then a STEP part in millimetres: SALOME turns it into an STL in metres (no units
+# question), and the tetrahedral mesher meshes the exact CAD faces (Mesh the exact CAD, on by itself).
+budget p95 40 max 400
+open $SB/ws/cavity
+shell cp "$QC_TESTS/tools/flange_mm.step" "$QC_TESTS/tools/flange_mm.igs" .. && echo "not a STEP file" > ../broken.step
+click nav:mesh
+wait-until page Mesh
+click text:STL mesher
+wait 5
+assert text Start with the part
+click stl-path
+enter $SB/ws/broken.step
+wait-until toast Could not read broken.step timeout 120
+wait 3
+assert text Start with the part
+click stl-path
+key A ctrl
+enter $SB/ws/flange_mm.igs
+wait-until text flange_mm.igs (CAD) timeout 120
+wait 5
+assert log mesher/cad.log sewed the file's 6 faces into 1 solid
+assert text Closed (watertight)
+click stl-path
+key A ctrl
+enter $SB/ws/flange_mm.step
+wait-until text flange_mm.step (CAD) timeout 120
+wait 5
+assert text flange_mm.step (CAD)
+assert text Closed (watertight)
+assert text Read from the CAD file
+assert log mesher/mesher.ini cad_source =
+assert log mesher/mesher.ini scale = 1
+assert file mesher/flange_mm.brep
+screenshot $OUT/1_geometry.png
+click stl-next
+wait 3
+click stl-next
+wait 3
+click stl-next
+wait 3
+click stl-mesher
+wait 3
+click text:SALOME · Tetrahedral: NETGEN
+wait 5
+assert log mesher/mesher.ini remesh_surface = 1
+assert text Mesh the exact CAD
+screenshot $OUT/2_settings.png
+click stl-next
+wait 3
+click stl-gen
+wait-until job running timeout 20
+wait-until job finished timeout 600
+assert log log.salome meshing the exact CAD (flange_mm.step)
+assert log log.checkMesh Mesh OK.
+screenshot $OUT/3_meshed.png

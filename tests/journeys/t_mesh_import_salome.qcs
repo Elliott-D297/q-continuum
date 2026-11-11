@@ -1,0 +1,58 @@
+# 2026-11-10, user: "I couldn't open my own salome mesh". Mesh > SALOME > Import a mesh with what SALOME users have: the saved
+# study itself (.hdf), a path pasted with quotes (Explorer's "Copy as path"), a second-order UNV (ideasUnvToFoam can't read
+# it: SALOME makes it first-order), a MED with a polyhedron (UNV can't hold it: written as polyMesh), and a mesh drawn in
+# millimetres (scaled to metres on request). Needs SALOME (tests/tools/salome_test_meshes.py makes the meshes).
+budget p95 60 max 600
+shell mkdir -p $SB/ws/src $SB/ws/imp/system && cd $SB/ws/src && env -u LD_LIBRARY_PATH -u PYTHONPATH -u PYTHONHOME $(ls -d $HOME/salome/SALOME-*/salome | tail -1) -t --shutdown-servers=1 "$QC_TESTS/tools/salome_test_meshes.py" > make.log 2>&1; mv study.hdf "My Study.hdf"; cp "${FOAM_TUTORIALS:-/usr/lib/openfoam/openfoam2606/tutorials}/incompressible/icoFoam/cavity/cavity/system/controlDict" $SB/ws/imp/system/
+open $SB/ws/imp
+click nav:mesh
+wait-until page Mesh
+click text:SALOME script
+wait 5
+note the saved study, its path pasted in quotes
+click sa-imp-path
+enter "$SB/ws/src/My Study.hdf"
+wait-until job running timeout 20
+wait-until job finished timeout 300
+assert log log.salome quad
+assert log log.checkMesh Mesh OK.
+assert file salome/imported.hdf
+assert log constant/polyMesh/boundary side_wall
+assert text Imported from
+screenshot $OUT/1_study.png
+note a second-order UNV: ideasUnvToFoam refuses it, SALOME rewrites it
+click sa-imp-path
+key A ctrl
+enter $SB/ws/src/quad.unv
+wait-until job running timeout 20
+wait-until job finished timeout 300
+assert log log.ideasUnvToFoam SALOME rewrites it
+assert log log.checkMesh Mesh OK.
+assert file salome/imported-orig.unv
+note a MED with a polyhedron: written as polyMesh
+click sa-imp-path
+key A ctrl
+enter $SB/ws/src/poly.med
+wait-until job running timeout 20
+wait-until job finished timeout 300
+assert log log.ideasUnvToFoam Copied salome/polyMesh-import
+assert log log.checkMesh Mesh OK.
+assert log constant/polyMesh/boundary wall;
+note a mesh in millimetres
+shell python3 "$QC_TESTS/tools/gen_unv.py" $SB/ws/src/duct.unv --scale 1000
+click sa-imp-path
+key A ctrl
+enter $SB/ws/src/duct.unv
+wait-until job running timeout 20
+wait-until job finished timeout 120
+wait 10
+assert text This looks like millimetres
+screenshot $OUT/2_mm.png
+click sa-imp-mm
+wait-until job running timeout 20
+wait-until job finished timeout 120
+wait 10
+assert log log.transformPoints End
+assert log log.checkMesh (0.4 0.1 0.1)
+assert not text This looks like millimetres
+screenshot $OUT/3_m.png

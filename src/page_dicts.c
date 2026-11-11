@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "app.h"
+#include "simsetup.h"
 #include "program.h"
 #include "fieldinfo.h"
 #include "physics.h"
@@ -581,6 +582,27 @@ void page_numerics(Rectangle r)
     snprintf(sub, sizeof sub, "Discretisation schemes and linear solvers from %s and %s.", case_rpath(A.cs, "system/fvSchemes"), case_rpath(A.cs, "system/fvSolution"));
     y += page_header(x, y, w, "Numerics", sub);
     y += region_bar(x, y, w);
+    /* plan step 9: what the setup's numerics preset wrote, or Custom once edited by hand */
+    int nm = A.cs && A.cs->s.nRegions == 0 ? sim_numerics_of(A.cs->s.path) : -1;
+    if (nm >= 0) {
+        bool ed = sim_numerics_edited(A.cs->s.path);
+        char t[80], d[400];
+        if (ed) {
+            pl_fmt_ui(t, sizeof t, "Custom numerics");
+            pl_fmt_ui(d, sizeof d, "Edited since Physics > Setup wrote its %s preset here. Writing the setup again keeps your edits, except where the preset "
+                                   "sets the same setting; Back to %s on Setup's Solver step drops them.", NUM_NAME[nm], NUM_NAME[nm]);
+        } else {
+            pl_fmt_ui(t, sizeof t, "%s numerics, from Physics > Setup", NUM_NAME[nm]);
+            pl_fmt_ui(d, sizeof d, "These are exactly what the setup's %s preset wrote. Edits here are kept when it writes again, and Setup then shows the "
+                                   "numerics as Custom.", NUM_NAME[nm]);
+        }
+        float bw = ui_button_width(ICON_ARROW_RIGHT, "Setup, Solver");
+        float cw = w - bw - 16;
+        float ch = fmaxf(callout_height(cw, t, d), 48);
+        callout((Rectangle){ x, y, cw, ch }, TOAST_INFO, ed ? ICON_PENCIL : ICON_SLIDERS_HORIZONTAL, t, d);
+        if (ui_button(ui_id("num-setup"), (Rectangle){ x + w - bw, y + (ch - 36) / 2, bw, 36 }, ICON_ARROW_RIGHT, "Setup, Solver", BTN_SECONDARY)) setup_open_step(6);
+        y += ch + 14;
+    }
     static const char *tabs[] = { "Schemes", "Solvers", "Parallel" };
     float th;
     ui_tabs(ui_id("num-tabs"), x, y, tabs, 3, &A.numericsTab, &th);

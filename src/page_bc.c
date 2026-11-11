@@ -19,6 +19,42 @@ static bool in_words(const char *list, const char *w)
     return false;
 }
 
+/* what a condition does, in its own numbers, for the table's second line: the entry that sets it, not "value" (for many
+   types only OpenFOAM's last result or a placeholder: an inlet of 1 m/s normal to it read "uniform (0 0 0)", user
+   2026-11-10, "why doesn't my physics setup change the boundary condition"). Empty: the value line as before. */
+static void entry_text(const FDFile *f, const FDEntry *d, const char *key, char *out, int cap);
+static void bc_summary(const FDFile *f, const FDEntry *e, const char *type, char *out, int cap)
+{
+    char v[150] = "";
+    out[0] = 0;
+    if (!strcmp(type, "surfaceNormalFixedValue")) {
+        entry_text(f, e, "refValue", v, sizeof v);
+        const char *n = strncmp(v, "uniform ", 8) ? v : v + 8;
+        char *end; double d = strtod(n, &end);
+        if (end != n && !*end) snprintf(out, (size_t)cap, "%g m/s %s (normal)", fabs(d), d < 0 ? "in" : "out");
+        else if (v[0]) snprintf(out, (size_t)cap, "refValue %s", v);
+    } else if (!strcmp(type, "flowRateInletVelocity")) {
+        entry_text(f, e, "volumetricFlowRate", v, sizeof v);
+        if (v[0]) snprintf(out, (size_t)cap, "%s m³/s in", v);
+        else { entry_text(f, e, "massFlowRate", v, sizeof v); if (v[0]) snprintf(out, (size_t)cap, "%s kg/s in", v); }
+    } else if (!strcmp(type, "turbulentIntensityKineticEnergyInlet")) {
+        entry_text(f, e, "intensity", v, sizeof v);
+        if (v[0]) snprintf(out, (size_t)cap, "intensity %g %%", atof(v) * 100);
+    } else if (!strcmp(type, "turbulentMixingLengthFrequencyInlet") || !strcmp(type, "turbulentMixingLengthDissipationRateInlet")) {
+        entry_text(f, e, "mixingLength", v, sizeof v);
+        if (v[0]) snprintf(out, (size_t)cap, "mixing length %s m", v);
+    } else if (!strcmp(type, "inletOutlet") || !strcmp(type, "outletInlet")) {
+        entry_text(f, e, !strcmp(type, "inletOutlet") ? "inletValue" : "outletValue", v, sizeof v);
+        if (v[0]) snprintf(out, (size_t)cap, "backflow %s", strncmp(v, "uniform ", 8) ? v : v + 8);
+    } else if (!strcmp(type, "totalPressure")) {
+        entry_text(f, e, "p0", v, sizeof v);
+        if (v[0]) snprintf(out, (size_t)cap, "p0 %s", strncmp(v, "uniform ", 8) ? v : v + 8);
+    } else if (!strcmp(type, "zeroGradient") || !strcmp(type, "noSlip") || !strcmp(type, "slip") || !strcmp(type, "empty") ||
+               !strcmp(type, "symmetry") || !strcmp(type, "symmetryPlane") || !strcmp(type, "fixedFluxPressure")) {
+        snprintf(out, (size_t)cap, " ");                  /* nothing to set: no stale value under it */
+    }
+}
+
 static bool constraint_type(const char *t);
 
 /* in one boundaryField: the exact name, then "regex" keys (last wins), then the patch's groups (inGroups; a constraint
@@ -830,7 +866,11 @@ void page_bc(Rectangle r)
             ui_text_clip(F_MONO, 12.5f, type[0] ? type : "no type", cell.x + 22, cell.y + 7, cell.width - 30, mismatch ? TH.warn : TH.text);
             char second[200];
             if (mk != M_EXACT) snprintf(second, sizeof second, "via %s", via);
-            else snprintf(second, sizeof second, "%s", val);
+            else {
+                char sum[200] = "";
+                if (src && e != &k_etc) bc_summary(src, e, type, sum, sizeof sum);
+                snprintf(second, sizeof second, "%s", sum[0] ? sum : val);
+            }
             ui_text_clip(F_MONO, 12, second, cell.x + 22, cell.y + 26, cell.width - 30, badVal ? TH.err : TH.text3);
             if (badVal) ui_tooltip(cell, bc_value_problem(cls, val));
             if (mismatch) ui_tooltip(cell, "The mesh patch is a constraint type; the field must use the same type.");

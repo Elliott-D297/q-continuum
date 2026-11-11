@@ -25,6 +25,9 @@ static struct {
     Vector2   last;
     double    lastClick;
     int       up;                                  /* the axis kept up, turned about (0 x, 1 y, 2 z; -1: the case's) */
+    float     aspect, fitAspect;                   /* the view's width / height now, and when it was last fitted */
+    bool      touched;                             /* turned or zoomed by hand since the fit: a resize leaves it alone */
+    double    themeSig;                            /* the theme colours the models were built in */
 } V = { .edges = true, .up = -1, .O = { .upAxis = 1, .spin = -1, .back = { 0.583f, 0.434f, 0.687f }, .up = { -0.281f, 0.900f, -0.333f } } };
 
 /* the camera looking along an axis: down onto it when it is up, else level (the up axis' frame: orbit.h) */
@@ -87,19 +90,34 @@ static void build_models(void)
     }
 }
 
+/* the mesh's box as close as its corners allow from where the camera looks, each corner inside the vertical and the
+   horizontal field of view of the view's real shape (it was 1.9 diagonals away: a part filled a fifth of the view) */
+static void fit_distance(void)
+{
+    const MeshSurf *m = &V.M;
+    float d[3] = { m->hi[0] - m->lo[0], m->hi[1] - m->lo[1], m->hi[2] - m->lo[2] };
+    float tv = tanf(35.f / 2 * DEG2RAD), th = tv * fmaxf(V.aspect > 0 ? V.aspect : 1.6f, 0.1f);
+    Vector3 back = V.O.back, right = orbit_right(&V.O), up = V.O.up;
+    float need = 1e-9f;
+    for (int c = 0; c < 8; c++) {
+        float p[3] = { (c & 1 ? d[0] : -d[0]) / 2, (c & 2 ? d[1] : -d[1]) / 2, (c & 4 ? d[2] : -d[2]) / 2 };
+        float x = p[0] * right.x + p[1] * right.y + p[2] * right.z, y = p[0] * up.x + p[1] * up.y + p[2] * up.z;
+        float z = p[0] * back.x + p[1] * back.y + p[2] * back.z;
+        need = fmaxf(need, fmaxf(z + fabsf(x) / th, z + fabsf(y) / tv));
+    }
+    V.O.dist = need * 1.12f;
+}
+
 static void fit(void)
 {
     const MeshSurf *m = &V.M;
     V.O.target = (Vector3){ (m->lo[0] + m->hi[0]) / 2, (m->lo[1] + m->hi[1]) / 2, (m->lo[2] + m->hi[2]) / 2 };
     float dx = m->hi[0] - m->lo[0], dy = m->hi[1] - m->lo[1], dz = m->hi[2] - m->lo[2];
-    float diag = sqrtf(dx * dx + dy * dy + dz * dz);
-    V.O.dist = fmaxf(diag, 1e-9f) * 1.9f;
     /* a 2-D case (one thin direction): look straight at its plane */
     float mn = fminf(dx, fminf(dy, dz)), mx = fmaxf(dx, fmaxf(dy, dz));
-    if (mx > 0 && mn < mx * 0.02f) {
-        look_along(dz == mn ? 2 : dy == mn ? 1 : 0);
-        V.O.dist = fmaxf(dx, fmaxf(dy, dz)) * 1.8f;
-    }
+    if (mx > 0 && mn < mx * 0.02f) look_along(dz == mn ? 2 : dy == mn ? 1 : 0);
+    fit_distance();
+    V.fitAspect = V.aspect;
     V.dirty = true;
 }
 
@@ -170,9 +188,15 @@ float meshview_panel(Rectangle r, Case *c)
         pl_strlcpy(V.path, dir, sizeof V.path); V.mt = mt;
         ms_load(&V.M, dir, MAX_EDGES);
         memset(V.hidden, 0, sizeof V.hidden);
-        if (V.M.ok) { if (V.up < 0) { int su = stlmesh_up_axis(c); set_up(su >= 0 ? su : 1); } build_models(); fit(); }
+        if (V.M.ok) { if (V.up < 0) { int su = stlmesh_up_axis(c); set_up(su >= 0 ? su : 1); } build_models(); V.touched = false; fit(); }
         else unload_models();
         V.dirty = true;
+    }
+    {   /* the patch colours are baked into the models: a theme change builds them again */
+        double th = TH.dark ? 0.5 : 0;
+        for (int i = 0; i < 10; i++) th += (TH.series[i].r * 3.0 + TH.series[i].g * 5.0 + TH.series[i].b * 7.0) * (i + 1);
+        if (V.M.ok && th != V.themeSig) { build_models(); V.dirty = true; }
+        V.themeSig = th;
     }
     float y = r.y;
     if (!V.M.ok) {
@@ -192,7 +216,13 @@ float meshview_panel(Rectangle r, Case *c)
     const MeshSurf *m = &V.M;
     /* counts */
     char t[300], cells[32], faces[32], pts[32];
-    snprintf(cells, sizeof cells, "%ld", m->nCells); snprintf(faces, sizeof faces, "%ld", m->nFaces); snprintf(pts, sizeof pts, "%ld", m->nPoints);
+    /* compact (2.22M): the full digits pushed the size off the end at a 1.5 scale */
+    long cnt[3] = { m->nCells, m->nFaces, m->nPoints }; char *out[3] = { cells, faces, pts };
+    for (int k = 0; k < 3; k++) {
+        if (cnt[k] >= 1000000) snprintf(out[k], 32, "%.2fM", cnt[k] / 1e6);
+        else if (cnt[k] >= 10000) snprintf(out[k], 32, "%.1fk", cnt[k] / 1e3);
+        else snprintf(out[k], 32, "%ld", cnt[k]);
+    }
     pl_fmt_ui(t, sizeof t, "%s cells  ·  %s faces  ·  %s points  ·  %d patches  ·  %.4g x %.4g x %.4g m", cells, faces, pts, m->nPatch,
               m->hi[0] - m->lo[0], m->hi[1] - m->lo[1], m->hi[2] - m->lo[2]);
     ui_text_clip(F_MED, 13, t, r.x, y + 9, r.width - 540, TH.text2);   /* clear of the tools at the right */
@@ -200,13 +230,13 @@ float meshview_panel(Rectangle r, Case *c)
     float bx = r.x + r.width;
     float fw = ui_button_width(ICON_REFRESH_CW, "Fit");
     bx -= fw;
-    if (ui_button(ui_id("mv-fit"), (Rectangle){ bx, y, fw, 32 }, ICON_REFRESH_CW, "Fit", BTN_GHOST)) fit();
+    if (ui_button(ui_id("mv-fit"), (Rectangle){ bx, y, fw, 32 }, ICON_REFRESH_CW, "Fit", BTN_GHOST)) { V.touched = false; fit(); }
     static const char *views[] = { "x", "y", "z" };
     for (int k = 2; k >= 0; k--) {
         bx -= 38;
         char lab[8]; snprintf(lab, sizeof lab, "%s", views[k]);
         if (ui_button(ui_idn(ui_id("mv-axis"), k), (Rectangle){ bx, y, 34, 32 }, NULL, lab, BTN_SECONDARY)) {
-            look_along(k);
+            look_along(k); fit_distance();
         }
         ui_tooltip((Rectangle){ bx, y, 34, 32 }, k == 0 ? "Look along x" : k == 1 ? "Look along y" : "Look along z");
     }
@@ -233,11 +263,13 @@ float meshview_panel(Rectangle r, Case *c)
     float lw = fminf(260, r.width * 0.28f);
     Rectangle view = { r.x, y, r.width - lw - 14, fmaxf(360, r.height - (y - r.y)) };
     ui_rect(view, 12, TH.dark ? (Color){ 10, 14, 22, 255 } : (Color){ 236, 240, 247, 255 });
+    V.aspect = view.height > 0 ? view.width / view.height : 1.6f;
+    if (!V.touched && fabsf(V.aspect - V.fitAspect) > 0.01f) fit();   /* the first frame knows the view's shape; a resize too */
     Rectangle turnR = { view.x + 12, view.y + 10, orbit_tools_w(false) + 16, 40 };   /* drawn over the view, top left */
     bool hov = ui_hovered(view) && !ui_hovered(turnR) && A.modal == MD_NONE;
     Vector2 mp = ui_mouse();
     if (hov && ui_pressed(view)) {
-        if (ui_time() - V.lastClick < 0.35) { fit(); V.lastClick = 0; }
+        if (ui_time() - V.lastClick < 0.35) { V.touched = false; fit(); V.lastClick = 0; }
         else V.lastClick = ui_time();
         bool shift = inp_key_down(KEY_LEFT_SHIFT) || inp_key_down(KEY_RIGHT_SHIFT);
         V.dragging = !shift; V.panning = shift; V.last = mp;
@@ -251,7 +283,7 @@ float meshview_panel(Rectangle r, Case *c)
             if (dx != 0 || dy != 0) {
                 if (V.dragging) orbit_drag(&V.O, V.last, mp, (Vector2){ view.x + view.width / 2, view.y + view.height / 2 });
                 else orbit_pan(&V.O, dx, dy);
-                V.dirty = true;
+                V.dirty = true; V.touched = true;
             }
             V.last = mp;
             ui_request_frames(2);
@@ -260,7 +292,7 @@ float meshview_panel(Rectangle r, Case *c)
     if (hov) {
         if (orbit_keys(&V.O)) V.dirty = true;
         float wh = ui_take_wheel();
-        if (wh != 0) { V.O.dist *= powf(0.88f, wh); V.dirty = true; }
+        if (wh != 0) { V.O.dist *= powf(0.88f, wh); V.dirty = true; V.touched = true; }
         ui_cursor(V.panning ? MOUSE_CURSOR_RESIZE_ALL : MOUSE_CURSOR_POINTING_HAND);
     }
     if (V.dirty) redraw(view);

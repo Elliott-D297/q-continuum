@@ -1,0 +1,36 @@
+# Every mesher, steps 1-3 (2026-11-10): the Mesher list holds OpenFOAM's and SALOME's meshers; foamyHexMesh says it is
+# experimental; "Convert to polyhedra" shows for meshers whose cells aren't polyhedra already and is saved.
+shell python3 "$QC_TESTS/tools/gen_named_box.py" $SB/ws/box.stl
+open $SB/ws/cavity
+click nav:mesh
+wait-until page Mesh
+click text:STL mesher
+wait 5
+click stl-path
+enter $SB/ws/box.stl
+wait 10
+click stl-next
+wait 3
+click stl-next
+wait 3
+click stl-next
+wait 5
+assert text Convert to polyhedra afterwards
+click stl-polyconv
+wait 3
+assert log mesher/mesher.ini poly_convert = 1
+click stl-mesher
+wait 3
+screenshot $OUT/1_list.png
+click text:OpenFOAM · Conformal Voronoi: foamyHexMesh (experimental)
+wait 5
+assert text Experimental: OpenFOAM's conformal Voronoi mesher
+assert not text Convert to polyhedra afterwards
+screenshot $OUT/2_foamy.png
+click stl-mesher
+wait 3
+click text:OpenFOAM · Tetrahedral: cfMesh tetMesh
+wait 5
+assert text Convert to polyhedra afterwards
+assert log mesher/mesher.ini mesher = cftet
+screenshot $OUT/3_tet.png

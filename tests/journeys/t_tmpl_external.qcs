@@ -1,0 +1,119 @@
+# Setup plan step 2 (2026-10-27): a cube in a wind tunnel. External aero (suits the part: flow around it) from the STL to
+# a finished steady run with lift and drag, then Change > Vortex shedding (URANS, PIMPLE) and a short transient run.
+budget p95 80 max 600
+shell mkdir -p $SB/ws/cube/system && python3 -c "L=0.1;P=lambda a,b,c:(a*L,b*L,c*L);F=[(P(0,0,0),P(0,0,1),P(0,1,1),P(0,1,0)),(P(1,0,0),P(1,1,0),P(1,1,1),P(1,0,1)),(P(0,0,0),P(1,0,0),P(1,0,1),P(0,0,1)),(P(0,1,0),P(0,1,1),P(1,1,1),P(1,1,0)),(P(0,0,0),P(0,1,0),P(1,1,0),P(1,0,0)),(P(0,0,1),P(1,0,1),P(1,1,1),P(0,1,1))];o=open('$SB/ws/cube.stl','w');o.write('solid cube\n');[o.write('facet normal 0 0 0\nouter loop\n'+''.join('vertex %g %g %g\n'%v for v in t)+'endloop\nendfacet\n') for q in F for t in ((q[0],q[1],q[2]),(q[0],q[2],q[3]))];o.write('endsolid cube\n')" && printf 'FoamFile { version 2.0; format ascii; class dictionary; object controlDict; }\napplication simpleFoam;\nstartTime 0;\nendTime 10;\ndeltaT 1;\nwriteControl timeStep;\nwriteInterval 10;\n' > $SB/ws/cube/system/controlDict
+open $SB/ws/cube
+click nav:mesh
+wait-until page Mesh
+click text:STL mesher
+wait 5
+click stl-path
+enter $SB/ws/cube.stl
+wait 10
+click stl-next
+wait 3
+click stl-domain#1
+wait 10
+# Coarse: the default density gives 660 k cells (4 min to mesh, two runs after it would pass the journey's 10 min)
+click stl-next
+wait 3
+click stl-next
+wait 3
+click stl-density#0
+wait 5
+assert log mesher/mesher.ini base_size
+click wf-next
+wait-until job running timeout 20
+wait-until job finished timeout 600
+assert log log.checkMesh Mesh OK.
+click nav:physics
+wait-until page Physics
+wait 10
+assert text Suits your part: flow around it
+screenshot $OUT/01_templates.png
+click su-tmpl#0
+wait 10
+assert log simulation.ini template = externalAero
+assert log simulation.ini forces = 1
+click su-step#5
+wait 5
+assert text Reference values
+assert not widget su-fcofr#0
+click su-more#5
+wait 5
+assert widget su-fcofr#0
+screenshot $OUT/02_reports.png
+click su-step#6
+wait 5
+click su-it
+key A ctrl
+enter 30
+wait 5
+click su-step#7
+wait 5
+click su-check-run
+wait-until page Run
+wait 10
+click run-go
+wait-until job running timeout 30
+wait-until job finished timeout 600
+assert log log.simpleFoam End
+assert not log log.simpleFoam FOAM FATAL
+assert log system/controlDict type            forceCoeffs;
+note plan step 5: the walls' y+ after the run
+wait-until widget run-yplus timeout 30
+screenshot $OUT/03_ran_external.png
+click nav:physics
+wait-until page Physics
+wait 10
+click su-step#0
+wait 5
+click su-tmpl-change
+wait 10
+click su-tmpl#2
+wait 10
+assert log simulation.ini template = vortexShedding
+assert log simulation.ini flow = transient
+assert log simulation.ini algorithm = PIMPLE
+screenshot $OUT/04_shedding_models.png
+click su-step#6
+wait 5
+assert widget su-adj
+assert widget su-nouter
+click su-et
+key A ctrl
+enter 0.004
+wait 5
+click su-wt
+key A ctrl
+enter 0.004
+wait 5
+click su-step#7
+wait 5
+assert text pimpleFoam
+click su-check-run
+wait-until page Run
+wait 10
+click run-go
+note the steady results are still there: start over
+wait-until widget m-rr-over timeout 30
+click m-rr-over
+wait-until job running timeout 30
+wait-until job finished timeout 600
+assert log log.pimpleFoam End
+assert not log log.pimpleFoam FOAM FATAL
+screenshot $OUT/05_ran_shedding.png
+note plan step 5: the y+ helper on Models, and its layers sent to the STL mesher
+click nav:physics
+wait-until page Physics
+wait 10
+click su-step#0
+wait 5
+wheel 0 su-yplus-send
+assert text For y+ ≈ 50 the first cell
+screenshot $OUT/06_yplus_helper.png
+click su-yplus-send
+wait 5
+assert log mesher/mesher.ini prism_layers_on = 1
+assert text prism layer
+screenshot $OUT/07_yplus_sent.png

@@ -56,6 +56,7 @@ static void glob_installs(Env *e, const char *pattern)
 
 void env_detect(Env *e)
 {
+    pl_which_cache_clear();                              /* a fresh look: programs installed since show up */
     memset(e, 0, sizeof *e);
     const char *only = getenv("QC_TEST_FOAM_ROOTS");    /* testing: search just these (":"-separated; "" = none installed) */
     if (only) {
@@ -80,7 +81,14 @@ void env_detect(Env *e)
             }
 
     e->wsl = pl_is_wsl();
-    pl_which("paraview", e->pvLinux, sizeof e->pvLinux);
+    if (!pl_which("paraview", e->pvLinux, sizeof e->pvLinux)) {   /* not on the PATH: the binary release unpacked in ~/opt */
+        glob_t g; char pat[PL_PATH];
+        snprintf(pat, sizeof pat, "%s/opt/ParaView-*/bin/paraview", pl_home());
+        if (glob(pat, 0, NULL, &g) == 0) {
+            if (g.gl_pathc) pl_strlcpy(e->pvLinux, g.gl_pathv[g.gl_pathc - 1], sizeof e->pvLinux);
+            globfree(&g);
+        }
+    }
     if (e->wsl) {
         glob_t g;
         if (glob("/mnt/c/Program Files/ParaView*/bin/paraview.exe", 0, NULL, &g) == 0) {
@@ -237,6 +245,7 @@ void settings_load(Settings *s, const Env *e)
         else if (!strcmp(k, "run_split")) s->runSplit = (float)atof(v);
         else if (!strcmp(k, "log_fold")) s->logFold = atoi(v) != 0;
         else if (!strcmp(k, "whats_new_seen")) s->whatsNewSeen = atoi(v);
+        else if (!strcmp(k, "tour_seen")) s->tourSeen = atoi(v) != 0;
         else if (!strcmp(k, "history")) s->history = atoi(v) != 0;
         else if (!strcmp(k, "delete_confirm")) s->deleteConfirm = atoi(v);
         else if (!strcmp(k, "review_save")) s->reviewSave = atoi(v) != 0;
@@ -292,6 +301,7 @@ void settings_save(const Settings *s)
     if (s->runSplit > 0) str_catf(&b, "run_split=%.3f\n", s->runSplit);
     str_catf(&b, "delete_confirm=%d\nlog_fold=%d\nwhats_new_seen=%d\nreview_save=%d\n", s->deleteConfirm, s->logFold ? 1 : 0, s->whatsNewSeen,
              s->reviewSave ? 1 : 0);
+    str_catf(&b, "tour_seen=%d\n", s->tourSeen ? 1 : 0);
     str_catf(&b, "sounds=%d\nsound_level=%d\nmesh_view=%d\n", s->sounds ? 1 : 0, s->soundLevel, s->meshView ? 1 : 0);
     if (s->lastCase[0]) str_catf(&b, "last_case=%s\nlast_page=%s\nlast_region=%s\n", s->lastCase, s->lastPage, s->lastRegion);
     str_catf(&b, "history=%d\nqueue_cores=%d\nqueue_paused=%d\nnotify=%d\nnotify_sound=%d\nnotify_min_seconds=%d\n", s->history ? 1 : 0,

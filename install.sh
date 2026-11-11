@@ -3,14 +3,21 @@
 #
 #   ./install.sh                  build and install Q-Continuum to /usr/local
 #   ./install.sh --with-openfoam  also install OpenFOAM v2606 from openfoam.com
+#   ./install.sh --with-precice   also install preCICE, pyprecice, its OpenFOAM and CalculiX adapters and tutorials
+#   ./install.sh --with-calculix  also install CalculiX (ccx, cgx)
+#   ./install.sh --with-chrono    also build Project Chrono (--with-deme: DEM-Engine, --with-chrono-deme: both)
+#   ./install.sh --with-salome    also install SALOME (wget of the official tarball, unpacked into ~/salome)
+#   ./install.sh --with-all       all of the above; --no-extras asks about none of them
 #   ./install.sh --user           install to ~/.local instead (no sudo for the install step)
-#   ./install.sh --uninstall      remove Q-Continuum (your cases and OpenFOAM are left alone)
+#   ./install.sh --uninstall      remove Q-Continuum (your cases and the programs are left alone)
 #
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PREFIX=/usr/local
 WITH_OF=ask
+# the other programs: ask (at a terminal, for each one that isn't installed), yes or no
+WITH_PRECICE=ask; WITH_CALCULIX=ask; WITH_CHRONO=ask; WITH_DEME=ask; WITH_SALOME=ask
 DEPS=1
 UNINSTALL=0
 JOBS="$(nproc 2>/dev/null || echo 2)"
@@ -19,11 +26,19 @@ for a in "$@"; do
   case "$a" in
     --with-openfoam) WITH_OF=yes ;;
     --no-openfoam)   WITH_OF=no ;;
+    --with-precice)  WITH_PRECICE=yes ;;
+    --with-calculix) WITH_CALCULIX=yes ;;
+    --with-chrono)   WITH_CHRONO=yes ;;
+    --with-deme)     WITH_DEME=yes ;;
+    --with-chrono-deme) WITH_CHRONO=yes; WITH_DEME=yes ;;
+    --with-salome)   WITH_SALOME=yes ;;
+    --with-all)      WITH_OF=yes; WITH_PRECICE=yes; WITH_CALCULIX=yes; WITH_CHRONO=yes; WITH_DEME=yes; WITH_SALOME=yes ;;
+    --no-extras)     WITH_PRECICE=no; WITH_CALCULIX=no; WITH_CHRONO=no; WITH_DEME=no; WITH_SALOME=no ;;
     --user)          PREFIX="$HOME/.local" ;;
     --prefix=*)      PREFIX="${a#--prefix=}" ;;
     --no-deps)       DEPS=0 ;;
     --uninstall)     UNINSTALL=1 ;;
-    -h|--help)       sed -n '2,7p' "$0"; exit 0 ;;
+    -h|--help)       sed -n '2,13p' "$0"; exit 0 ;;
     *) echo "Unknown option: $a (try --help)"; exit 1 ;;
   esac
 done
@@ -179,6 +194,57 @@ fi
 RUN="$HOME/OpenFOAM/$(id -un)-v2606/run"
 mkdir -p "$RUN"
 
+# ------------------------------------------------------------------ other programs
+# Each has its own script in tools/ (run any of them again on its own later). Which are installed already, as
+# Q-Continuum finds them:
+have() { for p in "$@"; do for f in $p; do [ -e "$f" ] && return 0; done; done; return 1; }
+HAVE_PRECICE=0; command -v precice-version >/dev/null && [ -d "$HOME/src/precice-tutorials" ] && HAVE_PRECICE=1
+HAVE_CALCULIX=0; command -v ccx >/dev/null && HAVE_CALCULIX=1
+HAVE_CHRONO=0; have "$HOME/src/chrono/build/cmake/ChronoConfig.cmake" "$HOME/chrono/build/cmake/ChronoConfig.cmake" \
+    "$HOME/src/chrono-*/build/cmake/ChronoConfig.cmake" "$HOME/opt/chrono-*/lib/cmake/Chrono/ChronoConfig.cmake" \
+    /usr/local/lib/cmake/Chrono/ChronoConfig.cmake && HAVE_CHRONO=1
+HAVE_DEME=0; have "$HOME/src/*/build/DEME/DEMEConfig.cmake" "$HOME/DEM-Engine/build/DEME/DEMEConfig.cmake" \
+    "$HOME/opt/deme-*/lib/cmake/DEME/DEMEConfig.cmake" /usr/local/lib/cmake/DEME/DEMEConfig.cmake && HAVE_DEME=1
+HAVE_SALOME=0; have "$HOME/salome/SALOME-*/salome" && HAVE_SALOME=1
+
+# ask VAR HAVE question: turn an "ask" into yes/no (no when it's installed already or nobody is at the terminal)
+ask() {
+  local v="${!1}"
+  if [ "$v" = ask ]; then
+    v=no
+    if [ "$2" = 0 ] && [ -t 0 ]; then
+      read -r -p "$3 [y/N] " ans
+      case "$ans" in [Yy]*) v=yes ;; esac
+    fi
+  fi
+  printf -v "$1" %s "$v"
+}
+if [ -t 0 ] && { [ $HAVE_PRECICE = 0 ] || [ $HAVE_CALCULIX = 0 ] || [ $HAVE_CHRONO = 0 ] || [ $HAVE_DEME = 0 ] || [ $HAVE_SALOME = 0 ]; }; then
+  step "Other programs"
+  note "Q-Continuum also runs these. Each can be installed now, or later with its script in tools/."
+fi
+ask WITH_CALCULIX $HAVE_CALCULIX "Install CalculiX (finite elements, from Ubuntu's packages)?"
+ask WITH_PRECICE  $HAVE_PRECICE  "Install preCICE (coupled runs: the library, Python bindings, OpenFOAM/CalculiX adapters, tutorials)?"
+ask WITH_CHRONO   $HAVE_CHRONO   "Build Project Chrono from source (multibody dynamics; 20-40 minutes)?"
+ask WITH_DEME     $HAVE_DEME     "Build DEM-Engine from source (GPU particles; needs an NVIDIA GPU, installs CUDA)?"
+ask WITH_SALOME   $HAVE_SALOME   "Install SALOME (meshing; downloads the official tarball, about 3 GB)?"
+
+EXTRAS_FAILED=""
+extra() {   # extra name script args...: run one installer; a failure is reported at the end, not fatal
+  local name="$1"; shift
+  step "Installing $name"
+  if ! bash "$HERE/tools/$@"; then EXTRAS_FAILED="$EXTRAS_FAILED $name"; fi
+}
+[ "$WITH_CALCULIX" = yes ] && extra CalculiX install_calculix.sh
+# after OpenFOAM and CalculiX: it builds the OpenFOAM adapter against whichever OpenFOAM is installed
+[ "$WITH_PRECICE" = yes ] && extra preCICE install_precice.sh
+if [ "$WITH_CHRONO" = yes ] || [ "$WITH_DEME" = yes ]; then
+  CD=(); [ "$WITH_CHRONO" = yes ] && CD+=(--chrono); [ "$WITH_DEME" = yes ] && CD+=(--deme)
+  extra "Chrono/DEME" install_chrono_deme.sh "${CD[@]}"
+fi
+# last: it can wait for a browser download
+[ "$WITH_SALOME" = yes ] && extra SALOME install_salome.sh
+
 # ------------------------------------------------------------------ ParaView hints
 step "ParaView"
 if [ $IS_WSL = 1 ]; then
@@ -202,3 +268,6 @@ else
   echo "  or from your applications menu."
 fi
 echo "  Your cases live in ${bold}$RUN${off}"
+if [ -n "$EXTRAS_FAILED" ]; then
+  echo "  ${red}Not installed:${off}$EXTRAS_FAILED. The messages above say why; each has a script in tools/ to run again."
+fi

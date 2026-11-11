@@ -1,0 +1,93 @@
+# Boundary condition files for a mesh that came in without them, and new files from templates (user request 2026-11-02/03):
+# a case like the user's case-2 (a SALOME UNV converted, constant/polyMesh with Inlet/Outlet/Wall, no 0/ and no setup)
+# gets its 0/ from the Boundary conditions page's button; then the Files tab makes a scalar field, a vector field
+# and a dictionary with the OpenFOAM header, the fields with an entry for every patch.
+budget p95 60 max 400
+shell mkdir -p $SB/ws/c2/system $SB/ws/c2/salome && python3 "$QC_TESTS/tools/gen_unv.py" $SB/ws/c2/salome/imported.unv && printf 'FoamFile { version 2.0; format ascii; class dictionary; object controlDict; }\napplication simpleFoam;\nstartTime 0;\nendTime 10;\ndeltaT 1;\nwriteControl timeStep;\nwriteInterval 10;\n' > $SB/ws/c2/system/controlDict && printf 'source = x.unv\nkind = unv\n' > $SB/ws/c2/salome/imported.txt && cd $SB/ws/c2 && bash -c '. "$WM_PROJECT_DIR/etc/bashrc" > /dev/null 2>&1; ideasUnvToFoam salome/imported.unv > log.ideasUnvToFoam 2>&1; checkMesh > log.checkMesh 2>&1'
+open $SB/ws/c2
+assert log constant/polyMesh/boundary walls
+click nav:boundary conditions
+wait-until page Boundary
+wait 5
+assert text Write boundary condition files
+screenshot $OUT/1_no_fields.png
+click bc-write-fields
+wait 10
+assert log 0/U surfaceNormalFixedValue
+assert log 0/p walls
+assert log 0/U walls
+screenshot $OUT/2_fields.png
+# the Files tab: a scalar field from the path's guess, with the patches in it
+click nav:files
+wait-until page Files
+wait 5
+click f-new
+wait 3
+click m-nf-path
+key A ctrl
+type 0/alphat
+wait 3
+assert text A volScalarField
+screenshot $OUT/3_new_scalar.png
+click m-nf-go
+wait 5
+assert log 0/alphat class       volScalarField;
+assert log 0/alphat object      alphat;
+assert log 0/alphat inlet
+assert log 0/alphat zeroGradient
+# a vector field picked by hand: walls get noSlip
+click f-new
+wait 3
+click m-nf-path
+key A ctrl
+type 0/Uextra
+click m-nf-kind#2
+wait 3
+screenshot $OUT/4_new_vector.png
+click m-nf-go
+wait 5
+assert log 0/Uextra volVectorField
+assert log 0/Uextra noSlip
+assert log 0/Uextra uniform (0 0 0)
+# a dictionary in system/
+click f-new
+wait 3
+click m-nf-path
+key A ctrl
+enter system/myDict
+wait 5
+assert log system/myDict class       dictionary;
+assert log system/myDict location    "system";
+# an existing name is refused
+click f-new
+wait 3
+click m-nf-path
+key A ctrl
+type system/myDict
+click m-nf-go
+wait 3
+assert text already exists
+screenshot $OUT/5_exists.png
+key ESCAPE
+wait 3
+# delete (user request 2026-11-03): the selected file goes to the case's trash, restorable on History
+click 0/Uextra
+wait 3
+click f-del
+wait 3
+assert text goes to the case's Trash
+screenshot $OUT/6_delete.png
+click m-df-go
+wait 5
+assert not file 0/Uextra
+assert toast Moved 0/Uextra to the Trash
+shell ls $SB/ws/c2/.qc-trash/*/0/Uextra
+# controlDict: warned, and Cancel keeps it
+click system/controlDict
+wait 3
+click f-del
+wait 3
+assert text can't run the case without a controlDict
+click m-df-cancel
+wait 3
+assert file system/controlDict

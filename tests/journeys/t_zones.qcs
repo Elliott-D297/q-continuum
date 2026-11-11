@@ -1,0 +1,91 @@
+# Zones (setup plan step 7, 2026-11-08): the mixerVessel2D tutorial's mesh (its blockMesh makes the cellZone rotor), its
+# own physics files taken away (a bare mesh, as one imported would be), set up from Physics > Setup alone. Zones: a rotating zone takes the mesh's rotor cell zone, turns at 1000 rpm, reports the
+# torque on the rotor walls; a porous box (marked by topoSet) is added in the vessel, a pressure drop at a speed given.
+# The Run page runs the Cell zones step, then simpleFoam with MRF and the porosity, and shows the torque and the power.
+budget p95 80 max 600
+shell cp -r "$FOAM_TUTORIALS/incompressible/simpleFoam/mixerVessel2D" $SB/ws/mixer && cd $SB/ws/mixer && rm -rf 0.orig Allrun Allclean constant/*Properties system/fvSchemes system/fvSolution system/relativeVelocity && printf 'FoamFile { version 2.0; format ascii; class dictionary; object controlDict; }\napplication simpleFoam;\nstartTime 0;\nendTime 10;\ndeltaT 1;\nwriteControl timeStep;\nwriteInterval 10;\n' > system/controlDict && bash -c '. "$WM_PROJECT_DIR/etc/bashrc" > /dev/null 2>&1; m4 system/blockMeshDict.m4 > system/blockMeshDict && blockMesh > log.blockMesh 2>&1'
+open $SB/ws/mixer
+click nav:physics
+wait-until page Physics
+wait 10
+click su-tmpl#1
+wait 10
+assert log simulation.ini template = internalFlow
+click su-step#3
+wait 5
+assert text No zones
+screenshot $OUT/01_zones_empty.png
+click su-zone-add
+wait 3
+click text:Rotating zone: a fan, an impeller, a mixer
+wait 5
+assert log simulation.ini kind = rotating
+assert log simulation.ini cell_zone = rotor
+assert text Rotating zone rotor
+click su-z#0>rpm
+key A ctrl
+enter 1000
+wait 3
+assert log simulation.ini rpm = 1000
+click su-z#0>axis#3
+wait 3
+assert log simulation.ini axis = 0 0 1
+click su-z#0>tq#0
+wait 3
+assert log simulation.ini torque_walls = rotor
+screenshot $OUT/02_rotating.png
+click su-zone-add
+wait 3
+click text:Porous zone: a filter, a screen, a radiator
+wait 5
+assert log simulation.ini kind = porous
+assert log simulation.ini shape = box
+note the box goes beside the rotor, between it and the vessel wall (r 0.02 to 0.1 m)
+click su-z#1>a#0
+key A ctrl
+enter 0.06
+click su-z#1>a#1
+key A ctrl
+enter -0.01
+click su-z#1>b#0
+key A ctrl
+enter 0.08
+click su-z#1>b#1
+key A ctrl
+enter 0.01
+click su-z#1>dp1
+key A ctrl
+enter 20
+wait 3
+assert log simulation.ini point1 = 0.06 -0.01
+assert text Porous zone porous
+screenshot $OUT/03_porous.png
+click su-step#6
+wait 5
+click su-it
+key A ctrl
+enter 150
+wait 3
+click su-step#7
+wait 5
+assert text Nothing to fix
+click su-check-run
+wait-until page Run
+wait 10
+assert text Cell zones
+click run-go
+wait-until job running timeout 30
+wait-until job finished timeout 300
+assert log constant/MRFProperties omega           104.7
+assert log system/fvOptions explicitPorositySource
+assert log log.topoSet.zones porous
+assert log log.simpleFoam End
+assert not log log.simpleFoam FOAM FATAL
+assert log constant/polyMesh/cellZones porous
+assert file postProcessing/rotor_torque/0/moment.dat
+wait-until widget chart-tab#1 timeout 60
+wait 10
+wheel 0 rep-tq#0
+assert text Torque on rotor about rotor's axis
+assert not text not yet
+screenshot $OUT/04_run_torque.png

@@ -1,0 +1,96 @@
+# Starting values and numerics (setup plan step 9, 2026-11-09). pitzSource: the pitzDaily tutorial as it ships, run 60
+# SIMPLE iterations (its results at t = 60). pitzTarget: the same mesh, bare (its physics files taken away). Physics > Setup
+# sets the target up as Internal flow and starts it from the other case's results: the case is picked from the list of
+# cases with results, the step says which time it starts from. The Run page runs the Starting values step (mapFields)
+# before simpleFoam: the cells take the other case's values, the inlet keeps the setup's condition. Writing the setup again
+# brings 0/U back to the setup's own (merged with the field as it was before mapFields, not with mapFields' output).
+# A run of 20 iterations stops short of converging: the Run page offers Robust, one click switches the numerics and runs
+# again.
+budget p95 80 max 600
+shell cp -r "$FOAM_TUTORIALS/incompressible/simpleFoam/pitzDaily" $SB/ws/pitzSource && cd $SB/ws/pitzSource && sed -i 's/^endTime .*/endTime 60;/; s/^writeInterval .*/writeInterval 60;/' system/controlDict && bash -c '. "$WM_PROJECT_DIR/etc/bashrc" > /dev/null 2>&1; blockMesh > log.blockMesh 2>&1 && simpleFoam > log.simpleFoam 2>&1'
+shell mkdir -p $SB/ws/pitzTarget/constant && cp -r $SB/ws/pitzSource/constant/polyMesh $SB/ws/pitzTarget/constant/ && mkdir -p $SB/ws/pitzTarget/system && printf 'FoamFile { version 2.0; format ascii; class dictionary; object controlDict; }\napplication simpleFoam;\nstartTime 0;\nendTime 10;\ndeltaT 1;\nwriteControl timeStep;\nwriteInterval 10;\n' > $SB/ws/pitzTarget/system/controlDict
+open $SB/ws/pitzTarget
+click nav:physics
+wait-until page Physics
+wait 10
+click su-tmpl#1
+wait 10
+assert log simulation.ini template = internalFlow
+assert log simulation.ini numerics = balanced
+click su-step#4
+wait 5
+assert text Start from
+assert widget su-start#2
+click su-start#2
+wait 3
+assert log simulation.ini start_from = mapFields
+click su-map-case
+wait 3
+click text:pitzSource
+wait 5
+assert text Starts from pitzSource at t = 60
+screenshot $OUT/01_start_from_case.png
+click su-step#6
+wait 5
+assert text Numerics
+assert widget su-num#0
+click su-it
+key A ctrl
+enter 20
+wait 3
+screenshot $OUT/02_solver_numerics.png
+click su-step#7
+wait 5
+assert text Nothing to fix
+click su-check-run
+wait-until page Run
+wait 10
+assert text Starting values
+assert text mapFields: another case's last results onto this mesh
+click run-go
+wait-until job running timeout 30
+wait-until job finished timeout 300
+assert log log.mapFields End
+assert not log log.mapFields FOAM FATAL
+assert log log.simpleFoam End
+assert not log log.simpleFoam FOAM FATAL
+note the cells are mapFields' (no setup mark), the inlet still the setup's condition
+assert log 0/U internalField   nonuniform
+assert not log 0/U Written by Q-Continuum
+shell cd $SB/ws/pitzTarget && grep -aA3 "^    inlet$" 0/U | grep -q surfaceNormalFixedValue && touch inlet_kept.txt
+assert file inlet_kept.txt
+assert file .qc-setup/0.before/U
+wait 5
+note 20 iterations: not converged, so the Run page offers Robust
+wait-until widget run-robust timeout 30
+assert text It ran all its iterations
+screenshot $OUT/03_offer_robust.png
+click run-robust
+wait-until job running timeout 60
+wait-until job finished timeout 300
+assert log simulation.ini numerics = robust
+assert log system/fvSchemes bounded Gauss upwind
+assert log log.mapFields End
+assert log log.simpleFoam End
+screenshot $OUT/04_robust_run.png
+click nav:numerics
+wait-until page Numerics
+wait 5
+assert text Robust numerics, from Physics > Setup
+screenshot $OUT/05_numerics_banner.png
+note writing the setup again: 0/U is the setup's own once more
+click nav:physics
+wait-until page Physics
+wait 5
+click su-step#4
+wait 3
+click su-start#0
+wait 3
+click su-step#7
+wait 5
+click su-check-run
+wait-until page Run
+wait 5
+assert log 0/U Written by Q-Continuum
+assert log 0/U internalField   uniform
+assert not file system/mapFieldsDict

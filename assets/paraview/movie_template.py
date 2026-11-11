@@ -5,6 +5,7 @@
 #   QC_W/QC_H frame size in pixels         QC_VIEW   a ParaView script that builds the view instead (Claude's view.py)
 #   QC_DECOMPOSED=1  the results are only in processor* folders     QC_TWOD=1  a 2-D case (it has "empty" patches)
 #   QC_REGION  multi-region cases: the region to show
+#   QC_UP / QC_FLOW  the up and flow directions (0..5: +x -x +y -y +z -z; -1 none): up kept upright, the flow left to right
 import glob
 import os
 from paraview.simple import *
@@ -115,9 +116,35 @@ else:
     td.WindowLocation = "Upper Left Corner"
     td.FontSize = 22
     td.Color = [0.92, 0.92, 0.92]
-    # the camera: head-on for a 2-D case (along its thin direction), from a three-quarter angle otherwise
+    # the camera: head-on for a 2-D case (along its thin direction), from a three-quarter angle otherwise. QC_UP / QC_FLOW
+    # (the STL mesher's up and flow directions, 0..5 = +x -x +y -y +z -z) keep its up upright and the flow going left to right
     view.CameraFocalPoint = centre
-    if twoD:
+    def axis_dir(name):
+        try:
+            d = int(os.environ.get(name, "-1"))
+        except ValueError:
+            d = -1
+        return (d // 2, -1.0 if d % 2 else 1.0) if 0 <= d < 6 else (-1, 1.0)
+    upA, upS = axis_dir("QC_UP")
+    flA, flS = axis_dir("QC_FLOW")
+    if upA >= 0 and (upA == flA or (twoD and upA == thin)):
+        upA = -1
+    if upA >= 0:
+        U = [0.0, 0.0, 0.0]; U[upA] = upS
+        if flA >= 0:
+            F = [0.0, 0.0, 0.0]; F[flA] = flS
+        else:                                   # no flow known: the next axis round
+            F = [0.0, 0.0, 0.0]; F[thin if twoD else (upA + 1) % 3] = 1.0
+        back = [F[1] * U[2] - F[2] * U[1], F[2] * U[0] - F[0] * U[2], F[0] * U[1] - F[1] * U[0]]   # flow x up: the flow goes right
+        diag = (ext[0] ** 2 + ext[1] ** 2 + ext[2] ** 2) ** 0.5
+        if twoD:
+            if abs(back[thin]) < 0.5:           # the flow along the thin axis: just look along it
+                back = [0.0, 0.0, 0.0]; back[thin] = 1.0
+            view.CameraPosition = [centre[k] + back[k] * max(ext) * 3 for k in range(3)]
+        else:                                   # three-quarter: from the side, a little upstream, a little above
+            view.CameraPosition = [centre[k] + (back[k] - 0.6 * F[k] + 0.8 * U[k]) * diag for k in range(3)]
+        view.CameraViewUp = U
+    elif twoD:
         pos = list(centre)
         pos[thin] += max(ext) * 3
         view.CameraPosition = pos
@@ -128,7 +155,7 @@ else:
         view.CameraViewUp = [0, 0, 1]
     view.ResetCamera(False)
     if twoD:                                    # flat on: fill the frame (a little margin, room for the colour bar)
-        up = 1 if thin != 1 else 2
+        up = upA if upA >= 0 else (1 if thin != 1 else 2)
         across = [k for k in range(3) if k not in (thin, up)][0]
         view.CameraParallelProjection = 1
         view.CameraParallelScale = 0.5 * max(ext[up] * 1.15, ext[across] * 1.3 / (W / H))

@@ -1,0 +1,22 @@
+# checkMesh holds every face to a skewness of 4; snappyHexMesh allows 20 on boundary faces, and prism layers that end on an
+# inlet leave a few there (the user's intake, 2026-11-10: 18 faces of Inlet_1, the only failed check, shown as "checks
+# failed"). The Mesh page reads the flagged faces: all on the boundary is a note; one inside the flow is still a failure.
+shell cd $SB/ws/cavity && blockMesh > log.blockMesh 2>&1; n=$(awk '/startFace/ {gsub(";",""); print $2; exit}' constant/polyMesh/boundary); mkdir -p constant/polyMesh/sets; printf 'FoamFile\n{\n    version 2.0;\n    format ascii;\n    class faceSet;\n    object skewFaces;\n}\n\n2\n(\n%d\n%d\n)\n' $n $((n+1)) > constant/polyMesh/sets/skewFaces; printf 'Checking geometry...\n ***Max skewness = 11.35, 2 highly skew faces detected which may impair the quality of the results\n\nFailed 1 mesh checks.\n\nEnd\n' > log.checkMesh
+open $SB/ws/cavity
+click nav:mesh
+wait-until page Mesh
+wait 20
+assert text usable, with a note
+assert text The one check that failed is skewness on 2 boundary faces of movingWall
+screenshot $OUT/1_note.png
+click mesh-tabs#4
+wait 20
+assert text The one check that failed is skewness on 2 boundary faces of movingWall
+screenshot $OUT/2_quality.png
+# the same log with a face inside the flow flagged: a failure again
+shell cd $SB/ws/cavity && printf 'FoamFile\n{\n    version 2.0;\n    format ascii;\n    class faceSet;\n    object skewFaces;\n}\n\n2\n(\n3\n4\n)\n' > constant/polyMesh/sets/skewFaces && sleep 1.1 && touch log.checkMesh
+click mesh-tabs#0
+wait 90
+assert text checkMesh reported failed checks
+assert not text usable, with a note
+quit

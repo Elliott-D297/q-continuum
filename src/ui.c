@@ -129,7 +129,7 @@ static void reg_text(const char *s, Rectangle r)
 {
     if (!g_ui_no_input || nRegT[regCur] >= TXT_MAX) return;
     RegText *t = &regT[regCur][nRegT[regCur]++];
-    snprintf(t->s, sizeof t->s, "%s", s);
+    { size_t n = strlen(s); if (n >= sizeof t->s) n = sizeof t->s - 1; memcpy(t->s, s, n); t->s[n] = 0; }   /* journeys match the first 96 characters */
     Rectangle win = { 0, 0, (float)GetScreenWidth(), (float)GetScreenHeight() };
     t->r = to_screen(r); t->vis = intersect(intersect(t->r, to_screen(ui_clip_rect())), win); t->layer = U.layer;
 }
@@ -150,7 +150,7 @@ const UiWidget *ui_widget_by_label(const char *label)
     return best;
 }
 /* drawn text containing s (case-insensitive); exact matches first, then the topmost layer */
-bool ui_text_find(const char *s, Rectangle *vis, bool exact)
+bool ui_text_find(const char *s, Rectangle *vis, Rectangle *whole, bool exact)
 {
     int p = regCur ^ 1, bestK = -1, bestScore = -1;
     for (int i = 0; i < nRegT[p]; i++) {
@@ -162,6 +162,7 @@ bool ui_text_find(const char *s, Rectangle *vis, bool exact)
     }
     if (bestK < 0) return false;
     if (vis) *vis = regT[p][bestK].vis;
+    if (whole) *whole = regT[p][bestK].r;
     return true;
 }
 int ui_text_dump(char *out, int cap)                     /* every visible string of the last frame, one per line */
@@ -275,7 +276,7 @@ static void make_theme(int t)
               { 0xFF9F1C, 0x7CC24A, 0x6FB6E8, 0xE2433A, 0xFFD23A, 0xC9C0AE } },
             /* Windows 95: teal desktop, grey dialogs with bevels, navy title bars */
             { RETRO_WIN95, false, 0.0f, false, { 0xC0C0C0, 0xC0C0C0, 0xC0C0C0, 0xC0C0C0, 0xC0C0C0, 0xFFFFFF, 0x808080, 0xA0A0A0,
-              0xD4D0C8, 0x000080, 0x000000, 0x202020, 0x505050, 0xFFFFFF, 0x000080, 0x008000, 0x808000, 0xC00000, 0x000080 },
+              0xD4D0C8, 0xB4C0E4, 0x000000, 0x202020, 0x505050, 0xFFFFFF, 0x000080, 0x008000, 0x808000, 0xC00000, 0x000080 },
               { 0x000080, 0xC00000, 0x008000, 0x808000, 0x800080, 0x008080 } },
             /* Star Citizen: a mobiGlas / cockpit MFD, cyan holographic lines on deep space blue, amber for the selected target */
             { RETRO_STARCITIZEN, true, 0.0f, true, { 0x03070D, 0x050C15, 0x08131F, 0x0B1826, 0x0F1F31, 0x040A12, 0x3FB8D8, 0x15394A,
@@ -728,7 +729,8 @@ const char *ui_cap_prose(const char *s) { return U.th.lcars && prose(s) ? ui_upp
    backticks go. */
 static bool ident_word(const char *w, int n)
 {
-    if (n == 1 && w[0] >= 'a' && w[0] <= 'z') return true;
+    /* (but "a", the article: "Make a movie" read "MAKE a MOVIE"; a field named a can be backticked) */
+    if (n == 1 && w[0] >= 'a' && w[0] <= 'z' && w[0] != 'a') return true;
     for (int i = 0; i < n; i++) {
         char c = w[i];
         if (strchr("._/()[]$#<>=:", c) || (c >= '0' && c <= '9')) return true;
@@ -1211,12 +1213,21 @@ bool ui_any_input_focused(void) { return U.editId != 0 || U.pop.open; }
 bool ui_input_entered(UiId id) { return id && enteredId == id; }
 bool ui_input_focused(UiId id) { return id && U.editId == id; }
 void ui_focus_input(UiId id) { focusReq = id; }
+void ui_drop_focus(void) { U.editId = 0; focusReq = 0; }
 void ui_request_frames(int n) { double t = U.time + n / 60.0 + 0.05; if (t > U.awakeUntil) U.awakeUntil = t; }
 bool ui_awake(void) { return U.nToasts > 0 || U.pop.open || U.editId != 0 || U.time < U.awakeUntil; }
+
+/* a floating control drawn last on the page layer (the tour's pill): the widgets under it don't see the mouse. Kept for
+   the next frame, as the page draws before it */
+static Rectangle occl[2]; static bool occlOn[2], inOccl;
+void ui_occlude_begin(Rectangle r) { int k = U.frame & 1; occl[k] = r; occlOn[k] = true; inOccl = true; }
+void ui_occlude_end(void) { inOccl = false; }
 
 bool ui_hovered(Rectangle r)
 {
     if (!ui_mouse_ok()) return false;
+    int pk = (U.frame & 1) ^ 1;
+    if (!inOccl && occlOn[pk] && U.layer == 0 && CheckCollisionPointRec(U.mouse, occl[pk])) return false;
     return CheckCollisionPointRec(U.mouse, r) && CheckCollisionPointRec(U.mouse, ui_clip_rect());
 }
 bool ui_pressed(Rectangle r) { return U.mPressed && ui_hovered(r); }
@@ -1258,6 +1269,7 @@ void ui_shutdown(void) { fonts_unload(); }
 void ui_begin_frame(void)
 {
     U.frame++;
+    occlOn[U.frame & 1] = false;
     double now = GetTime();
     U.dt = U.time > 0 ? now - U.time : 1.0 / 60;
     if (U.dt > 0.1) U.dt = 0.1;
@@ -1726,17 +1738,18 @@ bool ui_switch(UiId id, float x, float y, bool *v)
     return ch;
 }
 
-static bool lcars_pills(UiId id, Rectangle r, const char **items, int n, int *sel, float gap)
+static bool lcars_pills(UiId id, Rectangle r, const char **items, int n, int *sel, float gap, const char *const *why)
 {
     const Theme *t = &U.th;
-    bool ch = false;
+    bool ch = false, was = U.disabled;
     float w = (r.width - gap * (n - 1)) / n;
     for (int i = 0; i < n; i++) {
         Rectangle c = { r.x + i * (w + gap), r.y, w, r.height };
+        U.disabled = was || (why && why[i]);
         ui_register(ui_idn(id, i), c, items[i]);
         bool hov = ui_hovered(c), on = i == *sel;
         if (hov) ui_cursor(MOUSE_CURSOR_POINTING_HAND);
-        if (ui_clicked(c) && !on) { *sel = i; ch = true; }
+        if (ui_clicked(c) && !U.disabled && !on) { *sel = i; ch = true; }
         Color bg = on ? t->accent : (hov ? hex(0x4A3B63) : hex(0x2E2440));
         if (U.disabled) bg = ui_alpha(bg, 0.4f);
         /* inner segments are square-ended, the outer ends rounded: one LCARS bar */
@@ -1746,19 +1759,23 @@ static bool lcars_pills(UiId id, Rectangle r, const char **items, int n, int *se
         else if (i == n - 1) { ui_pill(c, bg); DrawRectangleRec((Rectangle){ c.x, c.y, rad, c.height }, bg); }
         else DrawRectangleRec(c, bg);
         const char *L = ui_upper(items[i]);
-        ui_text_center(F_MED, 14, L, c, on ? BLACK : (hov ? t->text : t->text2));
+        ui_text_center(F_MED, 14, L, c, on ? BLACK : U.disabled ? ui_alpha(t->text3, 0.7f) : (hov ? t->text : t->text2));
+        U.disabled = was;
+        if (why && why[i] && !was) ui_tooltip(c, why[i]);
     }
     return ch;
 }
 
-bool ui_segmented(UiId id, Rectangle r, const char **items, int n, int *sel)
+bool ui_segmented(UiId id, Rectangle r, const char **items, int n, int *sel) { return ui_segmented_why(id, r, items, n, sel, NULL); }
+
+bool ui_segmented_why(UiId id, Rectangle r, const char **items, int n, int *sel, const char *const *why)
 {
     const Theme *t = &U.th;
-    if (t->lcars) return lcars_pills(id, r, items, n, sel, 4);
+    if (t->lcars) return lcars_pills(id, r, items, n, sel, 4, why);
     ui_rect(r, 8, t->input);
     ui_rect_lines(r, 8, 1, t->lineSoft);
     float w = (r.width - 6) / n;
-    bool ch = false;
+    bool ch = false, was = U.disabled;
     if (*sel >= 0) {                                    /* -1: nothing of this row chosen (the theme picker's two rows) */
         float k = ui_anim(id, (float)*sel, 12.f);
         Rectangle pill = { r.x + 3 + k * w, r.y + 3, w, r.height - 6 };
@@ -1767,11 +1784,15 @@ bool ui_segmented(UiId id, Rectangle r, const char **items, int n, int *sel)
     }
     for (int i = 0; i < n; i++) {
         Rectangle c = { r.x + 3 + i * w, r.y + 3, w, r.height - 6 };
+        U.disabled = was || (why && why[i]);
         ui_register(ui_idn(id, i), c, items[i]);
         bool hov = ui_hovered(c);
         if (hov) ui_cursor(MOUSE_CURSOR_POINTING_HAND);
-        if (ui_clicked(c) && *sel != i) { *sel = i; ch = true; }
-        ui_text_center(i == *sel ? F_MED : F_REG, 13, items[i], c, i == *sel ? t->text : (hov ? t->text : t->text2));
+        if (ui_clicked(c) && !U.disabled && *sel != i) { *sel = i; ch = true; }
+        Color tc = i == *sel ? t->text : U.disabled ? ui_alpha(t->text3, 0.7f) : (hov ? t->text : t->text2);
+        ui_text_center(i == *sel ? F_MED : F_REG, 13, items[i], c, tc);
+        U.disabled = was;
+        if (why && why[i] && !was) ui_tooltip(c, why[i]);
     }
     return ch;
 }
@@ -1885,6 +1906,7 @@ bool ui_input(UiId id, Rectangle r, char *buf, int cap, const char *ph, int flag
         U.editFlags = flags;
         U.editScroll = 0;
         U.editCur = U.editAnchor = asked ? (int)strlen(U.editBuf) : pos_from_x(fam, fs, U.editBuf, U.mouse.x - textX);
+        if (asked) U.editAnchor = 0;                     /* focused for the user: what they type replaces the text */
         if (U.mDouble || (flags & INPUT_NUMERIC)) { U.editAnchor = 0; U.editCur = (int)strlen(U.editBuf); selectHold = true; }
         U.blinkT = U.time;
         U.active = id;
@@ -2084,11 +2106,14 @@ bool ui_dropdown(UiId id, Rectangle r, const char *current, const char *const *i
     return false;
 }
 
-bool ui_select(UiId id, Rectangle r, const char *const *items, int n, int *sel)
+bool ui_select(UiId id, Rectangle r, const char *const *items, int n, int *sel) { return ui_select_ph(id, r, items, n, sel, "Select"); }
+
+/* as ui_select, saying what to pick while nothing is (an action list: "Add an operation...") */
+bool ui_select_ph(UiId id, Rectangle r, const char *const *items, int n, int *sel, const char *placeholder)
 {
     char out[256];
     const char *cur = (*sel >= 0 && *sel < n) ? items[*sel] : "";
-    if (ui_dropdown(id, r, cur, items, n, 0, out, sizeof out, "Select")) {
+    if (ui_dropdown(id, r, cur, items, n, 0, out, sizeof out, placeholder)) {
         for (int i = 0; i < n; i++) if (!strcmp(items[i], out)) { bool ch = *sel != i; *sel = i; return ch; }
     }
     return false;

@@ -14,6 +14,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <pthread.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <time.h>
@@ -193,7 +194,7 @@ void pl_expand_home(char *dst, size_t cap, const char *p)
    blockMeshDict?" many times a frame: 64 ms frames there. So for those paths only, the answer is kept for 0.5 s.
    Anything this file does to the disk (write, mkdir, remove, a command run to completion) forgets it all. */
 #define SC_N 512
-static struct { char p[PL_PATH]; int rc; mode_t mode; time_t mtime; double at; } SC[SC_N];
+static struct { char p[PL_PATH]; int rc; mode_t mode; time_t mtime; off_t size; double at; } SC[SC_N];
 static unsigned sc_gen;
 void pl_stat_cache_clear(void) { sc_gen++; }
 static unsigned sc_gen_of[SC_N];
@@ -202,21 +203,31 @@ static bool slow_fs(const char *p)
 {
     return p[0] == '/' && !strncmp(p, "/mnt/", 5) && p[5] >= 'a' && p[5] <= 'z' && (p[6] == '/' || p[6] == 0);
 }
+static pthread_mutex_t scLock = PTHREAD_MUTEX_INITIALIZER;   /* the mesh preview's worker thread asks too */
+bool pl_slow_fs(const char *p) { return p && slow_fs(p); }
+static int qstat_(const char *p, struct stat *st);
 static int qstat(const char *p, struct stat *st)
 {
     if (!slow_fs(p)) return stat(p, st);
+    pthread_mutex_lock(&scLock);
+    int rc = qstat_(p, st);
+    pthread_mutex_unlock(&scLock);
+    return rc;
+}
+static int qstat_(const char *p, struct stat *st)
+{
     unsigned h = 2166136261u; for (const char *c = p; *c; c++) { h ^= (unsigned char)*c; h *= 16777619u; }
     int i = (int)(h % SC_N);
     struct timespec ts; clock_gettime(CLOCK_MONOTONIC, &ts);
     double now = ts.tv_sec + ts.tv_nsec * 1e-9;
     if (sc_gen_of[i] == sc_gen && now - SC[i].at < 0.5 && !strcmp(SC[i].p, p)) {
         if (SC[i].rc != 0) return -1;
-        memset(st, 0, sizeof *st); st->st_mode = SC[i].mode; st->st_mtime = SC[i].mtime;
+        memset(st, 0, sizeof *st); st->st_mode = SC[i].mode; st->st_mtime = SC[i].mtime; st->st_size = SC[i].size;
         return 0;
     }
     int rc = stat(p, st);
     pl_strlcpy(SC[i].p, p, sizeof SC[i].p);
-    SC[i].rc = rc; SC[i].mode = rc == 0 ? st->st_mode : 0; SC[i].mtime = rc == 0 ? st->st_mtime : 0; SC[i].at = now;
+    SC[i].rc = rc; SC[i].mode = rc == 0 ? st->st_mode : 0; SC[i].mtime = rc == 0 ? st->st_mtime : 0; SC[i].size = rc == 0 ? st->st_size : 0; SC[i].at = now;
     sc_gen_of[i] = sc_gen;
     return rc;
 }
@@ -231,7 +242,8 @@ bool pl_is_exec(const char *p)
     if (qstat(p, &st) != 0 || !S_ISREG(st.st_mode)) return false;
     return slow_fs(p) ? (st.st_mode & S_IXUSR) != 0 : access(p, X_OK) == 0;   /* drvfs: the mode bits are what we have */
 }
-long long pl_file_size(const char *p) { struct stat st; return stat(p, &st) == 0 ? (long long)st.st_size : -1; }
+/* through the cache too (slow frames, 2026-11-01: the LCARS header asked the log's size every frame, 1-2 ms on /mnt/c) */
+long long pl_file_size(const char *p) { struct stat st; return qstat(p, &st) == 0 ? (long long)st.st_size : -1; }
 
 static long long dir_size_rec(const char *p, int depth)
 {
@@ -511,17 +523,40 @@ static char *run_capture_(const char *script, size_t maxBytes, int *status)
     if (!b.s) str_cat(&b, "");
     return b.s;
 }
+/* bug hunt 2026-11-01: on WSL the PATH holds Windows folders (/mnt/c over 9p), so one lookup took ~80 ms and the
+   Environment panel's dozen of them froze it for ~0.9 s on every opening. Answers (found or not) are kept for 60 s, for
+   the same PATH; pl_which_cache_clear (env_detect, "Check again") forgets them, so a program just installed shows up */
+#define WC_N 64
+static struct { char exe[64]; char path[PL_PATH]; bool ok; double at; unsigned long pathHash; } WC[WC_N];
+static int wcNext;
+void pl_which_cache_clear(void) { memset(WC, 0, sizeof WC); wcNext = 0; }
+
 bool pl_which(const char *exe, char *out, size_t cap)
 {
     const char *path = getenv("PATH");
     if (!path) return false;
+    unsigned long h = 5381; for (const char *c = path; *c; c++) h = h * 33 + (unsigned char)*c;
+    struct timespec ts; clock_gettime(CLOCK_MONOTONIC, &ts);
+    double now = ts.tv_sec + ts.tv_nsec * 1e-9;
+    for (int i = 0; i < WC_N; i++)
+        if (WC[i].exe[0] && WC[i].pathHash == h && now - WC[i].at < 60 && !strcmp(WC[i].exe, exe)) {
+            if (WC[i].ok && out) pl_strlcpy(out, WC[i].path, cap);
+            return WC[i].ok;
+        }
     char *dup = pl_strdup(path), *save = NULL;
     bool ok = false;
+    char found[PL_PATH] = "";
     for (char *d = strtok_r(dup, ":", &save); d; d = strtok_r(NULL, ":", &save)) {
         char c[PL_PATH]; pl_join(c, sizeof c, d, exe);
-        if (access(c, X_OK) == 0 && pl_is_file(c)) { if (out) pl_strlcpy(out, c, cap); ok = true; break; }
+        if (access(c, X_OK) == 0 && pl_is_file(c)) { pl_strlcpy(found, c, sizeof found); ok = true; break; }
     }
     free(dup);
+    if (ok && out) pl_strlcpy(out, found, cap);
+    if (strlen(exe) < sizeof WC[0].exe) {
+        int i = wcNext++ % WC_N;
+        pl_strlcpy(WC[i].exe, exe, sizeof WC[i].exe); pl_strlcpy(WC[i].path, found, sizeof WC[i].path);
+        WC[i].ok = ok; WC[i].at = now; WC[i].pathHash = h;
+    }
     return ok;
 }
 bool pl_is_wsl(void)

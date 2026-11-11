@@ -1,5 +1,7 @@
 # Mesh > View's "Show mesh" switch: off, the view says so and nothing is drawn, and the Overview drops its cross
-# section; the setting is saved, and switching it back on reads the mesh again.
+# section; the setting is saved, and switching it back on reads the mesh again. (The seed pitzDaily is the raw tutorial:
+# meshed first.)
+shell cd $SB/ws/pitzDaily && bash -c '. "$WM_PROJECT_DIR/etc/bashrc" > /dev/null 2>&1; blockMesh > log.blockMesh 2>&1'
 open $SB/ws/pitzDaily
 click nav:mesh
 wait-until page Mesh

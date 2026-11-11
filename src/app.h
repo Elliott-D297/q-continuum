@@ -21,8 +21,8 @@ typedef enum {
 
 #define MAX_JOBS 8
 
-#define WHATS_NEW_REV 7          /* bump with each batch of changes worth telling about (page_settings.c lists them) */
-typedef enum { MD_NONE = 0, MD_OPEN_FOLDER, MD_CLONE, MD_CLEAN, MD_DELETE, MD_UNSAVED, MD_QUIT_RUNNING, MD_ADD_ENTRY, MD_RUN_RESULTS, MD_NEW_FILE, MD_RUN_SCRIPT, MD_CPL_NEW, MD_CPL_OPEN, MD_CPL_RESULTS, MD_PV_CLAUDE, MD_HIST_CONFIRM, MD_PRECHECK, MD_QUEUE_ADD, MD_MOVIE, MD_STUDY_NEW, MD_STUDY_OUT, MD_STUDY_EXP, MD_PROG_CLEAN, MD_CONFLICT, MD_SHORTCUTS, MD_WHATS_NEW, MD_PALETTE, MD_ENV, MD_REVIEW, MD_PLUME, MD_AWAY, MD_CPL_BUILD, MD_FLAVOUR } Modal;
+#define WHATS_NEW_REV 13         /* bump with each batch of changes worth telling about (page_settings.c lists them) */
+typedef enum { MD_NONE = 0, MD_OPEN_FOLDER, MD_CLONE, MD_CLEAN, MD_DELETE, MD_UNSAVED, MD_QUIT_RUNNING, MD_ADD_ENTRY, MD_RUN_RESULTS, MD_NEW_FILE, MD_RUN_SCRIPT, MD_CPL_NEW, MD_CPL_OPEN, MD_CPL_RESULTS, MD_PV_CLAUDE, MD_HIST_CONFIRM, MD_PRECHECK, MD_QUEUE_ADD, MD_MOVIE, MD_STUDY_NEW, MD_STUDY_OUT, MD_STUDY_EXP, MD_PROG_CLEAN, MD_CONFLICT, MD_SHORTCUTS, MD_WHATS_NEW, MD_PALETTE, MD_ENV, MD_REVIEW, MD_PLUME, MD_AWAY, MD_CPL_BUILD, MD_FLAVOUR, MD_BLANK, MD_DEL_FILE } Modal;
 
 typedef struct {
     Env      env;
@@ -113,6 +113,9 @@ typedef struct {
     char     mErr[256];
     bool     mFlag;
     bool     mFlag2;
+    int      mSel;                      /* New file: its template (NF_*)         */
+    void   (*cleanThen)(void);          /* Clean results opened for something that needs it: done after the clean */
+    char     cleanWhy[200];             /* ... and why, said at the top of the dialog                            */
     char     mPath[1024];               /* dict path for "add entry" */
     char     mFile[PL_PATH];
 
@@ -162,6 +165,7 @@ void app_movie_finished(Job *j);                /* page_movie.c: open the folder
 bool app_job_running(void);
 int  app_jobs_active(void);                     /* runs going, in all cases */
 int  app_jobs_procs(void);                      /* processes they use */
+void app_clean_then(const char *why, void (*then)(void));   /* the Clean dialog, saying why; then() once it is clean */
 bool app_can_start(void);                       /* this case isn't running and a slot is free; toasts why not */
 void app_ask_delete_case(const char *path);   /* opens the confirmation dialog */
 bool app_delete_case(const char *path, bool permanent, char *err, int cap);
@@ -197,7 +201,11 @@ int  logo_export(const char *dir);                           /* --export-logos: 
 void page_cpl_case(Rectangle r, int which);                  /* page_coupling.c: a coupled run's pages (0 overview, 1 setup, 2 participants, 3 run) */                                /* page_away.c: AWAY MISSION, a case packed for aerofly (5.1) */
 int  run_steps_script(Case *c, int np, Str *out);             /* page_run.c: the run as a Slurm job's shell steps */                               /* page_cases.c: the impinging-plume starter (4.4) */                       /* page_run.c: its solver's parallel probe has answered */
 bool app_deme_running(void);
-void app_generate_mesh(void);                  /* page_case.c: blockMesh (and the region steps) as a job */
+void app_generate_mesh(void);
+/* log.checkMesh read for what its failed checks amount to (foamcase.h), re-read when the log changes */
+const MeshVerdict *app_mesh_verdict(const Case *c);
+/* the words for a mesh whose only failed check is boundary skewness snappyHexMesh allows; buf empty when it is not that */
+void app_mesh_verdict_text(const MeshVerdict *v, char *buf, size_t cap);                  /* page_case.c: blockMesh (and the region steps) as a job */
 void app_start_tool(const char *title, const char *id, const char *label, const char *cmd, const char *log);
 
 /* app_widgets.c -- page furniture and dictionary-bound controls */
@@ -310,8 +318,57 @@ void  decomp_split(Case *c, long np, char *out, int cap);    /* page_dicts.c: (n
 float page_salome(Rectangle r, float x, float y, float w);
 float page_stlmesh(Rectangle r, float x, float y, float w);  /* page_stlmesh.c: the STL mesher tab; returns height */
 void  stlmesh_new_case(void);                                /* page_stlmesh.c: pick an STL, make a case for it, open its mesher */
-void  stlmesh_tick(void);                                    /* page_stlmesh.c: follows the file dialog, every frame */   /* page_salome.c: returns height */
+/* snappyHexMesh in place. With layers, v2606 writes the final points to 0/polyMesh: they belong with the rest of the mesh
+   in constant/, where clearing or copying 0/ (Clean, 0.orig) can't leave the faces with the points from before the layers */
+#define SNAPPY_CMD "snappyHexMesh -overwrite && if [ -f 0/polyMesh/points ]; then mv -f 0/polyMesh/points constant/polyMesh/points " \
+                   "&& rm -rf 0/polyMesh && echo 'Q-Continuum: moved the layered points from 0/polyMesh to constant/polyMesh'; fi"
+void  salome_import_new_case(void);                         /* page_salome.c: pick a mesh file (UNV, MED, .msh), make a case for it, import it */
+void  salome_tick(void);                                     /* page_salome.c: follows its file dialog, every frame */
+void  stlmesh_choose(void);                                  /* page_stlmesh.c: the file dialog, for the open case */
+void  salome_choose(void);                                   /* page_salome.c: the mesh file dialog, for the open case */
+void  blank_modal(bool *close);                              /* page_cases.c: New blank case */
+bool  app_practice_case(void);                                /* page_cases.c: the tour's cavity case, copied and opened */
+void  app_duplicate_case(const char *src);                   /* app.c: a copy of the case's setup and mesh, without results; opened */
+int   stlmesh_mesh_current(Case *c);                         /* page_stlmesh.c: the mesh is from these settings: 1, 0, -1 unknown */
+void  stlmesh_generate(Case *c);                             /* page_stlmesh.c: Generate mesh, as its button */
+bool  stlmesh_two_d(Case *c);                                /* page_stlmesh.c: the mesher makes a 2-D mesh */
+bool  stlmesh_template_hints(Case *c, bool layers);          /* page_stlmesh.c: Setup's template, before meshing: prism layers on; true if changed */
+/* page_stlmesh.c, Setup's y+ helper (plan step 5): the first prism layer the mesher's settings make (m), their count and the
+   surface cell they sit on; false without an STL case or with layers off. stlmesh_set_wall_layers: layers from a first
+   height y1 out to about half that cell (snappy holds the outer layer to 0.3-1.0 of it), prism layers on; the first
+   layer the mesher will then make. Both false when it would need more than 60 layers (the surface too coarse for y1) */
+bool  stlmesh_wall_layers(Case *c, double *first, int *n, double *cell);
+/* page_setup.c: the walls' y+ from a run (mean, greatest) against the setup's wall treatment: a line saying so (out), and
+   0 it suits, 1 it doesn't (the line says what to change), -1 nothing to say (laminar, no y+) */
+int   setup_yplus_advice(Case *c, double avg, double max, char *out, size_t cap);
+bool  stlmesh_set_wall_layers(Case *c, double y1, double *first, int *n);
+bool  stlmesh_gravity(Case *c, double g[3]);                 /* page_stlmesh.c: 9.81 m/s² down the mesher's up direction; false: no STL */
+int   stlmesh_up_axis(Case *c);                              /* page_stlmesh.c: the STL's up axis (0-2) in its view, -1: no STL */
+void  stlmesh_focus(Case *c, int step);                      /* page_stlmesh.c: open a step of its flow (0 geometry, 2 boundaries, 4 generate) */
+float stl_workflow(Case *c, float x, float y, float w);
+bool  setup_refresh_files(Case *c);                         /* page_setup.c: the setup's case files rewritten if out of date (before a run) */      /* page_setup.c: STL > boundaries > mesh > physics > run; returns height (0: not an STL case) */
+void  setup_open_step(int step);                          /* page_setup.c: Setup opened at a step (0 Models ... 6 Solver, 7 Check) */
+bool  setup_robust_offer(Case *c);                        /* page_setup.c: a setup case whose numerics aren't Robust (a diverged run is offered it) */
+bool  setup_go_robust(Case *c);
+bool  setup_expects_convergence(Case *c);                 /* ... a steady setup run that stops on its residuals */                           /* ... Robust written to the case files; the caller starts over */
+bool  setup_after_import(Case *c);                         /* page_setup.c: an imported mesh's 0/ (and setup files) written at once */
+bool  setup_can_write_fields(Case *c);
+bool  setup_write_fields(Case *c);                          /* Boundary conditions with no fields: the setup writes them */
+void  stlmesh_tick(void);                                   /* page_stlmesh.c: follows the file dialog, every frame */   /* page_salome.c: returns height */
+struct SimPatch;
+struct SimForceRef;
+int   stlmesh_patches(Case *c, struct SimPatch *out, int max, double *size, bool *external);   /* the STL's boundaries and the tunnel's */
+bool  stlmesh_set_role(Case *c, const char *name, int role);
+void  stlmesh_flow(Case *c, double v[3]);                     /* page_stlmesh.c: the wind tunnel's flow direction (unit) */
+/* the force coefficients' reference from the part: drag along the flow, lift up, moments about a quarter of its length
+   from the front; lRef its length along the flow; Aref its frontal area (2-D: length x depth). false: no STL */
+bool  stlmesh_force_ref(Case *c, struct SimForceRef *r, bool *twoD);
+void  setup_flow_changed(Case *c);                            /* page_setup.c: the flow direction changed: the starting velocity follows */   /* an STL boundary's type (BT_* = ROLE_*) */
+float page_setup(float x, float y, float w);                 /* page_setup.c: Physics > Setup; returns height */
+float setup_boundary_editor(Case *c, const char *name, float x, float y, float w);   /* one boundary's conditions */
+void  setup_rename(Case *c, const char *from, const char *to);  /* an STL boundary renamed: its conditions follow */
 float page_mesh_patches(float x, float y, float w);
+float page_meshquality(Case *c, float x, float y, float w);   /* Mesh > Quality: checkMesh, SALOME's report, export */
 bool  mesh_change_pending(Case *c, char *why, int cap);       /* page_case.c: the next run meshes again */
 float xsection_panel(Rectangle r, Case *c, bool compact);
 void  meshview_release(void);                               /* page_meshview.c: frees the 3-D view (Mesh > View switched off) */

@@ -9,6 +9,7 @@
 #include <sys/wait.h>
 #include <unistd.h>
 #include "app.h"
+#include "salometool.h"
 #include "undo.h"
 #include "actions.h"
 #include "assets.h"
@@ -17,6 +18,7 @@
 #include "program.h"
 #include "script.h"
 #include "rlgl.h"
+#include "tour.h"
 
 App A;
 
@@ -226,6 +228,13 @@ static int other_jobs(Job **out, int max)
 }
 
 /* may another run start in the open case? */
+void app_clean_then(const char *why, void (*then)(void))
+{
+    pl_strlcpy(A.cleanWhy, why, sizeof A.cleanWhy);
+    A.cleanThen = then;
+    A.modal = MD_CLEAN; A.mFlag = A.mFlag2 = false;
+}
+
 bool app_can_start(void)
 {
     if (A.cj->active) { ui_toast(TOAST_WARN, "This case is already running"); return false; }
@@ -638,6 +647,7 @@ static void reset_case_state(void)
     A.runProcs = 0;
     pl_strlcpy(A.chartRegion, "-", sizeof A.chartRegion);
     A.meshTab = -1;
+    A.physicsTab = -1;
     A.continueRun = false;
     for (int i = 0; i < 24; i++) A.scr[i] = (UiScroll){ 0 };
 }
@@ -676,6 +686,33 @@ void app_copy_case_to_workspace(void)
     else ui_toast(TOAST_OK, "Copied to %s: you're now working on the copy", dst);
     app_rescan_cases(true);
     app_open_case(dst, A.page);
+}
+
+/* Duplicate: the setup and the mesh, not what was computed on them (time folders after 0, processor*, logs, post-processing)
+   nor the history or the trash, which belong to the original. The copy is named <name>-copy (-copy2 ...) next to it. */
+void app_duplicate_case(const char *src)
+{
+    char ws[PL_PATH], name[300], dst[PL_PATH];
+    pl_dirname(ws, sizeof ws, src);
+    for (int i = 1; i < 100; i++) {
+        snprintf(name, sizeof name, i == 1 ? "%s-copy" : "%s-copy%d", pl_basename(src), i);
+        pl_join(dst, sizeof dst, ws, name);
+        if (!pl_exists(dst)) break;
+    }
+    if (pl_exists(dst)) { ui_toast(TOAST_ERR, "Could not find a free name for the copy in %s", ws); return; }
+    if (A.cs && !strcmp(A.cs->s.path, src)) for (int i = 0; i < A.cs->nFiles; i++)   /* what's on disk is what is copied */
+        if (A.cs->files[i].f->dirty) { ui_toast(TOAST_INFO, "Save or undo your edits first: the copy is made from the files on disk"); return; }
+    char qs[PL_PATH + 8], qd[PL_PATH + 8], cmd[PL_PATH * 3 + 600];
+    pl_shell_quote(qs, sizeof qs, src);
+    pl_shell_quote(qd, sizeof qd, dst);
+    if (!pl_fmt(cmd, sizeof cmd, "cp -a %s %s && chmod -R u+w %s && cd %s && rm -rf processor* postProcessing VTK .qc-history .qc-trash log.* *.foam "
+                                 ".qc-step-rc && for d in [0-9]*; do [ -d \"$d\" ] && [ \"$d\" != 0 ] && awk -v t=\"$d\" 'BEGIN { exit !(t + 0 > 0) }' "
+                                 "&& rm -rf \"$d\"; done; true", qs, qd, qd, qd) || pl_run_wait(cmd, NULL, 0) != 0) {
+        ui_toast(TOAST_ERR, "Copying the case to %s failed", dst); return;
+    }
+    ui_toast(TOAST_OK, "Duplicated %s as %s: the setup and mesh, without results", pl_basename(src), name);
+    app_rescan_cases(true);
+    app_open_case(dst, PG_OVERVIEW);
 }
 
 void app_open_case(const char *path, Page page)
@@ -1010,20 +1047,25 @@ static void draw_topbar(Rectangle r)
             if (A.page != PG_OVERVIEW) { crumbs[nc] = page_label(A.page); target[nc++] = A.page; }
         }
     }
-    for (int i = 0; i < nc; i++) {
-        bool last = i == nc - 1;
-        const char *C = ui_cap_words(crumbs[i]);
-        float w = ui_text_w(last ? F_MED : F_REG, 14, C);
-        Rectangle cr = { x - 4, cy - 14, w + 8, 28 };
-        bool hov = !last && ui_hovered(cr);
-        if (hov) ui_cursor(MOUSE_CURSOR_POINTING_HAND);
-        ui_text(last ? F_MED : F_REG, 14, C, x, cy - 9, last ? TH.text : (hov ? TH.text : TH.text3));
-        if (A.cs && target[i] == PG_OVERVIEW && strstr(crumbs[i], "…")) ui_tooltip(cr, A.cs->s.name);
-        if (!last && ui_clicked(cr)) crumb_go(target[i]);
-        x += w + 10;
-        if (!last) { ui_icon(ICON_CHEVRON_RIGHT, x + 4, cy, 14, TH.text3); x += 18; }
+    /* bug hunt 2026-11-01: at a large UI scale the buttons ran over the breadcrumb ("CAVIT CLERUN"). Measured first: when
+       the crumbs and the buttons don't both fit, ParaView + Claude, ParaView, Save and Clean show only their icons (their
+       words in the tooltips), and the crumbs are cut to the room left */
+    float crumbW = 0;
+    for (int i = 0; i < nc; i++) crumbW += ui_text_w(i == nc - 1 ? F_MED : F_REG, 14, ui_cap_words(crumbs[i])) + 10 + (i < nc - 1 ? 18 : 0);
+    bool compact = false;
+    if (A.cs && A.page >= PG_OVERVIEW && A.page <= PG_HISTORY) {
+        bool mine0 = (A.cj->active && !strcmp(A.cj->casePath, A.cs->s.path)) || coupled_running();
+        int dirty0 = case_dirty_count(A.cs) + (prog_setup_dirty() ? 1 : 0);
+        char lab0[48]; snprintf(lab0, sizeof lab0, dirty0 ? "Save %d" : "Saved", dirty0);
+        float full = mine0 ? ui_button_width(ICON_SQUARE, "Stop") + (app_can_pause() && !A.cj->pausing ? ui_button_width(ICON_PAUSE, "Pause") + 10 : 0)
+                           : ui_button_width(ICON_PLAY, app_resumable(NULL) ? "Resume" : A.cs->s.prog ? term(T_RUN_GO) : "Run case");
+        full += 10 + ui_button_width(ICON_EXTERNAL_LINK, "ParaView") + 10 + (A.cs->s.prog ? 0 : ui_button_width(ICON_SPARKLES, "ParaView + Claude") + 10)
+              + ui_button_width(ICON_SAVE, lab0) + 6 + 2 * 36 + 8 + ui_button_width(ICON_TRASH_2, "Clean");
+        compact = full + crumbW + 24 > r.width - 2 * PAGE_PAD;
     }
-
+#define TOP_W(icon, label) (compact ? 34.f : ui_button_width(icon, label))
+#define TOP_LABEL(label) (compact ? NULL : label)
+#define TOP_STYLE(style) (compact ? BTN_ICON : style)
     /* actions, right to left */
     float rx = r.x + r.width - PAGE_PAD;
     if (A.cs && A.page >= PG_OVERVIEW && A.page <= PG_HISTORY) {
@@ -1055,26 +1097,28 @@ static void draw_topbar(Rectangle r)
             if (app_jobs_active() >= MAX_JOBS) ui_tooltip((Rectangle){ rx, cy - 17, w, 34 }, "The most runs at once are going");
         }
         rx -= 10;
-        float w = ui_button_width(ICON_EXTERNAL_LINK, "ParaView");
+        float w = TOP_W(ICON_EXTERNAL_LINK, "ParaView");
         rx -= w;
-        if (ui_button(ui_id("top-pv"), (Rectangle){ rx, cy - 17, w, 34 }, ICON_EXTERNAL_LINK, "ParaView", BTN_SECONDARY)) app_open_paraview();
-        ui_tooltip((Rectangle){ rx, cy - 17, w, 34 }, paraview_description(&A.env, &A.set));
+        if (ui_button(ui_id("top-pv"), (Rectangle){ rx, cy - 17, w, 34 }, ICON_EXTERNAL_LINK, TOP_LABEL("ParaView"), TOP_STYLE(BTN_SECONDARY))) app_open_paraview();
+        ui_tooltip((Rectangle){ rx, cy - 17, w, 34 }, compact ? TextFormat("ParaView: %s", paraview_description(&A.env, &A.set)) : paraview_description(&A.env, &A.set));
         rx -= 10;
         if (!A.cs->s.prog) {
-            w = ui_button_width(ICON_SPARKLES, "ParaView + Claude");
+            w = TOP_W(ICON_SPARKLES, "ParaView + Claude");
             rx -= w;
-            if (ui_button(ui_id("top-pvc"), (Rectangle){ rx, cy - 17, w, 34 }, ICON_SPARKLES, "ParaView + Claude", BTN_SECONDARY)) { A.modal = MD_PV_CLAUDE; A.mText2[0] = 0; }
-            ui_tooltip((Rectangle){ rx, cy - 17, w, 34 }, "Claude Code builds a ParaView view for this case");
+            if (ui_button(ui_id("top-pvc"), (Rectangle){ rx, cy - 17, w, 34 }, ICON_SPARKLES, TOP_LABEL("ParaView + Claude"), TOP_STYLE(BTN_SECONDARY))) { A.modal = MD_PV_CLAUDE; A.mText2[0] = 0; }
+            ui_tooltip((Rectangle){ rx, cy - 17, w, 34 }, compact ? "ParaView + Claude: Claude Code builds a ParaView view for this case" : "Claude Code builds a ParaView view for this case");
             rx -= 10;
         }
         int dirty = case_dirty_count(A.cs) + (prog_setup_dirty() ? 1 : 0);
         char lab[48]; snprintf(lab, sizeof lab, dirty ? "Save %d" : "Saved", dirty);
-        w = ui_button_width(ICON_SAVE, lab);
+        /* compact and edited: the icon keeps a primary look, so unsaved edits still show */
+        w = TOP_W(ICON_SAVE, lab);
         rx -= w;
         ui_disable(dirty == 0);
-        if (ui_button(ui_id("top-save"), (Rectangle){ rx, cy - 17, w, 34 }, ICON_SAVE, lab, BTN_SECONDARY)) app_save_request();
+        if (ui_button(ui_id("top-save"), (Rectangle){ rx, cy - 17, w, 34 }, ICON_SAVE, TOP_LABEL(lab), compact ? (dirty ? BTN_PRIMARY : BTN_ICON) : BTN_SECONDARY)) app_save_request();
         ui_disable(false);
-        if (dirty) ui_tooltip((Rectangle){ rx, cy - 17, w, 34 }, "Save all edited dictionaries (Ctrl+S)");
+        if (dirty) ui_tooltip((Rectangle){ rx, cy - 17, w, 34 }, compact ? TextFormat("%s: save all edited dictionaries (Ctrl+S)", lab) : "Save all edited dictionaries (Ctrl+S)");
+        else if (compact) ui_tooltip((Rectangle){ rx, cy - 17, w, 34 }, "Saved: no unsaved edits");
         rx -= 6;
         for (int k = 1; k >= 0; k--) {                    /* redo, then undo to its left */
             const char *what = undo_label(k);
@@ -1088,13 +1132,35 @@ static void draw_topbar(Rectangle r)
             rx -= 2;
         }
         rx -= 8;
-        w = ui_button_width(ICON_TRASH_2, "Clean");
+        w = TOP_W(ICON_TRASH_2, "Clean");
         rx -= w;
         ui_disable(mine);
-        if (ui_button(ui_id("top-clean"), (Rectangle){ rx, cy - 17, w, 34 }, ICON_TRASH_2, "Clean", BTN_GHOST)) { A.modal = A.cs->s.prog ? MD_PROG_CLEAN : MD_CLEAN; A.mFlag = A.mFlag2 = false; }
+        if (ui_button(ui_id("top-clean"), (Rectangle){ rx, cy - 17, w, 34 }, ICON_TRASH_2, TOP_LABEL("Clean"), TOP_STYLE(BTN_GHOST))) { A.modal = A.cs->s.prog ? MD_PROG_CLEAN : MD_CLEAN; A.mFlag = A.mFlag2 = false; }
         ui_disable(false);
-        ui_tooltip((Rectangle){ rx, cy - 17, w, 34 }, mine ? "Stop the run first" : "Delete the results and logs (asks first)");
+        ui_tooltip((Rectangle){ rx, cy - 17, w, 34 }, mine ? "Stop the run first" : compact ? "Clean: delete the results and logs (asks first)" : "Delete the results and logs (asks first)");
     }
+#undef TOP_W
+#undef TOP_LABEL
+#undef TOP_STYLE
+    /* the breadcrumb, in the room the buttons leave */
+    float maxX = rx - 16;
+    for (int i = 0; i < nc; i++) {
+        bool last = i == nc - 1;
+        const char *C = ui_cap_words(crumbs[i]);
+        float w = ui_text_w(last ? F_MED : F_REG, 14, C);
+        Rectangle cr = { x - 4, cy - 14, w + 8, 28 };
+        bool hov = !last && ui_hovered(cr);
+        if (hov) ui_cursor(MOUSE_CURSOR_POINTING_HAND);
+        if (maxX - x < 24) break;                         /* no room left at all */
+        if (x + w > maxX) { w = maxX - x; cr.width = w + 8; ui_tooltip(cr, C); }
+        ui_text_clip(last ? F_MED : F_REG, 14, C, x, cy - 9, w, last ? TH.text : (hov ? TH.text : TH.text3));
+        if (A.cs && target[i] == PG_OVERVIEW && strstr(crumbs[i], "…")) ui_tooltip(cr, A.cs->s.name);
+        if (!last && ui_clicked(cr)) crumb_go(target[i]);
+        x += w + 10;
+        if (!last) { ui_icon(ICON_CHEVRON_RIGHT, x + 4, cy, 14, TH.text3); x += 18; }
+    }
+
+
     DrawRectangleRec((Rectangle){ r.x, r.y + r.height - 1, r.width, 1 }, TH.lineSoft);
 }
 
@@ -1441,6 +1507,8 @@ static void on_job_finished(Job *j)
     }
     restore_start_from(j->casePath, here);
     if (here) { case_rescan(A.cs); case_reload_changed(A.cs); }
+    /* a mesh imported: its boundary condition files at once (the setup writes 0/ for its patches) */
+    if (here && !j->failed && !j->stopped && !strcmp(j->title, "Mesh") && setup_after_import(A.cs)) case_rescan(A.cs);
     app_movie_finished(j);
     app_rescan_cases(true);
     /* a desktop notification for a long run, when the window isn't in front (or always, by the setting) */
@@ -1494,7 +1562,8 @@ float app_fit_scale(void)
 
 double g_frame_work_ms;                                  /* the last frame's own work, without the wait for vsync */
 
-/* QC_FRAME_PROF=1: a frame over 300 ms prints how long each part took (stderr), to find what froze it */
+/* QC_FRAME_PROF=1: a frame over 300 ms prints how long each part took (stderr), to find what froze it; QC_FRAME_PROF=<ms>
+   (above 1) sets the threshold */
 static double profT[16]; static const char *profN[16]; static int profK;
 #define PROF(name) do { if (profOn) { profT[profK] = GetTime(); profN[profK] = name; if (profK < 15) profK++; } } while (0)
 static int profOn = -1;
@@ -1542,7 +1611,9 @@ static void frame(void)
         logset_poll(&A.logs, now, false);
         static double monAt;
         if (now - monAt > 0.5) { monAt = now; monset_poll(&A.mons, now); }
-        if (now - A.lastDiskCheck > 1.5) {
+        /* every 1.5 s, or 3 s on a Windows drive (slow frames, 2026-11-01: the check stats every dictionary and, with a run
+           going, rescans the case; over 9p that is the slowest frame in twenty, which set the /mnt/c run's p95) */
+        if (now - A.lastDiskCheck > (pl_slow_fs(A.cs->s.path) ? 3.0 : 1.5)) {
             A.lastDiskCheck = now;
             /* 2.7: say when a file changed outside the app, unless a run in the case is the one writing (Allrun scripts edit
                their dictionaries) */
@@ -1571,7 +1642,9 @@ static void frame(void)
     ui_crt_begin();                                          /* Alien, Pip-Boy, Severance: through a tube */
     ClearBackground(TH.bg);
     ui_begin_frame();
-    stlmesh_tick();                                         /* the STL file dialog, whichever page is open */
+    stlmesh_tick();
+    salome_tick();
+    stool_tick();                                           /* the SALOME service (salometool.c) */                                          /* the mesh-import file dialog */                                         /* the STL file dialog, whichever page is open */
     ui_backdrop(ui_width(), ui_height());
     float W = ui_width(), H = ui_height();
     float sw = 248;
@@ -1616,6 +1689,7 @@ static void frame(void)
     }
     PROF("page+chrome");
     draw_modals();
+    tour_draw();
     PROF("modals");
     ui_end_frame();
     rlDrawRenderBatchActive();                               /* the GPU work counts: drawing is part of the frame */
@@ -1623,7 +1697,9 @@ static void frame(void)
     ui_crt_end();
     EndDrawing();
     PROF("end");
-    if (profOn && profT[profK - 1] - profT[0] > 0.3) {
+    static double profMs = -1;
+    if (profMs < 0) { const char *e = getenv("QC_FRAME_PROF"); profMs = e && atof(e) > 1 ? atof(e) : 300; }
+    if (profOn && profT[profK - 1] - profT[0] > profMs / 1000) {
         fprintf(stderr, "slow frame %.0f ms:", (profT[profK - 1] - profT[0]) * 1000);
         for (int k = 1; k < profK; k++) fprintf(stderr, " %s %.0f", profN[k], (profT[k] - profT[k - 1]) * 1000);
         fprintf(stderr, "\n");
@@ -1775,7 +1851,10 @@ int main(int argc, char **argv)
         setenv("LIBGL_ALWAYS_SOFTWARE", "1", 1);
     }
     SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_MSAA_4X_HINT | FLAG_VSYNC_HINT | (hidden ? FLAG_WINDOW_HIDDEN : 0));
-    InitWindow(1440, 900, "Q-Continuum");
+    /* QC_WINDOW=WxH: the window's size (tests: layouts at other sizes than the default) */
+    int winW = 1440, winH = 900;
+    { const char *ws = getenv("QC_WINDOW"); int a, b; if (ws && sscanf(ws, "%dx%d", &a, &b) == 2 && a >= 320 && b >= 240) { winW = a; winH = b; } }
+    InitWindow(winW, winH, "Q-Continuum");
     if (!IsWindowReady()) {
         /* WSL / VM GPUs sometimes cannot create a GL context: retry once with Mesa's software renderer */
         if (!getenv("QC_SOFTWARE_GL")) {
@@ -1817,7 +1896,10 @@ int main(int argc, char **argv)
     if (testFile) snprintf(A.filesSel, sizeof A.filesSel, "%s", testFile);
     if (testCpl) { A.cpl = coupling_open(testCpl); A.cplValidateOk = -1; A.cplTab = testTab; A.page = PG_COUPLING; }
 
-    if (!script_active() && !g_settings_readonly && A.set.whatsNewSeen < WHATS_NEW_REV && A.modal == MD_NONE) A.modal = MD_WHATS_NEW;
+    if (!script_active() && !g_settings_readonly && !A.set.tourSeen && A.modal == MD_NONE) {
+        tour_start();                                         /* the first start: the tour, and nothing is new yet */
+        A.set.whatsNewSeen = WHATS_NEW_REV;
+    } else if (!script_active() && !g_settings_readonly && A.set.whatsNewSeen < WHATS_NEW_REV && A.modal == MD_NONE) A.modal = MD_WHATS_NEW;
     int n = 0;
     while (!A.quit) {
         for (int k = 0; k < nInj; k++) if (injF[k] == n) { if (injT[k]) ui_inject_text(injT[k]); else if (injD[k]) ui_inject_drag(injX[k], injY[k], injX2[k], injY2[k]); else ui_inject_click(injX[k], injY[k]); }
@@ -1825,7 +1907,7 @@ int main(int argc, char **argv)
         if (sweep > 0 && n % sweep == 0) {
             /* (page, tab) stops; each is drawn at the top, then scrolled to the end */
             static const int stops[][2] = { {PG_CASES,0}, {PG_NEW,0}, {PG_OVERVIEW,0}, {PG_MESH,0}, {PG_MESH,1}, {PG_MESH,2}, {PG_MESH,3}, {PG_BC,0}, {PG_BC,1},
-                                            {PG_PHYSICS,0}, {PG_PHYSICS,1}, {PG_NUMERICS,0}, {PG_NUMERICS,1},
+                                            {PG_PHYSICS,0}, {PG_PHYSICS,1}, {PG_PHYSICS,2}, {PG_NUMERICS,0}, {PG_NUMERICS,1},
                                             {PG_NUMERICS,2}, {PG_RUN,0}, {PG_FILES,0}, {PG_HISTORY,0}, {PG_HISTORY,1},
                                             {PG_HISTORY,2}, {PG_SETTINGS,0}, {PG_COUPLING,0}, {PG_QUEUE,0}, {PG_STUDIES,0} };
             int nst = (int)(sizeof stops / sizeof stops[0]), k = n / sweep;

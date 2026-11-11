@@ -854,10 +854,23 @@ int case_conflicts(const Case *c, int *first)
     return n;
 }
 
+/* the logs of the tools that make a mesh: they describe the mesh, not a run (a missing log.checkMesh is a mesh that never
+   finished, so the STL step bar asked to generate again after every start over) */
+static bool mesh_log(const char *n)
+{
+    static const char *const L[] = { "log.blockMesh", "log.surfaceFeatureExtract", "log.surfaceFeatures", "log.snappyHexMesh",
+        "log.checkMesh", "log.extrudeMesh", "log.meshClear", "log.polyDualMesh", "log.ideasUnvToFoam", "log.gmshToFoam",
+        "log.fluentMeshToFoam", "log.meshImport", "log.salome", "log.createPatch", NULL };
+    for (int i = 0; L[i]; i++) if (!strcmp(n, L[i])) return true;
+    return false;
+}
+
 /* Results, logs, postProcessing, and (TR_ZERO) a 0/ made from 0.orig, (TR_MESH) a mesh blockMesh can make again.
    They go to the case's trash (History > Deleted results) unless permanent; returns items removed. */
 int case_trash_results(Case *c, int what, bool permanent, const char *reason, char *msg, int cap)
 {
+    char pmd[PL_PATH]; pl_join(pmd, sizeof pmd, c->s.path, "constant/polyMesh");
+    bool keepMeshLogs = (what & TR_KEEP_MESH_LOGS) && !(what & TR_MESH) && pl_is_dir(pmd);
     NameList all = { 0 }, take = { 0 };
     pl_list_dir(c->s.path, &all, false, false);
     for (int i = 0; i < all.n; i++) {
@@ -870,7 +883,7 @@ int case_trash_results(Case *c, int what, bool permanent, const char *reason, ch
             if ((what & TR_ZERO) && fabs(t) < 1e-300 && c->s.hasZeroOrig && !strcmp(n, "0")) del = true;   /* regenerated from 0.orig */
         }
         if (pl_starts_with(n, "processor") && pl_is_dir(full)) del = true;
-        if ((what & TR_LOGS) && pl_starts_with(n, "log.") && pl_is_file(full)) del = true;
+        if ((what & TR_LOGS) && pl_starts_with(n, "log.") && pl_is_file(full) && !(keepMeshLogs && mesh_log(n))) del = true;
         if ((what & TR_POST) && !strcmp(n, "postProcessing") && pl_is_dir(full)) del = true;
         if (del) names_add(&take, n);
     }
@@ -1350,4 +1363,86 @@ bool log_tail_state(const char *casePath, const char *logName, double *lastTime,
     }
     free(t);
     return true;
+}
+
+/* ---- checkMesh's verdict (see foamcase.h) */
+void case_mesh_verdict(const char *casePath, MeshVerdict *v)
+{
+    memset(v, 0, sizeof *v);
+    v->nSkew = v->nSkewBoundary = -1;
+    char p[PL_PATH]; pl_join(p, sizeof p, casePath, "log.checkMesh");
+    char *t = pl_read_file(p, NULL);
+    if (!t) return;
+    v->have = true;
+    v->ok = strstr(t, "Mesh OK.") != NULL;
+    const char *ms = strstr(t, "Max skewness = ");
+    if (ms) v->maxSkew = atof(ms + 15);
+    bool otherFail = false;
+    for (const char *q = t; (q = strstr(q, "***")) != NULL; q += 3) {
+        v->nFailed++;
+        const char *e = strchr(q, '\n');
+        size_t n = e ? (size_t)(e - q) : strlen(q);
+        char line[300]; if (n >= sizeof line) n = sizeof line - 1;
+        memcpy(line, q, n); line[n] = 0;
+        if (!strstr(line, "skew")) otherFail = true;
+    }
+    free(t);
+    if (v->ok || v->nFailed == 0 || otherFail || v->maxSkew <= 0 || v->maxSkew >= 20) return;
+
+    /* the flagged faces against the patches' face ranges */
+    pl_join(p, sizeof p, casePath, "constant/polyMesh/boundary");
+    FDFile *b = pl_is_file(p) ? fd_load(p) : NULL;
+    if (!b) return;
+    struct { char name[128]; long start, n, hit; } pat[256];
+    int np = 0;
+    long first = -1;
+    for (int i = 0; i < b->root.nChild && np < 256; i++) {
+        FDEntry *e = &b->root.child[i];
+        if (e->kind != FD_DICT || !strcmp(e->key, "FoamFile")) continue;
+        FDEntry *sf = fd_child(e, "startFace"), *nf = fd_child(e, "nFaces");
+        if (!sf || !nf) continue;
+        char val[64];
+        pl_strlcpy(pat[np].name, e->key, sizeof pat[np].name);
+        fd_entry_value(b, sf, val, sizeof val); pat[np].start = atol(val);
+        fd_entry_value(b, nf, val, sizeof val); pat[np].n = atol(val);
+        pat[np].hit = 0;
+        if (first < 0 || pat[np].start < first) first = pat[np].start;
+        np++;
+    }
+    fd_free(b);
+    if (np == 0) return;
+    pl_join(p, sizeof p, casePath, "constant/polyMesh/sets/skewFaces");
+    char *s = pl_read_file(p, NULL);
+    if (!s) return;
+    const char *q = strstr(s, "FoamFile");
+    q = q ? strchr(q, '}') : NULL;
+    if (q) {
+        q++;
+        for (;;) {                                           /* comments, then "N (" */
+            while (*q && isspace((unsigned char)*q)) q++;
+            if (q[0] == '/' && q[1] == '/') { while (*q && *q != '\n') q++; continue; }
+            break;
+        }
+        char *e;
+        long n = strtol(q, &e, 10);
+        while (*e && isspace((unsigned char)*e)) e++;
+        if (e != q && n > 0 && *e == '(') {
+            long got = 0, onB = 0;
+            const char *r = e + 1;
+            for (; got < n; got++) {
+                char *e2; long f = strtol(r, &e2, 10);
+                if (e2 == r) break;                          /* not plain numbers (a binary set): unknown */
+                r = e2;
+                if (f >= first) onB++;
+                for (int i = 0; i < np; i++) if (f >= pat[i].start && f < pat[i].start + pat[i].n) pat[i].hit++;
+            }
+            if (got == n) {
+                v->nSkew = n; v->nSkewBoundary = onB;
+                int best = 0; for (int i = 1; i < np; i++) if (pat[i].hit > pat[best].hit) best = i;
+                if (pat[best].hit > 0) pl_strlcpy(v->skewPatch, pat[best].name, sizeof v->skewPatch);
+                v->boundarySkewOnly = onB == n;
+            }
+        }
+    }
+    free(s);
 }

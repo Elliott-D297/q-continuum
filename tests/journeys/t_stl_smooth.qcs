@@ -1,0 +1,65 @@
+# A coarse 2-D profile (user request 2026-10-26: "prism layers are breaking down near the tip of the airfoil"): the NACA STL is
+# 45 straight segments; snappy refined at every corner and its layers broke where the cell size stepped (12 of 20 layers).
+# The Flow step says the profile is coarse, Smooth the profile makes a spline of it (mesher/<name>-smooth.stl, the original
+# kept), the layered wall gets one surface size (2-D: even by itself), and the layers come out whole. Use the original undoes it.
+budget p95 80 max 600
+shell mkdir -p $SB/ws/naca/system && cp "$QC_TESTS/tools/NACA_Airfoil.STL" $SB/ws/NACA_Airfoil.STL && printf 'FoamFile { version 2.0; format ascii; class dictionary; object controlDict; }\napplication simpleFoam;\nstartTime 0;\nendTime 10;\ndeltaT 1;\nwriteControl timeStep;\nwriteInterval 10;\n' > $SB/ws/naca/system/controlDict
+open $SB/ws/naca
+click nav:mesh
+wait-until page Mesh
+click text:STL mesher
+wait 5
+click stl-path
+enter $SB/ws/NACA_Airfoil.STL
+wait 10
+click stl-units#2
+wait 10
+click stl-next
+wait 3
+click stl-domain#1
+wait 10
+click stl-flow#2
+wait 10
+click stl-2d-fix
+wait 10
+assert text The profile is coarse
+screenshot $OUT/1_coarse.png
+click stl-smooth
+wait 20
+assert log mesher/mesher.ini stl_original = $SB/ws/NACA_Airfoil.STL
+assert log mesher/mesher.ini NACA_Airfoil-smooth.stl
+assert file mesher/NACA_Airfoil-smooth.stl
+assert text A smooth profile
+assert not text The profile is coarse
+screenshot $OUT/2_smooth.png
+click stl-next
+wait 5
+click stl-next
+wait 8
+click stl-nl
+type 10
+key enter
+wait 8
+assert log mesher/mesher.ini prism_layers = 10
+assert text Even surface cells under the layers
+screenshot $OUT/3_layers.png
+click stl-next
+wait 5
+click stl-gen
+wait-until job running timeout 20
+wait-until job finished timeout 600
+assert log log.checkMesh Mesh OK.
+assert log system/snappyHexMeshDict even under the layers
+note the layer report: at least 9.5 of the 10 layers on the profile
+shell awk '/overall thickness/{f=1} f && $3 == 10 {print; if ($4 >= 9.5) ok=1} END {exit !ok}' log.snappyHexMesh
+screenshot $OUT/4_meshed.png
+click nav:mesh
+wait 5
+click stl-step#1
+wait 8
+click stl-unsmooth
+wait 20
+assert log mesher/mesher.ini stl = $SB/ws/NACA_Airfoil.STL
+assert not log mesher/mesher.ini stl_original
+assert text The profile is coarse
+screenshot $OUT/5_original.png

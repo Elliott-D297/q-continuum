@@ -1,0 +1,28 @@
+# Every mesher, step 6 (2026-11-10): a solid CAD part (a block with a passage drilled through) turned into the fluid inside
+# it by Prepare the geometry > Fluid volume, run by SALOME in the background; the passage becomes the part; Use the original
+# goes back. Needs SALOME (tests/tools/salome_test_cad.py makes the part).
+budget p95 60 max 600
+shell mkdir -p $SB/ws/src && cd $SB/ws/src && env -u LD_LIBRARY_PATH -u PYTHONPATH -u PYTHONHOME $(ls -d $HOME/salome/SALOME-*/salome | tail -1) -t --shutdown-servers=1 "$QC_TESTS/tools/salome_test_cad.py" > make.log 2>&1
+open $SB/ws/cavity
+click nav:mesh
+wait-until page Mesh
+click text:STL mesher
+wait 5
+click stl-path
+enter $SB/ws/src/block_pipe.brep
+wait-until text Prepare the geometry timeout 120
+wait 10
+assert text 200 mm × 100 mm × 100 mm
+choose geo-add Fluid volume: the passage inside the part
+wait 3
+assert log mesher/geometry.ini op = fluid_inside
+click geo-apply
+wait-until text Prepared: timeout 300
+wait 10
+assert text volume 0.0005655 m³
+assert text Closed (watertight)
+assert text Use the original
+screenshot $OUT/1_fluid.png
+click geo-orig
+wait 10
+assert log mesher/mesher.ini mesher/block_pipe.stl

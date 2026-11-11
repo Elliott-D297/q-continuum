@@ -105,13 +105,17 @@ bool script_done(void) { return S.done; }
 int  script_exit_code(void) { return S.failures ? 1 : 0; }
 
 /* ---------------------------------------------------------------- targets */
+/* "name", "name#3", and nested as the widgets push them: "stl-b#4>name" is name inside ui_push_id(stl-b#4). Not "/":
+   ids carry file paths (dict:system/controlDict:deltaT) */
 static UiId parse_id(const char *s)
 {
     char base[128]; int k = 0;
-    while (s[k] && s[k] != '#' && k < 127) { base[k] = s[k]; k++; }
+    while (s[k] && s[k] != '#' && s[k] != '>' && k < 127) { base[k] = s[k]; k++; }
     base[k] = 0;
     UiId id = ui_id(base);
-    for (const char *p = s + k; *p == '#'; ) { id = ui_idn(id, atoi(p + 1)); p++; while (*p && *p != '#') p++; }
+    const char *p = s + k;
+    while (*p == '#') { id = ui_idn(id, atoi(p + 1)); p++; while (*p && *p != '#' && *p != '>') p++; }
+    if (*p == '>') { ui_push_id(id); id = parse_id(p + 1); ui_pop_id(); }
     return id;
 }
 
@@ -120,9 +124,9 @@ static bool resolve(const char *t, Rectangle *vis, Rectangle *whole, Rectangle *
 {
     *disabled = false;
     if (!strncmp(t, "text:", 5)) {
-        Rectangle v;
-        if (!ui_text_find(t + 5, &v, false)) return false;
-        *vis = *whole = v; *view = v;
+        if (!ui_text_find(t + 5, vis, whole, false)) return false;
+        if (vis->width > 0) { whole->x = vis->x; whole->width = vis->width; }  /* text clipped at its column's edge is on screen */
+        *view = (Rectangle){ 0 };                           /* no view of its own: scroll it in from the window's middle */
         return true;
     }
     const UiWidget *w = !strncmp(t, "label:", 6) ? ui_widget_by_label(t + 6) : ui_widget_find(parse_id(t));
@@ -134,7 +138,7 @@ static bool resolve(const char *t, Rectangle *vis, Rectangle *whole, Rectangle *
 /* ---------------------------------------------------------------- conditions */
 static const char *const MODAL_NAMES[] = { "none", "open-folder", "clone", "clean", "delete", "unsaved", "quit-running", "add-entry",
     "run-results", "new-file", "run-script", "cpl-new", "cpl-open", "cpl-results", "pv-claude", "hist-confirm", "precheck", "queue-add",
-    "movie", "study-new", "study-out", "study-exp", "deme-new", "conflict", "shortcuts", "whats-new", "palette", "environment" };
+    "movie", "study-new", "study-out", "study-exp", "deme-new", "conflict", "shortcuts", "whats-new", "palette", "environment", "review", "plume", "away", "cpl-build", "flavour", "blank" };
 
 const char *app_page_title(int p);
 
@@ -152,7 +156,7 @@ static bool cond(const char *c)
         for (size_t i = 0; i < sizeof MODAL_NAMES / sizeof MODAL_NAMES[0]; i++) if (!strcmp(arg, MODAL_NAMES[i])) return (int)A.modal == (int)i;
         return false;
     }
-    if (!strcmp(w, "text")) return ui_text_find(arg, NULL, false);
+    if (!strcmp(w, "text")) return ui_text_find(arg, NULL, NULL, false);
     if (!strcmp(w, "clipboard")) { const char *cb = GetClipboardText(); return cb && strstr(cb, arg); }
     if (!strcmp(w, "toast")) { for (int i = 0; i < ui_toast_count(); i++) if (strcasestr(ui_toast_text(i), arg)) return true; return false; }
     if (!strcmp(w, "widget") || !strcmp(w, "enabled")) {
@@ -370,7 +374,7 @@ void script_tick(int frame)
             if (S.phase == 0) { if (!target_ready(tg, &p)) return; act(); inp_click(p.x, p.y); S.clicks++; S.phase = 1; S.waitFrames = 4; S.deadline = 0; return; }
             char tt[200]; snprintf(tt, sizeof tt, "text:%s", item);
             Rectangle v;
-            if (!ui_text_find(item, &v, true)) {
+            if (!ui_text_find(item, &v, NULL, true)) {
                 if (S.deadline == 0) S.deadline = now_s() + 5;
                 if (now_s() > S.deadline) { fail("'%s' is not among the choices of %s", item, tg); next(); }
                 return;

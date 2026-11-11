@@ -1,0 +1,89 @@
+# The guided tour (user request 2026-10-26: "a tutorial for the first install, again from Settings, detailed on how to work
+# the program"): every step from the palette action, the practice cavity made at its step, Try it and Resume, Settings > Help.
+budget p95 80 max 2000
+action help.tour
+wait 10
+assert widget tour-card
+screenshot $OUT/s01.png
+click tour-next
+wait 12
+screenshot $OUT/s02.png
+click tour-next
+wait 12
+screenshot $OUT/s03.png
+click tour-next
+wait 12
+screenshot $OUT/s04.png
+click tour-next
+wait 12
+screenshot $OUT/s05.png
+assert widget tour-practice
+click tour-practice
+wait-until case-open timeout 20
+wait 12
+screenshot $OUT/s06.png
+click tour-next
+wait 12
+screenshot $OUT/s07.png
+click tour-next
+wait 12
+screenshot $OUT/s08.png
+click tour-next
+wait 12
+screenshot $OUT/s09.png
+click tour-try
+wait 5
+assert widget tour-resume
+screenshot $OUT/s09b_paused.png
+click tour-resume
+wait 8
+click tour-next
+wait 12
+screenshot $OUT/s10.png
+click tour-next
+wait 12
+screenshot $OUT/s11.png
+click tour-next
+wait 12
+screenshot $OUT/s12.png
+click tour-next
+wait 12
+screenshot $OUT/s13.png
+click tour-next
+wait 12
+screenshot $OUT/s14.png
+click tour-next
+wait 12
+screenshot $OUT/s15.png
+click tour-next
+wait 12
+screenshot $OUT/s16.png
+click tour-next
+wait 12
+screenshot $OUT/s17.png
+click tour-next
+wait 12
+screenshot $OUT/s18.png
+click tour-next
+wait 12
+screenshot $OUT/s19.png
+click tour-next
+wait 12
+screenshot $OUT/s20.png
+click tour-next
+wait 12
+screenshot $OUT/s21.png
+click tour-next
+wait 12
+screenshot $OUT/s22.png
+click tour-next
+wait 8
+assert not widget tour-card
+click nav:settings
+wait 8
+click set-tour
+wait 8
+assert widget tour-card
+screenshot $OUT/s99_again.png
+action case.folder
+wait 5

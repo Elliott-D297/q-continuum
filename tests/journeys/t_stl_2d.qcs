@@ -1,0 +1,71 @@
+# 2-D (user request 2026-10-26): an airfoil profile extruded 10 mm (the user's NACA_Airfoil.STL, in mm), flow along its chord:
+# the mesher says it looks 2-D, Mesh it 2-D makes it one cell thick (front2D, back2D empty), it runs, and the cross section
+# shows the profile. Then Generate with results there opens Clean results first, and Clean and continue meshes again.
+budget p95 80 max 600
+shell mkdir -p $SB/ws/naca/system && cp "$QC_TESTS/tools/NACA_Airfoil.STL" $SB/ws/NACA_Airfoil.STL && printf 'FoamFile { version 2.0; format ascii; class dictionary; object controlDict; }\napplication simpleFoam;\nstartTime 0;\nendTime 10;\ndeltaT 1;\nwriteControl timeStep;\nwriteInterval 10;\n' > $SB/ws/naca/system/controlDict
+open $SB/ws/naca
+click nav:mesh
+wait-until page Mesh
+click text:STL mesher
+wait 5
+click stl-path
+enter $SB/ws/NACA_Airfoil.STL
+wait 10
+click stl-units#2
+wait 10
+click stl-next
+wait 3
+click stl-domain#1
+wait 10
+click stl-flow#2
+wait 10
+assert text This looks 2-D
+screenshot $OUT/1_loaded.png
+click stl-2d-fix
+wait 10
+assert log mesher/mesher.ini two_d = 1
+assert log mesher/mesher.ini two_d_normal = x
+screenshot $OUT/2_twod.png
+click wf-next
+wait-until job running timeout 20
+wait-until job finished timeout 400
+assert log log.checkMesh Mesh OK.
+assert log constant/polyMesh/boundary empty
+note the extrusion's end caps (Back, Front) are left out: snapped to, they pulled the profile out of its plane
+assert not log constant/polyMesh/boundary Back
+assert not log constant/polyMesh/boundary Front
+assert not log system/snappyHexMeshDict regions/Back.stl
+click wf-next
+wait 10
+assert file 0/U
+shell foamDictionary system/controlDict -entry endTime -set 50 > /dev/null && foamDictionary system/controlDict -entry writeInterval -set 50 > /dev/null
+wait 20
+click nav:run
+wait-until page Run
+wait 10
+click wf-next
+wait-until job running timeout 30
+wait-until job finished timeout 400
+assert log log.simpleFoam End
+click nav:overview
+wait-until page Overview
+wait 40
+screenshot $OUT/3_overview.png
+click nav:mesh
+wait-until page Mesh
+click text:View
+wait 40
+screenshot $OUT/4_view.png
+note Generate with results on disk: the Clean dialog, then the mesh
+click text:STL mesher
+wait 10
+click stl-gen
+wait 10
+assert modal clean
+assert text Clean results first
+screenshot $OUT/5_clean_first.png
+click m-clean-go
+wait-until job running timeout 20
+wait-until job finished timeout 400
+assert log log.checkMesh Mesh OK.
+assert not file 50

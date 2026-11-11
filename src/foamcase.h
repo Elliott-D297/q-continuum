@@ -112,7 +112,8 @@ void    case_reload_changed(Case *c);                /* take in files changed ou
 int     case_reload_report(Case *c, char *what, int cap);   /* ... and say which: returns how many reloaded or merged */
 int     case_conflicts(const Case *c, int *first);   /* files changed both here and on disk: the user chooses */
 void    case_drop_file(Case *c, const char *rel);
-enum { TR_LOGS = 1, TR_POST = 2, TR_ZERO = 4, TR_MESH = 8 };   /* times after startTime and processor* always */
+enum { TR_LOGS = 1, TR_POST = 2, TR_ZERO = 4, TR_MESH = 8,   /* times after startTime and processor* always */
+       TR_KEEP_MESH_LOGS = 16 };                             /* with TR_LOGS: the logs of the mesh kept stay with it */
 #define TRASH_KEEP 5                                 /* trash entries kept per case ...  */
 #define TRASH_DAYS 14                                /* ... and for at most this long    */
 int     case_trash_results(Case *c, int what, bool permanent, const char *reason, char *msg, int cap);
@@ -153,5 +154,20 @@ void tutorials_scan(TutorialIndex *ix, const char *root);
 void tutorials_free(TutorialIndex *ix);
 int  tutorials_find(const TutorialIndex *ix, const char *suffix);   /* index or -1 */
 bool tutorial_needs_group(const char *src, char *why, int cap);       /* copy the tutorial's whole group? why: the reason */
+
+/* what log.checkMesh's failed checks amount to. checkMesh holds every face to a skewness of 4; snappyHexMesh allows 20 on
+   boundary faces, and prism layers that end on an inlet or outlet leave a few such faces there (the user's intake,
+   2026-11-10: 18 faces of Inlet_1, max 11.4, the only failed check). boundarySkewOnly says the failed checks are only
+   that: skewness under 20, every flagged face (constant/polyMesh/sets/skewFaces) a boundary face. */
+typedef struct {
+    bool   have;                 /* log.checkMesh was read                                   */
+    bool   ok;                   /* "Mesh OK."                                               */
+    int    nFailed;              /* lines marked ***                                         */
+    double maxSkew;
+    long   nSkew, nSkewBoundary; /* faces in the skewFaces set; -1 when it could not be read */
+    char   skewPatch[128];       /* the patch most of them are on                            */
+    bool   boundarySkewOnly;
+} MeshVerdict;
+void case_mesh_verdict(const char *casePath, MeshVerdict *v);
 
 #endif

@@ -4,11 +4,14 @@
 #include <stdlib.h>
 #include <string.h>
 #include "app.h"
+#include "tour.h"
 #include "actions.h"
 #include "palette.h"
 #include "sweep.h"
 #include "precheck.h"
 #include "program.h"
+#include "fieldinfo.h"
+#include "safety.h"
 
 static float code_block(float x, float y, float w, const char *text, const char *id)
 {
@@ -42,6 +45,18 @@ void page_settings(Rectangle r)
     float x = r.x + PAGE_PAD, w = fminf(r.width - 2 * PAGE_PAD, 920);
     float y = top + 30;
     y += page_header(x, y, w, "Settings", "Where OpenFOAM lives, where your cases go, and how results open in ParaView.");
+
+    /* ---------------- Help: the tour first, for someone new */
+    y += section_head(x, y, w, "Help", "New to Q-Continuum? The tour walks through every page and how to work it.");
+    {
+        float bx = x, bw = ui_button_width(ICON_BOOK_OPEN, "Take the tour");
+        if (ui_button(ui_id("set-tour"), (Rectangle){ bx, y, bw, 36 }, ICON_BOOK_OPEN, "Take the tour", BTN_PRIMARY)) tour_start();
+        bx += bw + 10; bw = ui_button_width(ICON_KEYBOARD, "Keyboard shortcuts");
+        if (ui_button(ui_id("set-keys"), (Rectangle){ bx, y, bw, 36 }, ICON_KEYBOARD, "Keyboard shortcuts", BTN_SECONDARY)) A.modal = MD_SHORTCUTS;
+        bx += bw + 10; bw = ui_button_width(ICON_SPARKLES, "What's new");
+        if (ui_button(ui_id("set-news"), (Rectangle){ bx, y, bw, 36 }, ICON_SPARKLES, "What's new", BTN_SECONDARY)) A.modal = MD_WHATS_NEW;
+        y += 36 + 30;
+    }
 
     /* ---------------- OpenFOAM */
     y += section_head(x, y, w, "OpenFOAM", "Q-Continuum loads this environment (etc/bashrc) before running any tool.");
@@ -315,6 +330,99 @@ static void finish_unsaved(void)
     }
 }
 
+/* ============================================================================ New file (Files tab): templates */
+enum { NF_DICT = 0, NF_SCALAR, NF_VECTOR, NF_EMPTY, NF__N };
+
+/* a fields folder: 0, 0.orig, any time (and their region sub-folders) */
+static bool nf_in_fields(const char *rel)
+{
+    char top[64]; size_t n = strcspn(rel, "/");
+    if (!rel[n] || n >= sizeof top) return false;
+    memcpy(top, rel, n); top[n] = 0;
+    return !strcmp(top, "0.orig") || pl_is_number(top);
+}
+
+static bool nf_vector_name(const char *name)
+{
+    if (!strcmp(name, "U") || !strcmp(name, "D") || !strcmp(name, "pointDisplacement")) return true;
+    return name[0] == 'U' && (name[1] == '_' || name[1] == '.' || name[1] == '0' || (name[1] >= 'A' && name[1] <= 'Z'));
+}
+
+static int new_file_guess(Case *c, const char *rel)
+{
+    (void)c;
+    if (nf_in_fields(rel)) return nf_vector_name(pl_basename(rel)) ? NF_VECTOR : NF_SCALAR;
+    if (pl_starts_with(rel, "system/") || pl_starts_with(rel, "constant/")) return NF_DICT;
+    return NF_EMPTY;
+}
+
+static const char *nf_dims(Case *c, const char *name, bool vec)
+{
+    if (vec && !strcmp(name, "U")) return "[0 1 -1 0 0 0 0]";
+    const char *d = field_expected_dims(name);
+    if (d) return d;
+    if (!strcmp(name, "p") || !strcmp(name, "p_rgh")) {        /* kinematic, unless the case solves for density */
+        char tp[PL_PATH]; pl_join(tp, sizeof tp, c->s.path, "constant/thermophysicalProperties");
+        return pl_is_file(tp) || !strcmp(name, "p_rgh") ? "[1 -1 -2 0 0 0 0]" : "[0 2 -2 0 0 0 0]";
+    }
+    return vec ? "[0 1 -1 0 0 0 0]" : "[0 0 0 0 0 0 0]";
+}
+
+/* a constraint patch type the field must repeat; NULL for the rest */
+static const char *nf_constraint(const char *type)
+{
+    static const char *const K[] = { "empty", "symmetryPlane", "symmetry", "wedge", "cyclic", "cyclicAMI", "cyclicACMI", "cyclicSlip", NULL };
+    for (int i = 0; K[i]; i++) if (!strcmp(type, K[i])) return K[i];
+    return NULL;
+}
+
+static int nf_patches(Case *c)
+{
+    int n = 0;
+    for (int i = 0; c && i < c->nPatches; i++) if (strcmp(c->patches[i].type, "processor")) n++;
+    return n;
+}
+
+static void new_file_describe(Case *c, const char *rel, int kind, char *out, int cap)
+{
+    int np = nf_patches(c);
+    const char *name = rel[0] ? pl_basename(rel) : "the file";
+    switch (kind) {
+    case NF_DICT:   snprintf(out, (size_t)cap, "An OpenFOAM dictionary: the header with class dictionary and object %s, then an empty body.", name); break;
+    case NF_SCALAR:
+    case NF_VECTOR:
+        snprintf(out, (size_t)cap, "A %s: dimensions %s, internalField uniform %s, and a boundaryField entry for each of the %d patch%s "
+                 "(zeroGradient%s; empty, symmetry, wedge and cyclic patches keep their type).",
+                 kind == NF_VECTOR ? "volVectorField" : "volScalarField", nf_dims(c, name, kind == NF_VECTOR), kind == NF_VECTOR ? "(0 0 0)" : "0",
+                 np, np == 1 ? "" : "es", kind == NF_VECTOR ? ", noSlip on walls" : "");
+        if (!np) snprintf(out + strlen(out), (size_t)cap - strlen(out), " The mesh has no patches yet, so boundaryField starts empty.");
+        break;
+    default:        snprintf(out, (size_t)cap, "An empty file, no header: for a script, notes or anything that isn't an OpenFOAM dictionary."); break;
+    }
+}
+
+static bool new_file_create(Case *c, const char *rel, int kind)
+{
+    char full[PL_PATH]; pl_join(full, sizeof full, c->s.path, rel);
+    if (kind == NF_EMPTY) { char dir[PL_PATH]; pl_dirname(dir, sizeof dir, full); pl_mkdirs(dir); return pl_write_file(full, "", 0); }
+    if (kind == NF_DICT) return case_create_dict(c, rel, "dictionary", "\n") != NULL;
+    bool vec = kind == NF_VECTOR;
+    const char *name = pl_basename(rel);
+    Str b; str_init(&b);
+    str_catf(&b, "dimensions      %s;\n\ninternalField   uniform %s;\n\nboundaryField\n{\n", nf_dims(c, name, vec), vec ? "(0 0 0)" : "0");
+    for (int i = 0; i < c->nPatches; i++) {
+        const PatchInfo *p = &c->patches[i];
+        if (!strcmp(p->type, "processor")) continue;
+        const char *k = nf_constraint(p->type);
+        str_catf(&b, "    %s\n    {\n        type            %s;\n    }\n", p->name,
+                 k ? k : vec && !strcmp(p->type, "wall") ? "noSlip" : "zeroGradient");
+    }
+    str_cat(&b, "}\n");
+    bool ok = case_create_dict(c, rel, vec ? "volVectorField" : "volScalarField", b.s) != NULL;
+    str_free(&b);
+    return ok;
+}
+
 void draw_modals(void)
 {
     if (A.modal == MD_NONE) return;
@@ -347,24 +455,38 @@ void draw_modals(void)
             snprintf(csub, sizeof csub, "Moves the results up to t = %s (%s), the log files and postProcessing to the case's trash, "
                      "where History > Deleted results can restore them. Your setup in system, constant and 0.orig stays.", case_latest_result(cs), where);
         }
-        b = ui_modal_begin("Clean results", csub, 600, 320, &close);
-        ui_checkbox(ui_id("m-clean-mesh"), (Rectangle){ b.x, b.y + 4, b.width, 24 }, &A.mFlag, "Also remove the generated mesh (blockMesh cases only)");
-        ui_checkbox(ui_id("m-clean-perm"), (Rectangle){ b.x, b.y + 38, b.width, 24 }, &A.mFlag2, "Delete permanently (otherwise they go to the case's trash and can be restored)");
-        if (ui_button(ui_id("m-clean-cancel"), (Rectangle){ b.x + b.width - 240, b.y + b.height - 38, 110, 38 }, NULL, "Cancel", BTN_GHOST)) close = true;
-        if (ui_button(ui_id("m-clean-go"), (Rectangle){ b.x + b.width - 120, b.y + b.height - 38, 120, 38 }, ICON_TRASH_2, "Clean", BTN_DANGER) && A.cs) {
+        if (A.cleanWhy[0]) {                                   /* opened for something that needs it: say what */
+            char t[sizeof csub]; snprintf(t, sizeof t, "%s %s", A.cleanWhy, csub); pl_strlcpy(csub, t, sizeof csub);
+        }
+        b = ui_modal_begin(A.cleanThen ? "Clean results first" : "Clean results", csub, 600, A.cleanWhy[0] ? 360 : 320, &close);
+        float cy = b.y + 4;
+        if (!A.cleanThen) {                                    /* a new mesh comes next anyway: no question about this one */
+            ui_checkbox(ui_id("m-clean-mesh"), (Rectangle){ b.x, cy, b.width, 24 }, &A.mFlag, "Also remove the generated mesh (blockMesh cases only)");
+            cy += 34;
+        }
+        ui_checkbox(ui_id("m-clean-perm"), (Rectangle){ b.x, cy, b.width, 24 }, &A.mFlag2, "Delete permanently (otherwise they go to the case's trash and can be restored)");
+        if (ui_button(ui_id("m-clean-cancel"), (Rectangle){ b.x, b.y + b.height - 38, 110, 38 }, NULL, "Cancel", BTN_GHOST)) close = true;
+        const char *goLab = A.cleanThen ? "Clean and continue" : "Clean";
+        float gw = fmaxf(120, ui_button_width(ICON_TRASH_2, goLab));
+        if (ui_button(ui_id("m-clean-go"), (Rectangle){ b.x + b.width - gw, b.y + b.height - 38, gw, 38 }, ICON_TRASH_2, goLab, BTN_DANGER) && A.cs) {
             case_rescan(A.cs);
             if (A.cj->active && !strcmp(A.cj->casePath, A.cs->s.path)) ui_toast(TOAST_WARN, "Stop the run first");
             else if (A.cs->s.runningLog[0]) ui_toast(TOAST_ERR, "%s is still being written: another process is running this case. Stop it first.", A.cs->s.runningLog);
             else {
                 char msg[160];
-                case_trash_results(A.cs, TR_LOGS | TR_POST | TR_ZERO | (A.mFlag ? TR_MESH : 0), A.mFlag2, "Clean", msg, sizeof msg);
+                case_trash_results(A.cs, TR_LOGS | TR_POST | TR_ZERO | (A.mFlag ? TR_MESH : TR_KEEP_MESH_LOGS), A.mFlag2, "Clean", msg, sizeof msg);
                 logset_open(&A.logs, A.cs->s.path);
                 A.stepInit = false;
                 ui_toast(TOAST_OK, "%s", msg);
                 app_rescan_cases(true);
                 A.modal = MD_NONE;
+                void (*then)(void) = A.cleanThen;
+                A.cleanThen = NULL; A.cleanWhy[0] = 0;
+                case_rescan(A.cs);
+                if (then) then();                              /* what it was opened for: generate, import ... */
             }
         }
+        if (close) { A.cleanThen = NULL; A.cleanWhy[0] = 0; }
         break;
     }
     case MD_PV_CLAUDE: {
@@ -442,6 +564,41 @@ void draw_modals(void)
         ui_disable(false);
         break;
     }
+    case MD_DEL_FILE: {                                   /* Files tab: a file to the case's trash */
+        if (!A.cs) { close = true; break; }
+        char rel[PL_PATH]; pl_strlcpy(rel, A.mPath, sizeof rel);
+        const char *nm = pl_basename(rel);
+        static const char *const NEED[] = { "system/controlDict", "system/fvSchemes", "system/fvSolution", NULL };
+        bool needed = false;
+        for (int i = 0; NEED[i]; i++) if (!strcmp(rel, NEED[i])) needed = true;
+        FDFile *f = NULL;
+        for (int i = 0; i < A.cs->nFiles; i++) if (!strcmp(A.cs->files[i].rel, rel)) f = A.cs->files[i].f;
+        char sub[PL_PATH + 400];
+        snprintf(sub, sizeof sub, "%s goes to the case's Trash: History > Trash puts it back.", rel);
+        b = ui_modal_begin("Delete this file?", sub, 560, 180 + (needed ? 26 : 0) + (f && f->dirty ? 26 : 0) + (A.mErr[0] ? 24 : 0), &close);
+        float wy = b.y + 4;
+        if (needed) { char t[160]; snprintf(t, sizeof t, "OpenFOAM can't run the case without a %s.", nm);
+                      wy += ui_text_wrap(F_REG, 13, t, (Rectangle){ b.x, wy, b.width, 40 }, 19, TH.warn, true) + 4; }
+        if (f && f->dirty) wy += ui_text_wrap(F_REG, 13, "Its unsaved edits are lost.", (Rectangle){ b.x, wy, b.width, 40 }, 19, TH.warn, true) + 4;
+        if (A.mErr[0]) ui_text_wrap(F_REG, 12.5f, A.mErr, (Rectangle){ b.x, wy, b.width, 60 }, 17, TH.err, true);
+        if (ui_button(ui_id("m-df-cancel"), (Rectangle){ b.x + b.width - 280, b.y + b.height - 38, 110, 38 }, NULL, "Cancel", BTN_GHOST)) close = true;
+        float bw = ui_button_width(ICON_TRASH_2, "Move to Trash");
+        ui_disable(A.cj->active);
+        if (ui_button(ui_id("m-df-go"), (Rectangle){ b.x + b.width - bw, b.y + b.height - 38, bw, 38 }, ICON_TRASH_2, "Move to Trash", BTN_DANGER) ||
+            (!A.cj->active && inp_key_pressed(KEY_ENTER))) {
+            const char *items[1] = { rel };
+            case_drop_file(A.cs, rel);                    /* its edits (if any) and its cached copy go with it */
+            if (trash_items(A.cs->s.path, TextFormat("Deleted %s (Files)", rel), "", items, 1) == 1) {
+                if (!strcmp(A.filesSel, rel)) A.filesSel[0] = 0;
+                case_rescan(A.cs);
+                history_invalidate();
+                ui_toast(TOAST_OK, "Moved %s to the Trash", rel);
+                A.modal = MD_NONE;
+            } else pl_fmt_ui(A.mErr, sizeof A.mErr, "Could not move %s to the Trash.", rel);
+        }
+        ui_disable(false);
+        break;
+    }
     case MD_CPL_NEW: case MD_CPL_OPEN: case MD_CPL_RESULTS: { void coupling_modal(bool *close); coupling_modal(&close); break; }
     case MD_HIST_CONFIRM: history_modal(&close); break;
     case MD_MOVIE: app_movie_modal(&close); break;
@@ -454,6 +611,7 @@ void draw_modals(void)
     case MD_AWAY: away_modal(&close); break;
     case MD_CPL_BUILD: cpl_build_modal(&close); break;
     case MD_FLAVOUR: ui_modal_layer(); flavour_modal(&close); break;
+    case MD_BLANK: blank_modal(&close); break;
     case MD_QUEUE_ADD: {
         if (!A.cs) { close = true; break; }
         extern int run_procs_for_check(void), run_mode_for_queue(void);
@@ -542,24 +700,31 @@ void draw_modals(void)
         break;
     }
     case MD_NEW_FILE: {
-        b = ui_modal_begin("New file", "Path inside the case. Files under system/, constant/ and 0* get an OpenFOAM header; "
-                           "anything else (a script, notes) starts empty.", 560, 250, &close);
-        ui_input(ui_id("m-nf-path"), (Rectangle){ b.x, b.y + 4, b.width, 38 }, A.mText, sizeof A.mText, "system/myDict", INPUT_MONO);
-        if (A.mErr[0]) ui_text(F_REG, 12.5f, A.mErr, b.x, b.y + 50, TH.err);
+        if (!A.cs) { close = true; break; }
+        static const char *const NF_ITEMS[NF__N] = { "Dictionary", "Scalar field", "Vector field", "Empty" };
+        char rel[PL_PATH]; pl_strlcpy(rel, A.mText, sizeof rel); pl_trim_inplace(rel);
+        if (!A.mFlag2) A.mSel = new_file_guess(A.cs, rel);   /* follows the path until a template is picked */
+        b = ui_modal_begin("New file", "A path inside the case, and what the file starts as. OpenFOAM files get the standard header "
+                           "(FoamFile with its class, location and object).", 600, 330, &close);
+        ui_input(ui_id("m-nf-path"), (Rectangle){ b.x, b.y + 4, b.width, 38 }, A.mText, sizeof A.mText, "system/myDict", INPUT_MONO | INPUT_LIVE);
+        bool enter = ui_input_entered(ui_id("m-nf-path"));      /* the path typed: the template follows it as it is typed */
+        int sel = A.mSel;
+        if (ui_segmented(ui_id("m-nf-kind"), (Rectangle){ b.x, b.y + 54, b.width, 34 }, (const char **)NF_ITEMS, NF__N, &sel)) { A.mSel = sel; A.mFlag2 = true; }
+        char what[300];
+        new_file_describe(A.cs, rel, A.mSel, what, sizeof what);
+        float wh = ui_text_wrap(F_REG, 13, what, (Rectangle){ b.x, b.y + 98, b.width, b.height - 98 - 66 }, 19, TH.text3, true);
+        if (A.mErr[0]) ui_text_clip(F_REG, 12.5f, A.mErr, b.x, fminf(b.y + 98 + wh + 6, b.y + b.height - 62), b.width, TH.err);
         if (ui_button(ui_id("m-nf-cancel"), (Rectangle){ b.x + b.width - 240, b.y + b.height - 38, 110, 38 }, NULL, "Cancel", BTN_GHOST)) close = true;
-        if (ui_button(ui_id("m-nf-go"), (Rectangle){ b.x + b.width - 120, b.y + b.height - 38, 120, 38 }, ICON_PLUS, "Create", BTN_PRIMARY) && A.cs) {
-            char rel[PL_PATH]; pl_strlcpy(rel, A.mText, sizeof rel); pl_trim_inplace(rel);
+        if ((ui_button(ui_id("m-nf-go"), (Rectangle){ b.x + b.width - 120, b.y + b.height - 38, 120, 38 }, ICON_PLUS, "Create", BTN_PRIMARY) || enter) && A.cs) {
+            pl_strlcpy(rel, A.mText, sizeof rel); pl_trim_inplace(rel);
             char full[PL_PATH]; pl_join(full, sizeof full, A.cs->s.path, rel);
             if (!rel[0] || rel[strlen(rel) - 1] == '/' || strstr(rel, "..") || rel[0] == '/') snprintf(A.mErr, sizeof A.mErr, "Give a file name inside the case, e.g. system/myDict.");
             else if (pl_exists(full)) pl_fmt_ui(A.mErr, sizeof A.mErr, "%s already exists.", rel);
-            else {
-                bool dict = pl_starts_with(rel, "system/") || pl_starts_with(rel, "constant/") || rel[0] == '0';
-                bool ok;
-                if (dict) ok = case_create_dict(A.cs, rel, "dictionary", "\n") != NULL;
-                else { char dir[PL_PATH]; pl_dirname(dir, sizeof dir, full); pl_mkdirs(dir); ok = pl_write_file(full, "", 0); }
-                if (ok) { snprintf(A.filesSel, sizeof A.filesSel, "%s", rel); A.filesRaw = true; A.modal = MD_NONE; ui_toast(TOAST_OK, "Created %s", rel); }
-                else pl_fmt_ui(A.mErr, sizeof A.mErr, "Could not create %s.", rel);
-            }
+            else if (new_file_create(A.cs, rel, A.mSel)) {
+                snprintf(A.filesSel, sizeof A.filesSel, "%s", rel); A.filesRaw = true; A.modal = MD_NONE;
+                case_rescan(A.cs);
+                ui_toast(TOAST_OK, "Created %s", rel);
+            } else pl_fmt_ui(A.mErr, sizeof A.mErr, "Could not create %s.", rel);
         }
         break;
     }
@@ -738,6 +903,33 @@ void draw_modals(void)
         break;
     case MD_WHATS_NEW: {
         static const char *const NEWS[][2] = {
+            { "Starting values and numerics", "Physics > Setup, Starting values: start from potential flow (potentialFoam) or from another "
+              "case's last results (mapFields onto this mesh, the boundaries kept), give regions their own temperature or velocity, and ramp "
+              "a steady run's inlets. Solver: Robust, Balanced or Accurate numerics; hand edits on the Numerics page make it Custom. A run "
+              "that diverges or doesn't converge offers Robust with one click." },
+            { "Free surface", "Water and air with the surface between them (interFoam): the Free surface card, or Models > Multiphase. "
+              "Materials holds both and the surface tension, Starting values the water (boxes, or below a height), each inlet says whether it "
+              "brings water or air, and the Run page fills the water in with setFields. A dam break takes a minute to set up." },
+            { "STEP and IGES parts", "The STL mesher takes CAD files too: Choose part (or paste the path of) a .step, .stp, .iges "
+              "or .igs file. SALOME reads it in its own unit, makes a fine STL in metres and keeps the exact shape, so its "
+              "tetrahedral and polyhedral meshers mesh the CAD faces themselves (Mesh the exact CAD)." },
+            { "Fans, mixers and filters", "Physics > Setup has a Zones step: a rotating zone (a fan, an impeller, a mixer) turning at "
+              "a speed you give, with the torque and power on the Run page, or a porous zone (a filter, a screen, a radiator) from a "
+              "pressure drop at a speed. The Rotating machinery card sets one up." },
+            { "Heat and buoyancy", "Physics > Setup > Models > Energy: Temperature (forced convection) or With buoyancy (warm fluid "
+              "rises). Materials gains specific heat and conductivity, every boundary a temperature, walls a heat flux, heat rate or "
+              "convection, and the Run page shows each wall's heat as it runs. New cards: Heat transfer and Natural convection." },
+            { "What are you simulating?", "Physics > Setup starts from a card: External aero, Internal flow, Vortex shedding or "
+              "Resolved turbulence fill in the models, run length and time step from your part. Then a step list (Models, Materials, "
+              "Boundaries, Starting values, Reports, Solver, Check), each marked done or not, with More settings for the expert rows. "
+              "Models now has laminar, RANS, LES and DES with 13 turbulence models and PISO / PIMPLE." },
+            { "The tour", "A walk through every page and how to work it, shown on the first start. Settings > Help > Take the tour "
+              "(or the palette) brings it back; Try it pauses it so you can use the page." },
+            { "Lift and drag", "Physics > Setup > Lift and drag: switch on Monitor forces and the drag, lift and moment coefficients "
+              "are measured on the part's walls (reference length, area and directions from the STL, 2-D or 3-D). The Run page shows "
+              "Cd, Cl, Cm and L/D live and plots them." },
+            { "Turn about an axis", "The 3-D views (STL mesher, Mesh > View) have Turn about: Free, or X, Y or Z only; 90 degree "
+              "turn buttons, arrow keys for 15 degree steps, and a Fit button." },
             { "Half-Life theme", "Black Mesa gunmetal and lambda orange, bevelled steel panels, HL2 and Garry's Mod sounds, an HEV "
               "suit on the Run page (health from the residuals, suit power from the Courant headroom) and a resonance cascade when a run fails." },
             { "STL to mesh", "Mesh > STL import: pick any STL, then mesh it with snappyHexMesh or send it to SALOME with STAR-CCM+-style "

@@ -5,9 +5,11 @@
 #include <string.h>
 #include "app.h"
 #include "assets.h"
+#include "stlmesh.h"
 
 static struct {
     char path[PL_PATH];               /* the case the dialog was set up for */
+    char latest[64];                  /* ... and its latest result then (the fields are read again when it changes) */
     char fields[64][64]; int nFields;
     char field[64];
     int  style;                       /* 0 surface, 1 middle slice */
@@ -67,12 +69,15 @@ static void start_movie(Case *c)
     pl_shell_quote(qf, sizeof qf, foam); pl_shell_quote(qv, sizeof qv, view); pl_shell_quote(qd, sizeof qd, M.dest);
     pl_shell_quote(qfield, sizeof qfield, M.field); pl_shell_quote(qreg, sizeof qreg, c->s.nRegions ? c->s.regions[0] : "");
     pl_shell_quote(qpv, sizeof qpv, A.env.pvbatch); pl_shell_quote(qff, sizeof qff, A.env.ffmpeg);
+    /* the STL mesher's up and flow directions, when it made the mesh: the movie keeps them (up upright, flow to the right) */
+    int upDir = -1, flowDir = -1;
+    { MeshCfg mc; if (mesher_load(c->s.path, &mc) && mc.domain == DOMAIN_EXTERNAL) { upDir = mesher_up(&mc); flowDir = mc.flowDir; } }
     char out[300]; snprintf(out, sizeof out, "%s_%dfps.mp4", c->s.name, fps);
     char cmd1[8192], cmd2[4096], cmd3[PL_PATH * 3];
     /* pvbatch brings its own libraries: OpenFOAM's (and its MPI) must not leak into it */
     bool fits = pl_fmt(cmd1, sizeof cmd1, "env -u LD_LIBRARY_PATH -u PYTHONPATH -u PYTHONHOME QC_FOAM=%s QC_OUT=movie QC_FIELD=%s QC_STYLE=%s "
-             "QC_W=%d QC_H=%d QC_VIEW=%s QC_DECOMPOSED=%d QC_TWOD=%d QC_REGION=%s %s movie/.qc-movie.py",
-             qf, qfield, M.style ? "slice" : "surface", W, H, qv, proc ? 1 : 0, has_empty_patch(c) ? 1 : 0, qreg, qpv);
+             "QC_W=%d QC_H=%d QC_VIEW=%s QC_DECOMPOSED=%d QC_TWOD=%d QC_UP=%d QC_FLOW=%d QC_REGION=%s %s movie/.qc-movie.py",
+             qf, qfield, M.style ? "slice" : "surface", W, H, qv, proc ? 1 : 0, has_empty_patch(c) ? 1 : 0, upDir, flowDir, qreg, qpv);
     fits = fits && pl_fmt(cmd2, sizeof cmd2, "ls movie/frame.*.png > /dev/null 2>&1 || { echo 'Q-Continuum: could not render any frames (see log.movie-frames)'; exit 1; }\n"
              "env -u LD_LIBRARY_PATH %s -hide_banner -y -framerate %d -i movie/frame.%%04d.png -c:v libx264 -preset medium -crf 18 "
              "-pix_fmt yuv420p -vf 'pad=ceil(iw/2)*2:ceil(ih/2)*2' -movflags +faststart movie/%s", qff, fps, out);
@@ -104,9 +109,17 @@ void app_movie_modal(bool *close)
     if (!c) { *close = true; return; }
     if (strcmp(M.path, c->s.path)) {                     /* set up for this case */
         pl_strlcpy(M.path, c->s.path, sizeof M.path);
-        read_fields(c);
+        M.latest[0] = 1;                                  /* (read below) */
         pl_join(M.dest, sizeof M.dest, env_videos_dir(&A.env), c->s.name);
         M.useClaude = app_claude_view_exists();
+    }
+    /* bug hunt 2026-11-01: the fields were read only when the case changed, so a dialog first opened before the run had
+       none afterwards and Make the movie stayed greyed out */
+    if (strcmp(M.latest, case_latest_result(&c->s))) {
+        char keep[64]; pl_strlcpy(keep, M.field, sizeof keep);
+        read_fields(c);
+        for (int i = 0; i < M.nFields && keep[0]; i++) if (!strcmp(M.fields[i], keep)) pl_strlcpy(M.field, keep, sizeof M.field);   /* the pick stays */
+        pl_strlcpy(M.latest, case_latest_result(&c->s), sizeof M.latest);
     }
     bool missing = !A.env.pvbatch[0] || !A.env.ffmpeg[0];
     char sub[400];

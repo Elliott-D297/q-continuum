@@ -9,6 +9,8 @@
 #include <unistd.h>
 #include <sys/wait.h>
 #include "app.h"
+#include "simsetup.h"
+const SimSetup *setup_current(Case *c);            /* page_setup.c: NULL without a simulation.ini */
 #include "physics.h"
 #include "safety.h"
 #include "precheck.h"
@@ -21,16 +23,18 @@
 #define SH_RUN "qc_sh() { case \"$(head -n1 \"$1\")\" in '#!/bin/sh'*|'#!/usr/bin/env sh'*) bash \"$@\";; *) \"$@\";; esac; }\n"
 
 /* Display order. Multi-region cases restore 0.orig after splitMeshRegions when 0.orig holds per-region folders. */
-enum { ST_RESTORE = 0, ST_BLOCKMESH, ST_FEATURES, ST_SNAPPY, ST_CHECK, ST_TOPOSET, ST_SPLIT, ST_RESTORE_REGIONS, ST_CHANGEDICT,
-       ST_SETFIELDS, ST_DECOMPOSE, ST_SOLVER, ST_RECONSTRUCT, ST_COUNT };
+enum { ST_RESTORE = 0, ST_BLOCKMESH, ST_FEATURES, ST_SNAPPY, ST_CHECK, ST_ZONES, ST_TOPOSET, ST_SPLIT, ST_RESTORE_REGIONS, ST_CHANGEDICT,
+       ST_START, ST_SETFIELDS, ST_DECOMPOSE, ST_SOLVER, ST_RECONSTRUCT, ST_COUNT };
 static const char *STEP_LABEL[ST_COUNT] = { "Copy 0.orig to 0", "blockMesh", "surfaceFeatureExtract", "snappyHexMesh", "checkMesh",
-                                            "topoSet", "splitMeshRegions", "Copy 0.orig to 0", "changeDictionary",
-                                            "setFields", "decomposePar", "Solver", "reconstructPar" };
+                                            "Cell zones", "topoSet", "splitMeshRegions", "Copy 0.orig to 0", "changeDictionary",
+                                            "Starting values", "setFields", "decomposePar", "Solver", "reconstructPar" };
 static const char *STEP_HINT[ST_COUNT] = { "Start from the initial fields you set up", "Build the background mesh",
                                            "Extract feature edges from the geometry", "Fit the mesh to the geometry",
-                                           "Report mesh quality", "Create the cell zones that define each region",
+                                           "Report mesh quality", "Mark the rotating and porous zones (Physics > Setup, Zones)",
+                                           "Create the cell zones that define each region",
                                            "Cut the mesh into one mesh per region", "Per-region initial fields",
-                                           "Apply each region's boundary conditions", "Initialise regions, e.g. the water column",
+                                           "Apply each region's boundary conditions", "potentialFoam or mapFields (Physics > Setup, Starting values)",
+                                           "Initialise regions, e.g. the water column",
                                            "Split the case for parallel processes", "", "Merge the parallel results" };
 
 static bool multi_region(void) { return A.cs->s.nRegions > 0; }
@@ -74,6 +78,7 @@ static bool step_available(int s, int procs)
     switch (s) {
     case ST_RESTORE: return A.cs->s.hasZeroOrig && !zero_orig_by_region();
     case ST_RESTORE_REGIONS: return zero_orig_by_region();
+    case ST_ZONES: return !multi_region() && case_has("system/topoSetDict.zones");
     case ST_TOPOSET: return multi_region() && case_has("system/topoSetDict");
     case ST_SPLIT: return multi_region();
     case ST_CHANGEDICT: return multi_region() && n_change_dicts() > 0;
@@ -81,6 +86,7 @@ static bool step_available(int s, int procs)
     case ST_FEATURES: return case_has("system/surfaceFeatureExtractDict");
     case ST_SNAPPY: return case_has("system/snappyHexMeshDict");
     case ST_CHECK: return true;
+    case ST_START: { char l[32], c[16]; return !multi_region() && sim_start_command(A.cs->s.path, l, sizeof l, c, 0) ; }
     case ST_SETFIELDS: return case_has("system/setFieldsDict");
     case ST_DECOMPOSE: case ST_RECONSTRUCT: return procs > 1;
     case ST_SOLVER: return true;
@@ -332,15 +338,29 @@ static bool allrun_needs_script_cached(const Case *c, char *why, int cap)
 
 static void init_steps(void)
 {
-    if (A.stepInit) return;
-    A.stepInit = true;
+    /* the mesh steps follow whether there is a mesh: chosen when the page first opened, they also change when the mesh is
+       made or goes out of date since (Mesh page, the STL step bar, Ctrl+M): left on, the run meshed it all over again */
+    static int wasMeshed = -1, wasRegions = -1;
     bool meshed = A.cs->s.meshed && !A.cs->s.meshStale;
+    bool regionsDone = A.cs->s.regionMeshed && !A.cs->s.regionStale && !A.cs->s.meshStale;
+    if (A.stepInit) {
+        if ((int)meshed != wasMeshed && !A.cj->active) {
+            A.stepOn[ST_BLOCKMESH] = A.stepOn[ST_FEATURES] = A.stepOn[ST_SNAPPY] = !meshed;
+            wasMeshed = meshed;
+        }
+        if ((int)regionsDone != wasRegions && !A.cj->active) {
+            A.stepOn[ST_TOPOSET] = A.stepOn[ST_SPLIT] = A.stepOn[ST_CHANGEDICT] = !regionsDone;
+            wasRegions = regionsDone;
+        }
+        return;
+    }
+    A.stepInit = true;
+    wasMeshed = meshed; wasRegions = regionsDone;
     for (int s = 0; s < ST_COUNT; s++) A.stepOn[s] = true;
     A.stepOn[ST_BLOCKMESH] = !meshed;
     A.stepOn[ST_FEATURES] = !meshed;
     A.stepOn[ST_SNAPPY] = !meshed;
     A.stepOn[ST_CHECK] = false;
-    bool regionsDone = A.cs->s.regionMeshed && !A.cs->s.regionStale && !A.cs->s.meshStale;
     A.stepOn[ST_TOPOSET] = !regionsDone;
     A.stepOn[ST_SPLIT] = !regionsDone;
     A.stepOn[ST_CHANGEDICT] = !regionsDone;
@@ -415,7 +435,7 @@ static void build_steps(Case *c, Job *j, int np, bool slurm)
         for (int s = 0; s < ST_COUNT; s++) {
             if (!step_available(s, np)) continue;
             bool on = A.stepOn[s] || s == ST_SOLVER || s == ST_DECOMPOSE || s == ST_RECONSTRUCT;
-            if (cont && (s == ST_RESTORE || s == ST_BLOCKMESH || s == ST_SNAPPY || s == ST_FEATURES || s == ST_SETFIELDS ||
+            if (cont && (s == ST_RESTORE || s == ST_BLOCKMESH || s == ST_SNAPPY || s == ST_FEATURES || s == ST_SETFIELDS || s == ST_START ||
                          s == ST_TOPOSET || s == ST_SPLIT || s == ST_RESTORE_REGIONS || s == ST_CHANGEDICT)) on = false;
             if (procResults && s == ST_DECOMPOSE) on = false;
             if (!on) continue;
@@ -423,10 +443,22 @@ static void build_steps(Case *c, Job *j, int np, bool slurm)
             case ST_RESTORE: job_add(j, "restore0", STEP_LABEL[s], RUNFUNCTIONS "restore0Dir 2>&1", "log.restore0", false); break;
             case ST_BLOCKMESH: job_add(j, "blockMesh", "blockMesh", "blockMesh", "log.blockMesh", false); break;
             case ST_FEATURES: job_add(j, "features", "surfaceFeatureExtract", "surfaceFeatureExtract", "log.surfaceFeatureExtract", false); break;
-            case ST_SNAPPY: job_add(j, "snappy", "snappyHexMesh", "snappyHexMesh -overwrite", "log.snappyHexMesh", false); break;
+            case ST_SNAPPY: job_add(j, "snappy", "snappyHexMesh", SNAPPY_CMD, "log.snappyHexMesh", false); break;
             case ST_CHECK: job_add(j, "checkMesh", "checkMesh", "checkMesh", "log.checkMesh", false); break;
-            case ST_SETFIELDS: job_add(j, "setFields", "setFields", "setFields", "log.setFields", false); break;
+            case ST_SETFIELDS: {
+                /* the setup's fields kept first: they are what writing the setup again merges with (plan step 9) */
+                char cmd[600]; snprintf(cmd, sizeof cmd, "%ssetFields", sim_keep_fields_cmd());
+                job_add(j, "setFields", "setFields", cmd, "log.setFields", false);
+                break;
+            }
+            case ST_START: {
+                char lab[32], cmd[2048];
+                if (sim_start_command(A.cs->s.path, lab, sizeof lab, cmd, sizeof cmd))
+                    job_add(j, "start", STEP_LABEL[s], cmd, !strcmp(lab, "mapFields") ? "log.mapFields" : "log.potentialFoam", false);
+                break;
+            }
             case ST_TOPOSET: job_add(j, "topoSet", "topoSet", "topoSet", "log.topoSet", false); break;
+            case ST_ZONES: job_add(j, "zones", STEP_LABEL[s], "topoSet -dict system/topoSetDict.zones", "log.topoSet.zones", false); break;
             case ST_SPLIT:
                 /* splitMeshRegions copies flat 0/ fields into every region; like the tutorials' Allrun.pre, take the
                    fluid fields out of the solid regions again (per-region 0.orig is restored afterwards instead) */
@@ -525,6 +557,16 @@ static bool precice_participant(Case *c, char *parent, int cap, char *who, int w
     return true;
 }
 
+/* plan step 9: Robust numerics asked for while a run stops (or after it diverged): started over once it has */
+static bool robustPending;
+
+/* a solver's error that means the solution blew up, not a set-up mistake */
+static bool run_diverged(const char *msg)
+{
+    return strstr(msg, "Floating-point exception") || strstr(msg, "Maximum number of iterations exceeded") ||
+           strcasestr(msg, "negative initial temperature") || strcasestr(msg, "Courant max had reached");
+}
+
 static void start_run(void)
 {
     Case *c = A.cs;
@@ -557,13 +599,10 @@ static void start_run(void)
         if (A.bgStart) { ui_toast(TOAST_WARN, "%s has results now: open it and choose Continue or Start over", c->s.name); return; }
         A.modal = MD_RUN_RESULTS; return;
     }
-    if (A.runConfirmed && !A.continueRun) {
-        /* "Delete and start over" / "Delete and run Allrun": with the old times gone, startFrom latestTime means the
-           initial time again (left in place, a tutorial Allrun started at the old end time and ran no steps) */
-        char msg[160];
-        case_trash_results(c, TR_LOGS, false, A.runMode == 1 ? "Delete and run Allrun" : "Delete and start over", msg, sizeof msg);
-        ui_toast(TOAST_INFO, "%s", msg);
-    }
+    /* the results of "Delete and start over" go to the trash only once nothing below can refuse the run (bug hunt
+       2026-11-01: they went first, so a run the precheck or the missing-condition gate then stopped had cost them, and
+       starting again after the precheck trashed a second time: "Removed 0 items") */
+    bool startOver = A.runConfirmed && !A.continueRun;
     /* will it fit in memory, is the time step stable, are there cores: ask before anything is deleted or started */
     if (!A.precheckOk && !A.bgStart) {
         PreCheck pc;
@@ -571,8 +610,9 @@ static void start_run(void)
         precheck_run(&cs, procs(), app_jobs_procs(), A.env.nCpu, &pc);
         if (pc.worst >= PC_WARN || run_sweep(c, true)->ask) { A.modal = MD_PRECHECK; return; }
     }
+    bool anyway = A.precheckOk;                             /* the precheck showed its problems and the user said Run anyway */
     A.precheckOk = false;
-    A.runConfirmed = false;
+    A.runConfirmed = false;                                 /* a refusal below asks again next time (startOver keeps it now) */
     if (case_pause_pending(c->s.path)) case_pause_settle(c->s.path, false, NULL);   /* a pause that never reached a solver */
     /* continuing on a mesh that is about to change would ignore the change */
     char meshWhy[300];
@@ -635,6 +675,7 @@ static void start_run(void)
         }
     }
     if (!app_save_all(true)) return;
+    setup_refresh_files(c);                                   /* what the setup says now (Mesh tab, Physics > Setup) is what runs */
     case_rescan(c);
     /* never run the solver on a mesh that no longer matches the dictionaries it was made from */
     if (!A.continueRun && A.runMode == 0 && (c->s.meshStale || c->s.regionStale)) {
@@ -659,7 +700,8 @@ static void start_run(void)
             return;
         }
     }
-    if (A.runMode == 0 && !A.continueRun && !remesh && c->s.nRegions == 0 && c->patchSource == 1) {
+    /* a missing condition the precheck already showed, run anyway: OpenFOAM's own error follows, and the error translator */
+    if (A.runMode == 0 && !A.continueRun && !remesh && c->s.nRegions == 0 && c->patchSource == 1 && !anyway) {
         char miss[600];
         int n = bc_missing_report(c, miss, sizeof miss);
         if (n > 0) {
@@ -668,6 +710,14 @@ static void start_run(void)
             if (!A.bgStart) app_go(PG_BC);
             return;
         }
+    }
+    if (startOver) {
+        /* "Delete and start over" / "Delete and run Allrun": with the old times gone, startFrom latestTime means the
+           initial time again (left in place, a tutorial Allrun started at the old end time and ran no steps) */
+        char msg[160];
+        /* the built-in steps keep the mesh (and so its logs) unless it is out of date; an Allrun makes everything again */
+        case_trash_results(c, TR_LOGS | (A.runMode == 0 ? TR_KEEP_MESH_LOGS : 0), false, A.runMode == 1 ? "Delete and run Allrun" : "Delete and start over", msg, sizeof msg);
+        ui_toast(TOAST_INFO, "%s", msg);
     }
     job_reset(A.cj, c->s.app[0] ? c->s.app : "Allrun");
     build_steps(c, A.cj, np, false);
@@ -811,7 +861,9 @@ void run_chart(Rectangle r, LogMon *m)
         }
         lx = r.x + 16; ly += 34;
     }
-    /* legend */
+    /* legend: in a short chart one row, the rest behind a "+N" chip (their names in its tooltip) so the plot keeps its room */
+    bool oneRow = r.height < 200;
+    float legendY = ly;
     for (int i = 0; i < m->nSeries; i++) {
         Series *s = &m->series[i];
         if (chartRegion[0]) { char rg[64]; if (!series_region(s->name, rg, sizeof rg) || strcmp(rg, chartRegion)) continue; }
@@ -821,6 +873,21 @@ void run_chart(Rectangle r, LogMon *m)
         if (chartRegion[0]) { char *o = strrchr(nm, '('); if (o && o > nm) o[-1] = 0; }     /* region is in the pill */
         snprintf(lab, sizeof lab, "%s  %.1e", nm, s->n ? s->v[s->n - 1] : 0.0);
         float w = ui_text_w(F_MED, 12.5f, lab) + 30;
+        if (oneRow && ly == legendY && lx + w > r.x + r.width - 12 - xw - (i + 1 < m->nSeries ? 48 : 0)) {
+            int more = 0; char names[400] = "";
+            for (int j = i; j < m->nSeries; j++) {
+                if (chartRegion[0]) { char rg[64]; if (!series_region(m->series[j].name, rg, sizeof rg) || strcmp(rg, chartRegion)) continue; }
+                more++;
+                snprintf(names + strlen(names), sizeof names - strlen(names), "%s%s %.1e", strlen(names) ? "\n" : "", m->series[j].name,
+                         m->series[j].n ? m->series[j].v[m->series[j].n - 1] : 0.0);
+            }
+            char t[16]; snprintf(t, sizeof t, "+%d", more);
+            Rectangle chip = { lx, ly, ui_text_w(F_MED, 12.5f, t) + 20, 24 };
+            ui_rect(chip, 12, ui_alpha(TH.text3, 0.15f));
+            ui_text(F_MED, 12.5f, t, lx + 10, ly + 4, TH.text2);
+            ui_tooltip(chip, TextFormat("%s\n(Expand shows them all)", names));
+            break;
+        }
         if (lx + w > r.x + r.width - 12 - xw) { lx = r.x + 16; ly += 28; }
         Rectangle chip = { lx, ly, w, 24 };
         bool hov = ui_hovered(chip);
@@ -832,8 +899,14 @@ void run_chart(Rectangle r, LogMon *m)
         ui_text(F_MED, 12.5f, lab, lx + 22, ly + 4, s->hidden ? TH.text3 : TH.text);
         lx += w + 8;
     }
-    Rectangle p = { r.x + 58, ly + 40, r.width - 58 - 20, r.y + r.height - (ly + 40) - 34 };
-    if (p.height < 40) return;
+    bool shortBox = r.height < 200;                              /* large UI scale, small window: tighter margins */
+    float pTop = ly + (shortBox ? 30 : 40);
+    Rectangle p = { r.x + 58, pTop, r.width - 58 - 20, r.y + r.height - pTop - (shortBox ? 26 : 34) };
+    if (p.height < 40) {
+        if (m->nSeries > 0 && r.y + r.height - (ly + 30) > 16)
+            ui_text_clip(F_REG, 12, "Too short to plot: Expand, or drag the line under the chart down.", r.x + 16, ly + 32, r.width - 32, TH.text3);
+        return;
+    }
     /* ranges. The y range ignores zeros and the lowest 1% of points (a 1e-14 first Uy residual would
        otherwise stretch the axis over a dozen empty decades) and spans at most 12 decades. */
     enum { DLO = -40, DHI = 20 };
@@ -958,28 +1031,92 @@ static void mon_toggle(Case *c, const char *col)
     casecfg_save(c->s.path, &c->cfg);
 }
 
+static void mon_select(Case *c, MonFile *f);
+
 /* the file shown: the remembered one, else forces/coefficients first, else the first */
 static MonFile *mon_current(Case *c)
 {
     if (A.mons.n == 0) return NULL;
     int k = c->cfg.monFile[0] ? monset_find(&A.mons, c->cfg.monFile) : -1;
     if (k < 0) {
-        for (int i = 0; i < A.mons.n && k < 0; i++) if (strstr(A.mons.f[i].key, "coefficient") || strstr(A.mons.f[i].key, "force")) k = i;
+        for (int i = 0; i < A.mons.n && k < 0; i++) if (strstr(A.mons.f[i].key, "coefficient")) k = i;
+        for (int i = 0; i < A.mons.n && k < 0; i++) if (strstr(A.mons.f[i].key, "force")) k = i;
         if (k < 0) k = 0;
+        else if (strstr(A.mons.f[k].key, "coefficient") && A.mons.f[k].nCols) mon_select(c, &A.mons.f[k]);   /* remembered, with Cd, Cl, Cm */
     }
     return &A.mons.f[k];
 }
 
+/* the force coefficients (forceCoeffs' coefficient.dat), if the case writes them */
+static MonFile *mon_coeffs(int *cd, int *cl, int *cm)
+{
+    for (int i = 0; i < A.mons.n; i++) {
+        MonFile *f = &A.mons.f[i];
+        if (!strstr(f->key, "coefficient")) continue;
+        *cd = *cl = *cm = -1;
+        for (int k = 0; k < f->nCols; k++) {
+            if (!strcmp(f->col[k], "Cd")) *cd = k;
+            else if (!strcmp(f->col[k], "Cl")) *cl = k;
+            else if (!strcmp(f->col[k], "CmPitch")) *cm = k;
+        }
+        if (*cd >= 0 && *cl >= 0) return f;
+    }
+    return NULL;
+}
+
+/* the heat through the walls (wallHeatFlux, Physics > Setup with heat on): its "<wall> integral" columns, W */
+static MonFile *mon_heat(void)
+{
+    for (int i = 0; i < A.mons.n; i++) if (strstr(A.mons.f[i].key, "wallHeatFlux")) return &A.mons.f[i];
+    return NULL;
+}
+
+/* a heated wall's Nusselt number (Nu_<wall>, Physics > Setup with heat on): its one column */
+static bool nu_file(const MonFile *f) { return pl_starts_with(f->key, "Nu_") && f->nCols >= 1; }
+
+static bool heat_col(const MonFile *f, int k) { return pl_ends_with(f->col[k], " integral"); }
+
 static void mon_select(Case *c, MonFile *f)
 {
     pl_strlcpy(c->cfg.monFile, f->key, sizeof c->cfg.monFile);
-    /* many columns (solver info, min/max with locations): start with the first six */
     c->cfg.monHide[0] = 0;
+    if (strstr(f->key, "wallHeatFlux")) {           /* each wall's heat (W), not its least and greatest flux */
+        for (int i = 0; i < f->nCols; i++) {
+            if (heat_col(f, i)) continue;
+            size_t L = strlen(c->cfg.monHide); snprintf(c->cfg.monHide + L, sizeof c->cfg.monHide - L, "%s%s", L ? "|" : "", f->col[i]);
+        }
+        casecfg_save(c->s.path, &c->cfg);
+        return;
+    }
+    if (strstr(f->key, "yPlus")) {                  /* each wall's mean y+, not its least and greatest */
+        for (int i = 0; i < f->nCols; i++) {
+            if (pl_ends_with(f->col[i], " average")) continue;
+            size_t L = strlen(c->cfg.monHide); snprintf(c->cfg.monHide + L, sizeof c->cfg.monHide - L, "%s%s", L ? "|" : "", f->col[i]);
+        }
+        casecfg_save(c->s.path, &c->cfg);
+        return;
+    }
+    if (strstr(f->key, "coefficient")) {            /* the force coefficients: Cd, Cl and the pitching moment, not their front/rear parts */
+        for (int i = 0; i < f->nCols; i++) {
+            if (!strcmp(f->col[i], "Cd") || !strcmp(f->col[i], "Cl") || !strcmp(f->col[i], "CmPitch")) continue;
+            size_t L = strlen(c->cfg.monHide); snprintf(c->cfg.monHide + L, sizeof c->cfg.monHide - L, "%s%s", L ? "|" : "", f->col[i]);
+        }
+        casecfg_save(c->s.path, &c->cfg);
+        return;
+    }
+    /* many columns (solver info, min/max with locations): start with the first six */
     for (int i = 6; i < f->nCols; i++) { size_t L = strlen(c->cfg.monHide); snprintf(c->cfg.monHide + L, sizeof c->cfg.monHide - L, "%s%s", L ? "|" : "", f->col[i]); }
     casecfg_save(c->s.path, &c->cfg);
 }
 
 static int cmpf(const void *a, const void *b) { float x = *(const float *)a, y = *(const float *)b; return (x > y) - (x < y); }
+
+static const char *mon_chip_label(const MonFile *f, int i)   /* "name  latest" */
+{
+    float last = NAN;
+    for (int k = f->n - 1; k >= 0 && isnan(last); k--) last = f->v[i][k];
+    return isnan(last) ? f->col[i] : TextFormat("%s  %.4g", f->col[i], last);
+}
 
 static void mon_chart(Rectangle r, Case *c)
 {
@@ -991,19 +1128,39 @@ static void mon_chart(Rectangle r, Case *c)
     const char *labels[MON_MAX_FILES];
     for (int i = 0; i < A.mons.n; i++) labels[i] = A.mons.f[i].label;
     char pick[200] = "";
-    if (ui_dropdown(ui_id("mon-file"), (Rectangle){ r.x + 14, r.y + 10, fminf(360, r.width * 0.45f), 30 }, f->label, labels, A.mons.n, 0, pick, sizeof pick, "file")) {
+    /* a short chart (large UI scale, small window): the legend goes on the picker's row, a narrower picker, no sample count */
+    bool compact = r.height - 48 - 40 - 34 < 90;
+    float pw = compact ? fminf(240, r.width * 0.3f) : fminf(360, r.width * 0.45f);
+    if (ui_dropdown(ui_id("mon-file"), (Rectangle){ r.x + 14, r.y + 10, pw, 30 }, f->label, labels, A.mons.n, 0, pick, sizeof pick, "file")) {
         for (int i = 0; i < A.mons.n; i++) if (!strcmp(A.mons.f[i].label, pick)) { mon_select(c, &A.mons.f[i]); f = &A.mons.f[i]; }
     }
     char info[96]; snprintf(info, sizeof info, "%d samples%s", f->n, f->n ? "" : " yet");
-    ui_text(F_REG, 12, info, r.x + 26 + fminf(360, r.width * 0.45f), r.y + 17, TH.text3);
-    /* legend: one chip per column, click to show/hide */
-    float lx = r.x + 16, ly = r.y + 48;
-    for (int i = 0; i < f->nCols; i++) {
+    if (!compact) ui_text(F_REG, 12, info, r.x + 26 + pw, r.y + 17, TH.text3);
+    /* legend: one chip per column, click to show/hide. When the chips would leave the plot under 90 px (nine wall-heat
+       columns at a large UI scale), names only; still too many, the ones that fit and a "+N" chip that expands the chart */
+    float right = r.x + r.width - 12, moreW = ui_text_w(F_MED, 12, "+48") + 24;
+    float x0 = compact ? r.x + 14 + pw + 12 : r.x + 16, y0 = compact ? r.y + 13 : r.y + 48;
+    int maxRows = compact ? 1 : 1 + (int)fmaxf(0, floorf((r.height - 48 - 40 - 34 - 90) / 28));
+    bool names = false; int shown = f->nCols;
+    for (int pass = 0; pass < 2; pass++, names = true) {
+        float lx = x0, endX[MON_MAX_COLS]; int row = 1;
+        shown = f->nCols;
+        for (int i = 0; i < f->nCols; i++) {
+            float w = ui_text_w(F_MED, 12, names ? f->col[i] : mon_chip_label(f, i)) + 30;
+            if (lx + w > right) {
+                if (row == maxRows) { shown = i; break; }
+                lx = r.x + 16; row++;
+            }
+            lx += w + 8; endX[i] = lx;
+        }
+        if (shown == f->nCols) break;
+        if (pass == 1) while (shown > 0 && endX[shown - 1] + moreW > right) shown--;   /* the "+N" chip ends the last row */
+    }
+    float lx = x0, ly = y0;
+    for (int i = 0; i < shown; i++) {
         Color col = TH.series[i % 10];
         bool hid = mon_hidden(c, f->col[i]);
-        float last = NAN;
-        for (int k = f->n - 1; k >= 0 && isnan(last); k--) last = f->v[i][k];
-        char lab[96]; snprintf(lab, sizeof lab, isnan(last) ? "%s" : "%s  %.4g", f->col[i], last);
+        const char *lab = names ? f->col[i] : mon_chip_label(f, i);
         float w = ui_text_w(F_MED, 12, lab) + 30;
         if (lx + w > r.x + r.width - 12) { lx = r.x + 16; ly += 28; }
         Rectangle chip = { lx, ly, w, 24 };
@@ -1016,7 +1173,21 @@ static void mon_chart(Rectangle r, Case *c)
         ui_text(F_MED, 12, lab, lx + 22, ly + 5, hid ? TH.text3 : TH.text);
         lx += w + 8;
     }
-    Rectangle p = { r.x + 70, ly + 40, r.width - 70 - 20, r.y + r.height - (ly + 40) - 34 };
+    if (shown < f->nCols) {
+        char more[16]; snprintf(more, sizeof more, "+%d", f->nCols - shown);
+        Rectangle chip = { lx, ly, ui_text_w(F_MED, 12, more) + 24, 24 };
+        bool hov = ui_hovered(chip);
+        if (hov) ui_cursor(MOUSE_CURSOR_POINTING_HAND);
+        if (ui_clicked(chip)) { A.chartMax = !A.chartMax; A.logMax = false; }
+        ui_rect_lines(chip, 12, 1, hov ? TH.text2 : TH.lineSoft);
+        ui_text(F_MED, 12, more, chip.x + 12, ly + 5, TH.text2);
+        ui_tooltip(chip, A.chartMax ? "More columns than fit: make the window larger to see them all."
+                                    : "More columns than fit here. Click to expand the chart and see them all.");
+    }
+    float pTop = ly + (compact ? 30 : 40), pBot = compact ? 26 : 34;
+    Rectangle p = { r.x + 70, pTop, r.width - 70 - 20, r.y + r.height - pTop - pBot };
+    if (p.height < 40 && f->n > 0 && r.y + r.height - (ly + 30) > 16)
+        ui_text_clip(F_REG, 12, "Too short to plot: Expand, or drag the line under the chart down.", r.x + 16, ly + 32, r.width - 32, TH.text3);
     if (p.height < 40 || f->n == 0) return;
     float tmin = f->t[0], tmax = f->t[f->n - 1];
     /* the y range leaves out the extreme 2 % at either end: a start-up spike (the first iterations' forces, often 100x the
@@ -1046,7 +1217,8 @@ collected:                                                       /* out of memor
     if (tmax - tmin < 1e-12f) tmax = tmin + 1;
     if (vmax - vmin < 1e-30) { double m = fabs(vmax) > 0 ? fabs(vmax) * 0.05 : 1; vmin -= m; vmax += m; }
     double pad = (vmax - vmin) * 0.06; vmin -= pad; vmax += pad;
-    double st = nice_step(vmax - vmin, 6);
+    /* about one label per 22 px of height, so a short chart's labels don't run into each other */
+    double st = nice_step(vmax - vmin, (int)fmaxf(2, fminf(6, p.height / 22)));
     for (double v = ceil(vmin / st) * st; v <= vmax; v += st) {
         float py = p.y + p.height - (float)((v - vmin) / (vmax - vmin)) * p.height;
         DrawRectangleRec((Rectangle){ p.x, py, p.width, 1 }, TH.grid);
@@ -1106,6 +1278,61 @@ collected:                                                       /* out of memor
     }
 }
 
+/* watts with a prefix: 1.1 mW, 250 W, 3.2 kW */
+static void fmt_watts(char *o, size_t cap, double w)
+{
+    double a = fabs(w);
+    if (a >= 1e6) snprintf(o, cap, "%.3g MW", w / 1e6);
+    else if (a >= 1e3) snprintf(o, cap, "%.3g kW", w / 1e3);
+    else if (a >= 1 || a == 0) snprintf(o, cap, "%.3g W", w);
+    else if (a >= 1e-3) snprintf(o, cap, "%.3g mW", w * 1e3);
+    else snprintf(o, cap, "%.3g µW", w * 1e6);
+}
+
+/* a value as it is now over the chart (the force coefficients, the walls' heat): a click plots its file; returns the room
+   it took */
+static float readout_chip_c(Case *c, MonFile *f, UiId id, const char *t, float x, float y, float room, const char *tip, Color tint)
+{
+    if (room < 80) return 0;
+    Rectangle tr = { x, y, fminf(ui_text_w(F_MONO_MED, 13, t) + 24, room), 30 };
+    bool plain = !memcmp(&tint, &TH.accent, sizeof tint);
+    ui_rect(tr, 8, ui_alpha(tint, plain ? 0.12f : 0.18f));
+    if (!plain) ui_rect_lines(tr, 8, 1, ui_alpha(tint, 0.6f));     /* a verdict (the y+): its colour shows at a glance */
+    ui_text_clip(F_MONO_MED, 13, t, tr.x + 12, tr.y + 8, tr.width - 20, plain ? TH.text : tint);
+    ui_register(id, tr, t);
+    if (ui_hovered(tr)) ui_cursor(MOUSE_CURSOR_POINTING_HAND);
+    if (ui_clicked(tr)) { A.chartTab = 1; mon_select(c, f); }
+    /* cut short (a short chart keeps its chips on one row): the whole value in the tooltip too */
+    ui_tooltip(tr, tr.width < ui_text_w(F_MONO_MED, 13, t) + 24 ? TextFormat("%s\n%s", t, tip) : tip);
+    return tr.width + 8;
+}
+
+static float readout_chip(Case *c, MonFile *f, UiId id, const char *t, float x, float y, float room, const char *tip)
+{
+    return readout_chip_c(c, f, id, t, x, y, room, tip, TH.accent);
+}
+
+/* the walls' y+ (the setup's yPlus function object, plan step 5): its "<wall> average" and "<wall> max" columns */
+static MonFile *mon_yplus(double *avg, double *max)
+{
+    for (int i = 0; i < A.mons.n; i++) {
+        MonFile *f = &A.mons.f[i];
+        if (!strstr(f->key, "yPlus")) continue;
+        double sum = 0, mx = 0; int n = 0;
+        for (int k = 0; k < f->nCols; k++) {
+            float last = NAN;
+            for (int j = f->n - 1; j >= 0 && isnan(last); j--) last = f->v[k][j];
+            if (isnan(last)) continue;
+            if (pl_ends_with(f->col[k], " average")) { sum += last; n++; }
+            else if (pl_ends_with(f->col[k], " max") && last > mx) mx = last;
+        }
+        if (!n) continue;
+        *avg = sum / n; *max = mx;
+        return f;
+    }
+    return NULL;
+}
+
 /* residuals, or (when the case writes function-object output) the monitors, on one switch */
 static void chart_area(Rectangle r, Case *c, LogMon *pm)
 {
@@ -1122,10 +1349,205 @@ static void chart_area(Rectangle r, Case *c, LogMon *pm)
     const char *items[] = { "Residuals", "Monitors" };
     char m[32]; snprintf(m, sizeof m, "Monitors (%d)", A.mons.n);
     items[1] = m;
-    ui_segmented(ui_id("chart-tab"), (Rectangle){ r.x + r.width - 300, r.y, 300, 30 }, items, 2, &A.chartTab);
-    if (A.chartTab == 1) chart_max_button(r.x + r.width - 310, r.y + 1);     /* the residual chart has its own */
-    Rectangle body = { r.x, r.y + 38, r.width, r.height - 38 };
+    /* a short chart (a large UI scale in a small window) has no line to spare under the switch: the switch narrows so the
+       readouts fit beside it */
+    bool tight = r.height < 306;
+    float sw = tight ? 190 : 300;
+    ui_segmented(ui_id("chart-tab"), (Rectangle){ r.x + r.width - sw, r.y, sw, 30 }, items, 2, &A.chartTab);
+    /* the values as they are now, beside the switch (and the Monitors tab's Expand); short of room, on a line of their
+       own under it. A click shows their chart. */
+    char ct[160] = "", ht[240] = "", nt[200] = "", yt[64] = "", yAdv[600] = "";
+    double yAvg = 0, yMax = 0;
+    MonFile *yf = mon_yplus(&yAvg, &yMax);
+    int yState = yf ? setup_yplus_advice(c, yAvg, yMax, yAdv, sizeof yAdv) : -1;
+    bool shortChart = r.height < 306;                       /* see the switch below: no room for words in the chip */
+    if (yf) snprintf(yt, sizeof yt, yState == 1 && !shortChart ? "y+ %.3g: change the walls" : "y+ %.3g", yAvg);
+    MonFile *nf = NULL;
+    MonFile *cf = NULL, *hf = mon_heat();
+    {   /* lift and drag */
+        int cd, cl, cm; MonFile *f = mon_coeffs(&cd, &cl, &cm);
+        float last[3] = { NAN, NAN, NAN }; int col[3] = { cd, cl, cm };
+        if (f) for (int j = 0; j < 3; j++) for (int k = f->n - 1; k >= 0 && col[j] >= 0 && isnan(last[j]); k--) last[j] = f->v[col[j]][k];
+        if (f && !isnan(last[0])) {
+            cf = f;
+            int n = snprintf(ct, sizeof ct, "Cd %.4g   Cl %.4g", last[0], last[1]);
+            if (!isnan(last[2])) n += snprintf(ct + n, sizeof ct - (size_t)n, "   Cm %.4g", last[2]);
+            if (fabsf(last[0]) > 1e-12f) snprintf(ct + n, sizeof ct - (size_t)n, "   L/D %.3g", last[1] / last[0]);
+        }
+    }
+    {   /* the heat into the fluid through each wall (negative: out of it) */
+        int n = 0;
+        for (int k = 0; hf && k < hf->nCols && n < (int)sizeof ht - 40; k++) {
+            if (!heat_col(hf, k)) continue;
+            float last = NAN;
+            for (int i = hf->n - 1; i >= 0 && isnan(last); i--) last = hf->v[k][i];
+            if (isnan(last) || last == 0) continue;               /* an adiabatic wall passes none */
+            char w[48]; fmt_watts(w, sizeof w, last);
+            n += snprintf(ht + n, sizeof ht - (size_t)n, "%s%.*s %s", n ? "   " : "Heat in: ", (int)(strlen(hf->col[k]) - 9), hf->col[k], w);
+        }
+    }
+    {   /* each heated wall's Nusselt number */
+        int n = 0;
+        for (int i = 0; i < A.mons.n && n < (int)sizeof nt - 40; i++) {
+            MonFile *f = &A.mons.f[i];
+            if (!nu_file(f)) continue;
+            float last = NAN;
+            for (int k = f->n - 1; k >= 0 && isnan(last); k--) last = f->v[0][k];
+            if (isnan(last)) continue;
+            const char *w = f->key + 3, *sl = strchr(w, '/');
+            /* the size: a cooled wall's flux (so its Nu_ file) is negative, the heat out of the fluid */
+            n += snprintf(nt + n, sizeof nt - (size_t)n, "%s%.*s %.3g", n ? "  " : "Nu ", (int)(sl ? sl - w : (long)strlen(w)), w, fabsf(last));
+            if (!nf) nf = f;
+        }
+    }
+    float right = r.x + r.width - sw - 8 - (A.chartTab == 1 ? chart_max_button(r.x + r.width - sw - 10, r.y + 1) + 8 : 0);
+    float cw = ct[0] ? ui_text_w(F_MONO_MED, 13, ct) + 24 : 0, hw = ht[0] ? ui_text_w(F_MONO_MED, 13, ht) + 24 : 0,
+          nw = nt[0] ? ui_text_w(F_MONO_MED, 13, nt) + 24 : 0, yw = yt[0] ? ui_text_w(F_MONO_MED, 13, yt) + 24 : 0;
+    int nChip = (cw > 0) + (hw > 0) + (nw > 0) + (yw > 0);
+    bool below = r.x + cw + hw + nw + yw + 8 * (nChip - 1) > right;
+    /* a short chart (a large UI scale in a small window: step 3's open bug, 2026-11-01) can't spare a line for them:
+       they stay beside the switch, sharing its room, cut short with the whole value in their tooltips */
+    float share = nChip ? (right - r.x) / nChip : 0;
+    if (below && tight && share >= 88) below = false;
+    else share = 1e9f;
+    float rx = r.x, ry = below ? r.y + 38 : r.y, rr = below ? r.x + r.width : right;
+    if (ct[0]) rx += readout_chip(c, cf, ui_id("run-coeffs"), ct, rx, ry, fminf(share - 8, rr - rx), "The latest force coefficients (Physics > Setup, Lift and drag). Click to plot them.");
+    if (ht[0]) rx += readout_chip(c, hf, ui_id("run-heat"), ht, rx, ry, fminf(share - 8, rr - rx), "The heat each wall passes into the fluid (Physics > Setup, Reports); negative: out of it. Click to plot it.");
+    if (nt[0]) rx += readout_chip(c, nf, ui_id("run-nu"), nt, rx, ry, fminf(share - 8, rr - rx), "Each heated or cooled wall's Nusselt number, |q| L / (k ΔT), with the length and ΔT of "
+                                                                         "Physics > Setup, Reports (the plot keeps the sign: negative, heat out). Click to plot it.");
+    float yx = rx, ycw = 0;
+    if (yt[0]) ycw = readout_chip_c(c, yf, ui_id("run-yplus"), yt, rx, ry, fminf(share - 8, rr - rx), yAdv[0] ? yAdv : "The walls' mean y+ at the last write. Click to plot it.",
+                                    yState == 1 ? TH.warn : yState == 0 ? TH.ok : TH.accent);
+    float top = below && (ct[0] || ht[0] || nt[0] || yt[0]) ? 76 : 38;
+    /* the walls don't suit their treatment: what to change, on a line of its own (whole in its tooltip) while the chart
+       keeps 150 px under it; else the warning chip says it in its tooltip */
+    if (yState == 1 && r.height - top < 172 && ycw > 0) ui_register(ui_id("run-yplus-advice"), (Rectangle){ yx, ry, ycw - 8, 30 }, yAdv);
+    if (yState == 1 && r.height - top >= 172) {
+        Rectangle ar = { r.x, r.y + top - 4, r.width, 22 };
+        ui_icon(ICON_TRIANGLE_ALERT, ar.x + 8, ar.y + 10, 14, TH.warn);
+        ui_text_clip(F_REG, 12.5f, yAdv, ar.x + 22, ar.y + 3, ar.width - 22, TH.warn);
+        ui_register(ui_id("run-yplus-advice"), ar, yAdv);
+        ui_tooltip(ar, yAdv);
+        top += 22;
+    }
+    Rectangle body = { r.x, r.y + top, r.width, r.height - top };
     if (A.chartTab == 1) mon_chart(body, c); else run_chart(body, pm);
+}
+
+/* ---- reports (plan step 6): each one's latest value, a click plots it; Export CSV writes them all to reports/ */
+static MonFile *report_file(const char *name)
+{
+    size_t n = strlen(name);
+    for (int i = 0; i < A.mons.n; i++)
+        if (!strncmp(A.mons.f[i].key, name, n) && A.mons.f[i].key[n] == '/') return &A.mons.f[i];
+    return NULL;
+}
+
+static int export_csv(Case *c, const SimSetup *s, char *dir, size_t cap)
+{
+    pl_join(dir, cap, c->s.path, "reports");
+    pl_mkdirs(dir);
+    int n = 0;
+    for (int i = 0; i < s->nR; i++) {
+        MonFile *f = report_file(s->r[i].name);
+        if (!f || !f->n) continue;
+        Str o; str_init(&o);
+        str_cat(&o, "time");
+        for (int k = 0; k < f->nCols; k++) str_catf(&o, ",%s", f->col[k]);
+        str_cat(&o, "\n");
+        for (int j = 0; j < f->n; j++) {
+            str_catf(&o, "%.9g", f->t[j]);
+            for (int k = 0; k < f->nCols; k++) str_catf(&o, ",%.9g", f->v[k][j]);
+            str_cat(&o, "\n");
+        }
+        char fn[PL_PATH], file[96]; snprintf(file, sizeof file, "%s.csv", s->r[i].name);
+        pl_join(fn, sizeof fn, dir, file);
+        if (pl_write_file(fn, o.s ? o.s : "", o.len)) n++;
+        str_free(&o);
+    }
+    return n;
+}
+
+/* a rotating zone's torque about its axis at the latest iteration (moment.dat's total, dotted with the axis); false: none yet */
+static MonFile *torque_file(const SimZone *z)
+{
+    char key[96]; snprintf(key, sizeof key, "%s_torque/moment.dat", z->name);
+    int i = monset_find(&A.mons, key);
+    return i >= 0 ? &A.mons.f[i] : NULL;
+}
+
+static bool zone_torque(const SimZone *z, double *T)
+{
+    MonFile *f = torque_file(z);
+    if (!f || !f->n) return false;
+    int col[3] = { -1, -1, -1 };
+    static const char *const W[3] = { "total_x", "total_y", "total_z" };
+    for (int k = 0; k < f->nCols; k++)
+        for (int a = 0; a < 3; a++) { size_t n = strlen(f->col[k]); if (n >= 7 && !strcmp(f->col[k] + n - 7, W[a])) col[a] = k; }
+    if (col[0] < 0 || col[1] < 0 || col[2] < 0) return false;
+    double ax[3], o[3]; sim_zone_axis(z, ax, o);
+    *T = 0;
+    for (int a = 0; a < 3; a++) *T += ax[a] * f->v[col[a]][f->n - 1];
+    return true;
+}
+
+static float reports_panel(Case *c, float x, float y, float w)
+{
+    const SimSetup *s = setup_current(c);
+    int nTq = 0;
+    for (int i = 0; s && i < s->nZ; i++) if (s->z[i].kind == ZN_ROTATE && s->z[i].torque[0]) nTq++;
+    if (!s || (!s->nR && !nTq)) return 0;
+    float y0 = y;
+    ui_text(F_MED, 13.5f, "Reports", x, y + 2, TH.text);
+    float bw = ui_button_width(ICON_TABLE, "Export CSV");
+    if (ui_button(ui_id("rep-csv"), (Rectangle){ x + w - bw, y - 4, bw, 30 }, ICON_TABLE, "Export CSV", BTN_GHOST)) {
+        char dir[PL_PATH];
+        int n = export_csv(c, s, dir, sizeof dir);
+        if (n) ui_toast(TOAST_OK, "Wrote %d report%s as CSV to %s", n, n == 1 ? "" : "s", dir);
+        else ui_toast(TOAST_INFO, "No report has values yet: run the case first");
+    }
+    ui_tooltip((Rectangle){ x + w - bw, y - 4, bw, 30 }, "Each report's values, one row per iteration, in the case's reports/ folder");
+    y += 34;
+    for (int i = 0; i < s->nR; i++) {
+        const SimReport *r = &s->r[i];
+        MonFile *f = report_file(r->name);
+        char d[200], v[160] = "";
+        sim_report_describe(s, r, d, sizeof d);
+        if (f && f->n) {
+            for (int k = 0; k < f->nCols && strlen(v) < sizeof v - 20; k++)
+                pl_fmt_ui(v + strlen(v), sizeof v - strlen(v), "%s%.4g", k ? ", " : "", f->v[k][f->n - 1]);
+            pl_fmt_ui(v + strlen(v), sizeof v - strlen(v), " %s", sim_report_unit(s, r));
+        } else pl_strlcpy(v, "not yet", sizeof v);
+        Rectangle row = { x - 6, y - 4, w + 12, 44 };
+        UiId id = ui_idn(ui_id("rep-row"), i);
+        if (f && ui_row(id, row, false)) { A.chartTab = 1; mon_select(c, f); }
+        ui_register(id, row, d);
+        ui_text_clip(F_REG, 12.5f, d, x, y, w, TH.text2);
+        ui_text_clip(F_MONO_MED, 14, v, x, y + 18, w, f && f->n ? TH.text : TH.text3);
+        if (f) ui_tooltip(row, "Click to plot it");
+        y += 46;
+    }
+    for (int i = 0; i < s->nZ; i++) {
+        /* a rotating zone's torque (and the power it takes: the torque times the speed; 2-D: per metre of depth) */
+        const SimZone *z = &s->z[i];
+        if (z->kind != ZN_ROTATE || !z->torque[0]) continue;
+        MonFile *f = torque_file(z);
+        double T;
+        char d[200], v[160];
+        pl_fmt_ui(d, sizeof d, "Torque on %s about %s's axis", z->torque, z->name);
+        if (zone_torque(z, &T)) pl_fmt_ui(v, sizeof v, "%.4g N m, power %.4g W", T, -T * sim_zone_omega(z));
+        else pl_strlcpy(v, "not yet", sizeof v);
+        Rectangle row = { x - 6, y - 4, w + 12, 44 };
+        UiId id = ui_idn(ui_id("rep-tq"), i);
+        if (f && ui_row(id, row, false)) { A.chartTab = 1; mon_select(c, f); }
+        ui_register(id, row, TextFormat("%s: %s", d, v));
+        ui_text_clip(F_REG, 12.5f, d, x, y, w, TH.text2);
+        ui_text_clip(F_MONO_MED, 14, v, x, y + 18, w, f && f->n ? TH.text : TH.text3);
+        if (f) ui_tooltip(row, "The flow's torque on the walls (negative: against the turning, so the rotor drives the flow); the power is what "
+                               "the rotor puts in. Click to plot the moments.");
+        y += 46;
+    }
+    return y + 6 - y0;
 }
 
 /* stop the run when a monitored value has settled (left panel) */
@@ -1443,8 +1865,12 @@ bool run_start_queued(const char *path, int mode, int procs, bool cont, bool fre
     bool open = A.cs && !strcmp(A.cs->s.path, path);
     Case *c = open ? A.cs : case_open(path);
     if (!c) { ui_toast(TOAST_ERR, "Queue: %s is no longer an OpenFOAM case", path); return false; }
+    /* bug hunt 2026-11-01: the slot is picked while A.cs is still the open case: job_slot_for keeps the open case's slot
+       for it only when it can tell them apart. Picked after the swap, a queued case took the open case's slot, and the
+       open case, queued next, found "no free run slot" (and its Run page showed the other case's run) */
+    Job *slot = open ? A.cj : job_slot_for(path);
     A.cs = c;
-    if (!open) A.cj = job_slot_for(path);
+    A.cj = slot;
     bool ok = false;
     if (A.cj == &A.jobs[MAX_JOBS] || A.cj->active) ui_toast(TOAST_WARN, "Queue: no free run slot for %s", c->s.name);
     else {
@@ -1499,7 +1925,7 @@ void run_case_script(const char *name, const char *args)
 /* ============================================================================ page */
 static void kpi(Rectangle r, const char *label, const char *value, Color vc)
 {
-    ui_text(F_REG, 12.5f, label, r.x, r.y, TH.text3);
+    ui_text_clip(F_REG, 12.5f, label, r.x, r.y, r.width - 6, TH.text3);
     ui_text_clip(F_SEMI, 19, value, r.x, r.y + 20, r.width - 6, vc);
 }
 
@@ -1541,6 +1967,9 @@ void page_run(Rectangle r)
     Case *c = A.cs;
     if (!c) return;                                           /* start_run can leave no case open (a failed queue start) */
     init_steps();
+    /* the setup changed elsewhere (a boundary on the Mesh tab, Physics > Setup): the case files follow, so this page shows
+       and runs what was set. Twice a second at most: a few file times */
+    { static double at; if (GetTime() - at > 0.5) { at = GetTime(); setup_refresh_files(c); } }
     bool mine = A.cj->active && !strcmp(A.cj->casePath, c->s.path);
     bool jobHere = !strcmp(A.cj->casePath, c->s.path) && A.cj->n > 0;
     if (A.chartMax) {                                         /* the chart takes the whole page */
@@ -1585,6 +2014,7 @@ void page_run(Rectangle r)
     float top = ui_scroll_begin(sc, left);
     float x = left.x + 28, w = lw - 56, y = top + 28;
     ui_text(F_SEMI, TH.lcars ? 26 : 20, ui_cap("Run"), x, y - (TH.lcars ? 3 : 0), head_color()); y += 40;
+    y += stl_workflow(c, x, y, w);                             /* a case made from an STL: where it is, STL to run */
     {   /* a preCICE participant runs with its partners, from the coupled run */
         char par[PL_PATH], who[64];
         if (precice_participant(c, par, sizeof par, who, sizeof who)) {
@@ -1663,6 +2093,7 @@ void page_run(Rectangle r)
     y += 32;
     ui_divider(x, y, w); y += 20;
     if (!mine) { y += precheck_panel(c, x, y, w); ui_divider(x, y - 4, w); y += 16; }
+    { ui_disable(false); float rh = reports_panel(c, x, y, w); if (rh > 0) { y += rh; ui_divider(x, y - 4, w); y += 16; } ui_disable(mine); }
     { ui_disable(false); float ch = converge_panel(c, x, y, w); if (ch > 0) { y += ch; ui_divider(x, y - 4, w); y += 16; } ui_disable(mine); }
 
     /* pipeline */
@@ -1716,7 +2147,7 @@ void page_run(Rectangle r)
         for (int s = 0; s < ST_COUNT; s++) {
             if (!step_available(s, pn)) continue;
             bool forced = s == ST_SOLVER || s == ST_DECOMPOSE || s == ST_RECONSTRUCT;
-            bool skipCont = A.continueRun && (s == ST_RESTORE || s == ST_BLOCKMESH || s == ST_SNAPPY || s == ST_FEATURES || s == ST_SETFIELDS ||
+            bool skipCont = A.continueRun && (s == ST_RESTORE || s == ST_BLOCKMESH || s == ST_SNAPPY || s == ST_FEATURES || s == ST_SETFIELDS || s == ST_START ||
                                               s == ST_TOPOSET || s == ST_SPLIT || s == ST_RESTORE_REGIONS || s == ST_CHANGEDICT ||
                                               (s == ST_DECOMPOSE && c->s.procTimes > 0));
             /* state from the job, if it ran here */
@@ -1738,6 +2169,13 @@ void page_run(Rectangle r)
             const char *lab = s == ST_SOLVER ? (c->s.app[0] ? c->s.app : "Solver") : STEP_LABEL[s];
             ui_text(s == ST_SOLVER ? F_SEMI : F_MED, 13.5f, lab, row.x + 30, row.y + 3, on ? TH.text : TH.text3);
             const char *hint = s == ST_SOLVER ? (pn > 1 ? "Run in parallel with mpirun" : "Run the solver") : STEP_HINT[s];
+            char sh[160];
+            if (s == ST_START) {
+                char l2[32], c2[8];
+                sim_start_command(c->s.path, l2, sizeof l2, c2, 0);
+                pl_fmt_ui(sh, sizeof sh, !strcmp(l2, "mapFields") ? "mapFields: another case's last results onto this mesh" : "potentialFoam: a flow that already goes round the part");
+                hint = sh;
+            }
             ui_text_clip(F_REG, 12, skipCont ? "Skipped when continuing" : hint, row.x + 30, row.y + 22, w - 110, TH.text3);
             float ix = row.x + w - 12;
             if (stt == JS_RUNNING) ui_spinner(ix, row.y + 12, 7, TH.accent);
@@ -1830,17 +2268,25 @@ void page_run(Rectangle r)
     else if (paused) { snprintf(stBuf, sizeof stBuf, "Paused at t = %s", pausedAt[0] ? pausedAt : case_latest_result(&c->s)); stTxt = stBuf; stC = TH.warn; stIc = ICON_PAUSE; stopped = true; }
     else if (jobHere && A.cj->failed) { stTxt = "Failed"; stC = TH.err; stIc = ICON_CIRCLE_X; failed = true; }
     else if (jobHere && A.cj->stopped) { stTxt = "Stopped"; stC = TH.warn; stIc = ICON_OCTAGON_X; stopped = true; }
-    else if (jobHere && A.cj->finished) { stTxt = "Finished"; stC = TH.ok; stIc = ICON_CIRCLE_CHECK; }
+    else if (jobHere && A.cj->finished) { stTxt = pm && pm->converged ? "Converged" : "Finished"; stC = TH.ok; stIc = ICON_CIRCLE_CHECK; }
     else if (pm && pm->fatal) { stTxt = "Last run failed"; stC = TH.err; stIc = ICON_CIRCLE_X; failed = true; }
-    else if (pm && pm->ended) { stTxt = "Last run finished"; stC = TH.ok; stIc = ICON_CIRCLE_CHECK; }
+    else if (pm && pm->ended) { stTxt = pm->converged ? "Last run converged" : "Last run finished"; stC = TH.ok; stIc = ICON_CIRCLE_CHECK; }
     else if (c->s.runningLog[0]) { stTxt = "Running in another process"; stC = TH.accent; stIc = ICON_CIRCLE_DOT; }
     else if (pm && pm->steps > 0) { stTxt = "Last run stopped"; stC = TH.warn; stIc = ICON_OCTAGON_X; stopped = true; }
     else { stTxt = "Ready"; stC = TH.text2; stIc = ICON_CIRCLE_DOT; }
     if (stIc) ui_icon(stIc, mx + 10, my + 13, 20, stC); else ui_spinner(mx + 10, my + 13, 9, stC);
     ui_text(F_SEMI, TH.lcars ? 24 : 20, ui_cap(stTxt), mx + 30, my - (TH.lcars ? 2 : 0), TH.lcars ? stC : TH.text);
+    /* simpleFoam's residualControl ended it before the end time: say so, or it looks cut short */
+    char convWhy[200] = "";
+    if (pm && pm->converged)
+        snprintf(convWhy, sizeof convWhy, "%s converged at %g: all residuals under their targets (Physics > Setup > Run)", c->s.app[0] ? c->s.app : "The solver", pm->time);
+    float subX = mx + 40 + ui_text_w(F_SEMI, TH.lcars ? 24 : 20, ui_cap(stTxt)), subW = mx + mw - subX;
     if (mine && A.cj->cur < A.cj->n) {
-        char t[160]; snprintf(t, sizeof t, "Step %d of %d: %s", A.cj->cur + 1, A.cj->n, A.cj->steps[A.cj->cur].label);
-        ui_text(F_REG, 13.5f, t, mx + 40 + ui_text_w(F_SEMI, TH.lcars ? 24 : 20, ui_cap(stTxt)), my + 5, TH.text2);
+        char t[360]; snprintf(t, sizeof t, "Step %d of %d: %s", A.cj->cur + 1, A.cj->n, A.cj->steps[A.cj->cur].label);
+        if (convWhy[0]) { size_t l = strlen(t); snprintf(t + l, sizeof t - l, "  -  %s", convWhy); }
+        ui_text_clip(F_REG, 13.5f, t, subX, my + 5, subW, TH.text2);
+    } else if (convWhy[0] && !failed && !stopped) {
+        ui_text_clip(F_REG, 13.5f, convWhy, subX, my + 5, subW, TH.ok);
     } else if (failed && failing_log() >= 0) {
         char t[200]; snprintf(t, sizeof t, "The error is in %s", A.logs.logs[failing_log()].name);
         ui_text(F_REG, 13.5f, t, mx + 40 + ui_text_w(F_SEMI, TH.lcars ? 24 : 20, ui_cap(stTxt)), my + 5, TH.err);
@@ -1856,8 +2302,15 @@ void page_run(Rectangle r)
     time_ruler((Rectangle){ mx, my, mw, 60 }, c->s.startTime, c->s.endTime, tNow, barC);
     my += 74;
 
-    /* kpis */
-    float kw = mw / 6;
+    /* kpis: six in a row, or two rows of three when their labels don't fit (bug hunt 2026-11-01: at a large UI scale
+       "TIME STEPSCOURANT MAXTIME STEP" ran together) */
+    static const char *const KL[6] = { "Time steps", "Courant max", "Time step", "Solver time", "Remaining", "Sim time / s" };
+    float kl = 0;
+    for (int i = 0; i < 6; i++) kl = fmaxf(kl, ui_text_w(F_REG, 12.5f, KL[i]));
+    bool twoRows = kl > mw / 6 - 4;                         /* (one row whenever the labels fit: two cost the chart below its room) */
+    float kw = twoRows ? mw / 3 : mw / 6;
+    float my2 = twoRows ? my + 58 : my;                      /* the second three's row */
+    float kx2 = twoRows ? mx - 3 * kw : mx;                  /* ... and their x, so mx + 3 kw lands at mx */
     char v[64];
     snprintf(v, sizeof v, "%d", pm ? pm->steps : 0);
     kpi((Rectangle){ mx, my, kw, 50 }, "Time steps", v, TH.text);
@@ -1867,7 +2320,7 @@ void page_run(Rectangle r)
     snprintf(v, sizeof v, pm && pm->deltaT > 0 ? "%.3g" : "%g", pm && pm->deltaT > 0 ? pm->deltaT : c->s.deltaT);
     kpi((Rectangle){ mx + 2 * kw, my, kw, 50 }, "Time step", v, TH.text);
     pl_duration(v, sizeof v, pm ? pm->execTime : 0);
-    kpi((Rectangle){ mx + 3 * kw, my, kw, 50 }, "Solver time", pm && pm->execTime > 0 ? v : "-", TH.text);
+    kpi((Rectangle){ kx2 + 3 * kw, my2, kw, 50 }, "Solver time", pm && pm->execTime > 0 ? v : "-", TH.text);
     double eta = -1, rate = -1;
     /* wall-clock time when the log has it (ClockTime: what you wait), CPU time early on (ClockTime counts whole seconds) */
     double el = pm && pm->clockTime >= 5 ? pm->clockTime : pm ? pm->execTime : 0;
@@ -1876,10 +2329,10 @@ void page_run(Rectangle r)
         eta = (c->s.endTime - pm->time) / rate;
     }
     pl_duration(v, sizeof v, eta);
-    kpi((Rectangle){ mx + 4 * kw, my, kw, 50 }, "Remaining", mine && eta >= 0 ? v : "-", TH.text);
+    kpi((Rectangle){ kx2 + 4 * kw, my2, kw, 50 }, "Remaining", mine && eta >= 0 ? v : "-", TH.text);
     snprintf(v, sizeof v, rate > 0 ? "%.3g /s" : "-", rate);
-    kpi((Rectangle){ mx + 5 * kw, my, kw, 50 }, "Sim time per second", v, TH.text);
-    my += 66;
+    kpi((Rectangle){ kx2 + 5 * kw, my2, kw, 50 }, "Sim time / s", v, TH.text);
+    my = my2 + 66;
     my += flavour_run(c, pm, mine, mx, my, mw);              /* the screen and game themes' instrument */
 
     /* RED ALERT (3.3): the running solver is diverging, or may be */
@@ -1891,10 +2344,11 @@ void page_run(Rectangle r)
         if (cd) fd_get_resolved(cd, byCo ? "maxCo" : "deltaT", hv, sizeof hv);   /* "deltaT $dtBase": its number (H-19) */
         snprintf(hl, sizeof hl, "Halve %s (%s -> %g)", byCo ? "maxCo" : "Δt", hv, atof(hv) / 2);
         const char *sl = app_can_pause() ? "Stop and write" : "Stop";
+        bool rob = setup_robust_offer(c);                    /* plan step 9: the setup's numerics, Robust with one click */
         float w1 = ui_button_width(ICON_PAUSE, sl), w2 = ui_button_width(ICON_GAUGE, hl), w3 = ui_button_width(NULL, "Continue");
-        float bw = fmaxf(w1, fmaxf(w2, w3));
+        float bw = fmaxf(fmaxf(w1, rob ? ui_button_width(ICON_WRENCH, "Stop, use Robust") : 0), fmaxf(w2, w3));
         float cw = mw - bw - 16;
-        float ch = fmaxf(callout_height(cw, alert_title(&A.alert), A.alert.text), 3 * 38 + 16);
+        float ch = fmaxf(callout_height(cw, alert_title(&A.alert), A.alert.text), (rob ? 4 : 3) * 38 + 16);
         Rectangle cr = { mx, my, cw, ch };
         callout(cr, red ? TOAST_ERR : TOAST_WARN, ICON_TRIANGLE_ALERT, alert_title(&A.alert), A.alert.text);
         if (red && TH.lcars) {                                /* a slow pulse (1 Hz, well under the 3 Hz flash limit) */
@@ -1920,6 +2374,13 @@ void page_run(Rectangle r)
             A.alertDismissSteps = prim2 >= 0 ? A.logs.logs[prim2].steps : 0;
         }
         ui_tooltip((Rectangle){ bx, my + 84, bw, 36 }, "Hide this until it gets worse");
+        if (rob) {
+            if (ui_button(ui_id("ra-robust"), (Rectangle){ bx, my + 126, bw, 36 }, ICON_WRENCH, "Stop, use Robust", BTN_SECONDARY)) {
+                robustPending = true;
+                job_stop(A.cj, GetTime());
+            }
+            ui_tooltip((Rectangle){ bx, my + 126, bw, 36 }, "Stops the run, switches Physics > Setup to Robust numerics (first-order upwind, firmly relaxed) and starts over");
+        }
         my += ch + 14;
     }
     /* the last run can be resumed: say why, with the button at hand */
@@ -1945,6 +2406,32 @@ void page_run(Rectangle r)
         if (ui_button(ui_id("mon-resume"), (Rectangle){ mx + mw - bw, my + (ch - 38) / 2, bw, 38 }, ICON_PLAY, lab, BTN_PRIMARY)) app_resume_run();
         ui_disable(false);
         my += ch + 14;
+    }
+    /* a run of the setup's that diverged (plan step 9): Robust numerics, one click */
+    /* ... or one that ran all its iterations without its residuals getting under their targets (a transonic aerofoil on
+       Balanced stalls at 1e-2: Robust converges it) */
+    bool diverged = !mine && pm && pm->fatal && run_diverged(pm->fatalMsg);
+    bool stalled = !mine && pm && pm->ended && !pm->fatal && !pm->converged && pm->steps > 0 && case_has_results(&c->s) && setup_expects_convergence(c);
+    if ((diverged || stalled) && setup_robust_offer(c)) {
+        const char *t = diverged ? "The run diverged" : "The run didn't converge";
+        const char *d = diverged ? "Robust numerics usually gets a case like this going: first-order upwind and firmly relaxed. It rewrites "
+                                   "system/fvSchemes and fvSolution (Physics > Setup, Solver) and starts over. Once it runs, Balanced "
+                                   "from its results is sharper."
+                                 : "It ran all its iterations with the residuals still above their targets. Robust numerics (first-order upwind, "
+                                   "firmly relaxed) often settles a case that keeps wandering. It rewrites system/fvSchemes and fvSolution and "
+                                   "starts over.";
+        float bw = ui_button_width(ICON_WRENCH, "Use Robust and start over");
+        float cw = mw - bw - 16;
+        float ch = fmaxf(callout_height(cw, t, d), 52);
+        callout((Rectangle){ mx, my, cw, ch }, TOAST_WARN, ICON_WRENCH, t, d);
+        ui_disable(A.cj->active);
+        if (ui_button(ui_id("run-robust"), (Rectangle){ mx + mw - bw, my + (ch - 38) / 2, bw, 38 }, ICON_WRENCH, "Use Robust and start over", BTN_PRIMARY)) robustPending = true;
+        ui_disable(false);
+        my += ch + 14;
+    }
+    if (robustPending && !A.cj->active) {                    /* after the stop above has gone through */
+        robustPending = false;
+        if (setup_go_robust(c)) { A.continueRun = false; A.runConfirmed = true; start_run(); }
     }
     /* fatal error card */
     if (pm && pm->fatal && pm->fatalMsg[0]) {

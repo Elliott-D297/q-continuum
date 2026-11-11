@@ -13,11 +13,11 @@ sb=$out/sandbox
 # to the app (and what it starts) only, not to this script's own copies (failure injection: the disk-full shim)
 [ -n "${QC_KEEP_SANDBOX:-}" ] || rm -rf "$sb"
 mkdir -p "$sb/cfg/q-continuum" "$sb/ws" "$sb/home"
-printf 'workspace=%s\nprocesses=%s\nui_scale=1.0\nstyle=%s\nhistory=1\nnotify=0\nreview_save=0\n' "$sb/ws" "${QC_PROCS:-4}" "${QC_THEME:-0}" > "$sb/cfg/q-continuum/settings.ini"
+printf 'workspace=%s\nprocesses=%s\nui_scale=%s\nstyle=%s\nhistory=1\nnotify=0\nreview_save=0\n' "$sb/ws" "${QC_PROCS:-4}" "${QC_UI_SCALE:-1.0}" "${QC_THEME:-0}" > "$sb/cfg/q-continuum/settings.ini"
 # "#settings: key=value" lines in the script go into settings.ini ($SB expanded): state left by an earlier session
 grep '^#settings: ' "$script" | sed 's/^#settings: //' | SB=$sb envsubst '$SB' >> "$sb/cfg/q-continuum/settings.ini"
 [ -z "${QC_KEEP_SANDBOX:-}" ] && [ -n "${QC_SEED_CASES:-}" ] && for c in $QC_SEED_CASES; do cp -a "$c" "$sb/ws/"; done
-export OUT=$out LAUNCH=$out/launches.txt SB=$sb
+export OUT=$out LAUNCH=$out/launches.txt SB=$sb QC_TESTS=$here   # QC_TESTS: shell steps find tests/tools
 envsubst '$OUT $LAUNCH $SB' < "$script" > "$out/script${QC_PHASE:-}.qcs"
 SB=$sb XDG_CONFIG_HOME=$sb/cfg XDG_CACHE_HOME=$sb/cache QC_TEST_DEME_HOME=$sb/home QC_TEST_LAUNCH=$out/launches.txt QC_TEST_TERMINAL=$out/terminal.txt QC_VIDEOS=$out/videos \
     timeout ${QC_TIMEOUT:-600} env ${QC_APP_ENV:-} "$bin" --hidden --script "$out/script${QC_PHASE:-}.qcs" "$@" > "$out/journey${QC_PHASE:-}.log" 2>&1

@@ -1,0 +1,56 @@
+# Lift and drag in 3-D (user request 2026-10-26): a 0.1 m cube in a wind tunnel, Monitor forces on in Physics > Setup with
+# the reference from the part (length 0.1 m, frontal area 0.01 m²), run, Cd and Cl written and shown on the Run page.
+budget p95 80 max 600
+shell mkdir -p $SB/ws/cube/system && python3 -c "L=0.1;P=lambda a,b,c:(a*L,b*L,c*L);F=[(P(0,0,0),P(0,0,1),P(0,1,1),P(0,1,0)),(P(1,0,0),P(1,1,0),P(1,1,1),P(1,0,1)),(P(0,0,0),P(1,0,0),P(1,0,1),P(0,0,1)),(P(0,1,0),P(0,1,1),P(1,1,1),P(1,1,0)),(P(0,0,0),P(0,1,0),P(1,1,0),P(1,0,0)),(P(0,0,1),P(1,0,1),P(1,1,1),P(0,1,1))];o=open('$SB/ws/cube.stl','w');o.write('solid cube\n');[o.write('facet normal 0 0 0\nouter loop\n'+''.join('vertex %g %g %g\n'%v for v in t)+'endloop\nendfacet\n') for q in F for t in ((q[0],q[1],q[2]),(q[0],q[2],q[3]))];o.write('endsolid cube\n')" && printf 'FoamFile { version 2.0; format ascii; class dictionary; object controlDict; }\napplication simpleFoam;\nstartTime 0;\nendTime 10;\ndeltaT 1;\nwriteControl timeStep;\nwriteInterval 10;\n' > $SB/ws/cube/system/controlDict
+open $SB/ws/cube
+click nav:mesh
+wait-until page Mesh
+click text:STL mesher
+wait 5
+click stl-path
+enter $SB/ws/cube.stl
+wait 10
+click stl-next
+wait 3
+click stl-domain#1
+wait 10
+screenshot $OUT/0_tunnel.png
+click wf-next
+wait-until job running timeout 20
+wait-until job finished timeout 600
+assert log log.checkMesh Mesh OK.
+click nav:physics
+wait-until page Physics
+wait 5
+# External aero (setup plan step 2) switches lift and drag on; they are on the Reports step
+click su-tmpl#0
+wait 10
+assert log simulation.ini template = externalAero
+click su-step#5
+wait 10
+assert log simulation.ini forces = 1
+assert log simulation.ini reference_length = 0.1
+assert log simulation.ini reference_area = 0.01
+wait 10
+screenshot $OUT/1_forces.png
+click su-write
+wait 10
+assert log system/controlDict type            forceCoeffs;
+assert log system/controlDict Aref            0.01;
+shell foamDictionary system/controlDict -entry endTime -set 60 > /dev/null && foamDictionary system/controlDict -entry writeInterval -set 60 > /dev/null
+wait 20
+click nav:run
+wait-until page Run
+wait 10
+click wf-next
+wait-until job running timeout 30
+wait-until job finished timeout 600
+assert log log.simpleFoam End
+assert not log log.simpleFoam FOAM FATAL
+assert file postProcessing/forceCoeffs/0/coefficient.dat
+wait 30
+assert widget run-coeffs
+screenshot $OUT/2_run.png
+click run-coeffs
+wait 20
+screenshot $OUT/3_coeffs.png

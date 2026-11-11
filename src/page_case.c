@@ -26,6 +26,25 @@ static const char *mesh_tool(void)
     return NULL;
 }
 
+const MeshVerdict *app_mesh_verdict(const Case *c)
+{
+    static struct { char path[PL_PATH]; time_t mt; MeshVerdict v; } K;
+    char p[PL_PATH]; pl_join(p, sizeof p, c->s.path, "log.checkMesh");
+    time_t mt = pl_mtime(p);
+    if (strcmp(K.path, p) || mt != K.mt) { pl_strlcpy(K.path, p, sizeof K.path); K.mt = mt; case_mesh_verdict(c->s.path, &K.v); }
+    return &K.v;
+}
+
+void app_mesh_verdict_text(const MeshVerdict *v, char *buf, size_t cap)
+{
+    buf[0] = 0;
+    if (!v || !v->boundarySkewOnly) return;
+    pl_fmt_ui(buf, cap, "The one check that failed is skewness on %ld boundary face%s%s%s (largest %.3g; checkMesh's limit is 4). "
+              "A skew face is one whose centre sits off the line between the cells it joins. These are faces of the boundary "
+              "itself, where the prism layers run out onto it: snappyHexMesh allows up to 20 there, and no cell inside the flow is "
+              "affected. The mesh is fine to run.", v->nSkew, v->nSkew == 1 ? "" : "s", v->skewPatch[0] ? " of " : "", v->skewPatch, v->maxSkew);
+}
+
 void app_generate_mesh(void)
 {
     char p[PL_PATH];
@@ -35,13 +54,18 @@ void app_generate_mesh(void)
     bool sn = pl_is_file(p);
     if (!bm && !sn) { ui_toast(TOAST_WARN, "This case has no blockMeshDict or snappyHexMeshDict in system/"); return; }
     if (!app_require_foam() || !app_can_start()) return;
+    case_rescan(A.cs);
+    if (case_has_results(&A.cs->s)) {                      /* fields on the old mesh: the Clean dialog, then this again */
+        app_clean_then("The results were computed on the mesh that is about to be replaced, so they go first.", app_generate_mesh);
+        return;
+    }
     app_save_all(true);
     job_reset(A.cj, "Mesh");
     if (bm) job_add(A.cj, "blockMesh", "blockMesh", "blockMesh", "log.blockMesh", false);
     if (sn) {
         pl_join(p, sizeof p, A.cs->s.path, "system/surfaceFeatureExtractDict");
         if (pl_is_file(p)) job_add(A.cj, "surfaceFeatureExtract", "surfaceFeatureExtract", "surfaceFeatureExtract", "log.surfaceFeatureExtract", false);
-        job_add(A.cj, "snappyHexMesh", "snappyHexMesh", "snappyHexMesh -overwrite", "log.snappyHexMesh", false);
+        job_add(A.cj, "snappyHexMesh", "snappyHexMesh", SNAPPY_CMD, "log.snappyHexMesh", false);
     }
     job_add(A.cj, "checkMesh", "checkMesh", "checkMesh", "log.checkMesh", false);
     CaseSummary *cs = &A.cs->s;
@@ -521,10 +545,15 @@ void page_mesh(Rectangle r)
     snprintf(sub, sizeof sub, mt ? "%s builds this mesh from system/%sDict. Change the settings here, then generate the mesh again."
                                  : c->s.meshed ? "This case brings its own mesh in constant/polyMesh."
                                                : "No mesh yet, and no blockMeshDict to make one: build it on the SALOME tab, or convert one into constant/polyMesh.", mt, mt);
-    if (A.meshTab == 1) snprintf(sub, sizeof sub, "SALOME builds this mesh from salome/mesh.py; ideasUnvToFoam converts it.");
-    if (A.meshTab == 3) snprintf(sub, sizeof sub, "Mesh any STL: snappyHexMesh here, or SALOME's tetrahedra, polyhedra and body-fitted hexahedra.");
+    {   /* an STL mesher case: its dictionaries are the mesher's output, not the place to change it */
+        char mi[PL_PATH]; pl_join(mi, sizeof mi, c->s.path, "mesher/mesher.ini");
+        if (mt && pl_is_file(mi)) snprintf(sub, sizeof sub, "The STL mesher writes system/%sDict from its settings: change them on the STL mesher tab.", mt);
+    }
+    if (A.meshTab == 1) snprintf(sub, sizeof sub, "Import a mesh made in SALOME (UNV, MED, or the saved study) or Gmsh, or build one with a SALOME script.");
+    if (A.meshTab == 3) snprintf(sub, sizeof sub, "Mesh any STL or STEP part: snappyHexMesh here, or SALOME's tetrahedra, polyhedra and body-fitted hexahedra.");
     float bw = ui_button_width(ICON_PLAY, "Generate mesh"), bw2 = ui_button_width(ICON_CIRCLE_CHECK, "Check mesh");
     y += page_header(x, y, w - bw - bw2 - 30, "Mesh", sub);
+    if (A.meshTab == 3 || A.meshTab == 1) y += stl_workflow(c, x, y, w);   /* STL mesher, SALOME (an imported mesh) */
     ui_disable(A.cj->active || !mt);
     if (A.meshTab == 0 && ui_button(ui_id("mesh-gen"), (Rectangle){ x + w - bw, top + 32, bw, 36 }, ICON_PLAY, "Generate mesh", BTN_PRIMARY)) app_generate_mesh();
     ui_disable(A.cj->active || !c->s.meshed);
@@ -548,8 +577,11 @@ void page_mesh(Rectangle r)
         const char *t = m->meshOk ? "checkMesh: Mesh OK" : "checkMesh reported failed checks";
         const char *d = m->meshOk ? "All quality checks passed the last time the mesh was checked." :
                                     "Open log.checkMesh on the Run page for details. Skewness and non-orthogonality are the usual culprits.";
+        char soft[420]; app_mesh_verdict_text(m->meshOk ? NULL : app_mesh_verdict(c), soft, sizeof soft);
+        if (soft[0]) { t = "checkMesh: usable, with a note"; d = soft; }
         float ch = callout_height(w, t, d);
-        callout((Rectangle){ x, y, w, ch }, m->meshOk ? TOAST_OK : TOAST_WARN, m->meshOk ? ICON_CIRCLE_CHECK : ICON_TRIANGLE_ALERT, t, d);
+        callout((Rectangle){ x, y, w, ch }, m->meshOk ? TOAST_OK : soft[0] ? TOAST_INFO : TOAST_WARN,
+                m->meshOk ? ICON_CIRCLE_CHECK : soft[0] ? ICON_INFO : ICON_TRIANGLE_ALERT, t, d);
         y += ch + 20;
     }
 
@@ -557,16 +589,17 @@ void page_mesh(Rectangle r)
 
     /* the dictionaries as they are, a SALOME script, or the mesh itself */
     if (A.meshTab < 0) {
-        char q[PL_PATH], st[PL_PATH]; pl_join(q, sizeof q, c->s.path, "salome/mesh.py"); pl_join(st, sizeof st, c->s.path, "mesher/mesher.ini");
-        A.meshTab = pl_is_file(st) ? 3 : pl_is_file(q) ? 1 : 0;
+        char q[PL_PATH], st[PL_PATH], im[PL_PATH]; pl_join(q, sizeof q, c->s.path, "salome/mesh.py"); pl_join(st, sizeof st, c->s.path, "mesher/mesher.ini");
+        pl_join(im, sizeof im, c->s.path, "salome/imported.txt");          /* an imported mesh: where it can be imported again */
+        A.meshTab = pl_is_file(st) ? 3 : pl_is_file(q) || pl_is_file(im) ? 1 : 0;
     }
     /* shown in this order; A.meshTab keeps its numbers (0 dictionaries, 1 SALOME, 2 view, 3 STL mesher) */
-    static const char *mtabs[] = { "Dictionaries", "STL mesher", "SALOME script", "View" };
-    static const int TAB_OF[4] = { 0, 3, 1, 2 };
+    static const char *mtabs[] = { "Dictionaries", "STL mesher", "SALOME script", "View", "Quality" };
+    static const int TAB_OF[5] = { 0, 3, 1, 2, 4 };
     int shown = 0;
-    for (int k = 0; k < 4; k++) if (TAB_OF[k] == A.meshTab) shown = k;
+    for (int k = 0; k < 5; k++) if (TAB_OF[k] == A.meshTab) shown = k;
     float tth;
-    if (ui_tabs(ui_id("mesh-tabs"), x, y, mtabs, 4, &shown, &tth)) A.meshTab = TAB_OF[shown];
+    if (ui_tabs(ui_id("mesh-tabs"), x, y, mtabs, 5, &shown, &tth)) A.meshTab = TAB_OF[shown];
     ui_divider(x, y + tth, w);
     y += tth + 22;
     if (A.meshTab == 2) {                                  /* the mesh: 3-D surface; a 2-D case also its cross section */
@@ -597,6 +630,11 @@ void page_mesh(Rectangle r)
         } else h = meshview_panel((Rectangle){ x, y, vw, h }, c);
         y += h + 20;
         ui_scroll_end(sc, y - top + 20);
+        return;
+    }
+    if (A.meshTab == 4) {                                  /* the mesh's quality, and its export */
+        y += page_meshquality(c, x, y, w);
+        ui_scroll_end(sc, y - top + 40);
         return;
     }
     if (c->region[0]) { y += region_mesh(x, y, w); ui_scroll_end(sc, y - top + 20); return; }
@@ -636,6 +674,22 @@ void page_mesh(Rectangle r)
         float ch = callout_height(w, "Mesh out of date", body);
         callout((Rectangle){ x, y, w, ch }, TOAST_WARN, ICON_TRIANGLE_ALERT, "Mesh out of date", body);
         y += ch + 20;
+    }
+
+    /* an STL mesher case: its Generate writes these dictionaries afresh (the ones before kept as .orig), so a change made
+       here is lost then: say so before anyone types into them */
+    {
+        char mi[PL_PATH]; pl_join(mi, sizeof mi, c->s.path, "mesher/mesher.ini");
+        if (pl_is_file(mi) && (case_dict(c, "system/snappyHexMeshDict") || case_dict(c, "system/blockMeshDict"))) {
+            const char *t = "Written by the STL mesher", *d = "Generate on the STL mesher tab writes blockMeshDict and snappyHexMeshDict afresh from "
+                            "its settings (the ones before are kept as .orig), so changes made here are lost then. Change the mesh there; "
+                            "these are for looking, or for Generate mesh above with the dictionaries as they are.";
+            float ch = callout_height(w, t, d) + 46;
+            callout((Rectangle){ x, y, w, ch }, TOAST_INFO, ICON_INFO, t, d);
+            float bw3 = ui_button_width(ICON_BOX, "Open the STL mesher");
+            if (ui_button(ui_id("mesh-to-stl"), (Rectangle){ x + 42, y + ch - 44, bw3, 34 }, ICON_BOX, "Open the STL mesher", BTN_SECONDARY)) A.meshTab = 3;
+            y += ch + 20;
+        }
     }
 
     /* tiles */
@@ -758,8 +812,8 @@ void page_mesh(Rectangle r)
         y += 24;
     }
     if (!bm && !sn && !c->s.meshed) {
-        const char *msg = "SALOME tab: write a mesh script from the template and run it; Q-Continuum converts the result. "
-                          "Meshes from Gmsh (gmshToFoam) or Fluent (fluentMeshToFoam) can be converted in a terminal; they land in constant/polyMesh.";
+        const char *msg = "STL mesher: mesh a part from an STL or STEP file. SALOME script: import a mesh made in SALOME (UNV, MED or the "
+                          "saved study) or Gmsh (.msh), or build one with a SALOME script. Either way it lands in constant/polyMesh.";
         float ch = callout_height(w, "No mesh yet", msg);
         callout((Rectangle){ x, y, w, ch }, TOAST_WARN, ICON_TRIANGLE_ALERT, "No mesh yet", msg);
         y += ch + 20;

@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "app.h"
+#include "simsetup.h"
 #include "program.h"
 #include "fieldinfo.h"
 #include "physics.h"
@@ -474,12 +475,32 @@ void page_physics(Rectangle r)
     pl_fmt_ui(sub, sizeof sub, "Models and material properties from %s/. Changes are written when you save.", dir);
     y += page_header(x, y, w, "Physics", sub);
     y += region_bar(x, y, w);
-    static const char *tabs[] = { "Models", "All files" };
+    /* shown in this order; A.physicsTab keeps its numbers (0 models, 1 all files, 2 setup). Setup writes a single-region
+       simpleFoam/pimpleFoam case: it is there for a case made from an STL, one set up there before, or an empty one
+       (no physics dictionaries yet); never for a multi-region case (chtMultiRegionFoam ... keeps its own files), where
+       Write case files would have replaced them. Where it is, the case opens on it. */
+    char ini[PL_PATH], msh[PL_PATH];
+    pl_join(ini, sizeof ini, A.cs->s.path, "simulation.ini");
+    pl_join(msh, sizeof msh, A.cs->s.path, "mesher/mesher.ini");
+    bool bare = A.cs->s.nRegions == 0 && !A.cs->region[0] &&
+                !case_dict(A.cs, "constant/transportProperties") && !case_dict(A.cs, "constant/turbulenceProperties") &&
+                !case_dict(A.cs, "constant/momentumTransport") && !case_dict(A.cs, "constant/thermophysicalProperties");
+    bool setupOk = A.cs->s.nRegions == 0 && (pl_is_file(ini) || pl_is_file(msh) || bare);
+    if (A.physicsTab < 0) A.physicsTab = setupOk ? 2 : 0;
+    if (A.physicsTab == 2 && !setupOk) A.physicsTab = 0;
+    static const char *tabsAll[] = { "Setup", "Models", "All files" }, *tabsNo[] = { "Models", "All files" };
+    static const int TAB_ALL[3] = { 2, 0, 1 }, TAB_NO[2] = { 0, 1 };
+    const char **tabs = setupOk ? tabsAll : tabsNo;
+    const int *TAB_OF = setupOk ? TAB_ALL : TAB_NO;
+    int nt = setupOk ? 3 : 2;
+    int shown = 0;
+    for (int k = 0; k < nt; k++) if (TAB_OF[k] == A.physicsTab) shown = k;
     float th;
-    ui_tabs(ui_id("phys-tabs"), x, y, tabs, 2, &A.physicsTab, &th);
+    if (ui_tabs(ui_id("phys-tabs"), x, y, tabs, nt, &shown, &th)) A.physicsTab = TAB_OF[shown];
     ui_divider(x, y + th, w);
     y += th + 26;
-    if (A.physicsTab == 0) y += physics_models(x, y, w);
+    if (A.physicsTab == 2) { y += stl_workflow(A.cs, x, y, w); y += page_setup(x, y, w); }
+    else if (A.physicsTab == 0) y += physics_models(x, y, w);
     else {
         static const char *const skip[] = { NULL };
         y += files_in(dir, x, y, w, skip);
@@ -561,6 +582,27 @@ void page_numerics(Rectangle r)
     snprintf(sub, sizeof sub, "Discretisation schemes and linear solvers from %s and %s.", case_rpath(A.cs, "system/fvSchemes"), case_rpath(A.cs, "system/fvSolution"));
     y += page_header(x, y, w, "Numerics", sub);
     y += region_bar(x, y, w);
+    /* plan step 9: what the setup's numerics preset wrote, or Custom once edited by hand */
+    int nm = A.cs && A.cs->s.nRegions == 0 ? sim_numerics_of(A.cs->s.path) : -1;
+    if (nm >= 0) {
+        bool ed = sim_numerics_edited(A.cs->s.path);
+        char t[80], d[400];
+        if (ed) {
+            pl_fmt_ui(t, sizeof t, "Custom numerics");
+            pl_fmt_ui(d, sizeof d, "Edited since Physics > Setup wrote its %s preset here. Writing the setup again keeps your edits, except where the preset "
+                                   "sets the same setting; Back to %s on Setup's Solver step drops them.", NUM_NAME[nm], NUM_NAME[nm]);
+        } else {
+            pl_fmt_ui(t, sizeof t, "%s numerics, from Physics > Setup", NUM_NAME[nm]);
+            pl_fmt_ui(d, sizeof d, "These are exactly what the setup's %s preset wrote. Edits here are kept when it writes again, and Setup then shows the "
+                                   "numerics as Custom.", NUM_NAME[nm]);
+        }
+        float bw = ui_button_width(ICON_ARROW_RIGHT, "Setup, Solver");
+        float cw = w - bw - 16;
+        float ch = fmaxf(callout_height(cw, t, d), 48);
+        callout((Rectangle){ x, y, cw, ch }, TOAST_INFO, ed ? ICON_PENCIL : ICON_SLIDERS_HORIZONTAL, t, d);
+        if (ui_button(ui_id("num-setup"), (Rectangle){ x + w - bw, y + (ch - 36) / 2, bw, 36 }, ICON_ARROW_RIGHT, "Setup, Solver", BTN_SECONDARY)) setup_open_step(6);
+        y += ch + 14;
+    }
     static const char *tabs[] = { "Schemes", "Solvers", "Parallel" };
     float th;
     ui_tabs(ui_id("num-tabs"), x, y, tabs, 3, &A.numericsTab, &th);
@@ -634,8 +676,24 @@ static bool root_file_listed(const char *dir, const char *n)
     return true;
 }
 
-static float file_group(Rectangle r, float y, const char *label, int colorIdx)
+/* New file, its path started in dir ("" the case folder) */
+static void new_file_in(const char *dir)
 {
+    A.modal = MD_NEW_FILE; A.mErr[0] = 0; A.mFlag2 = false; A.mSel = 0;
+    snprintf(A.mText, sizeof A.mText, "%s%s", dir, dir[0] ? "/" : "");
+}
+
+/* a folder's heading; newDir: a + button on its right that starts a new file there (NULL: none) */
+static float file_group(Rectangle r, float y, const char *label, int colorIdx, const char *newDir)
+{
+    if (newDir) {
+        char tip[200]; snprintf(tip, sizeof tip, "New file in %s", newDir[0] ? newDir : "the case folder");
+        Rectangle b = { r.x + r.width - 44, y - 3, 26, 26 };
+        if (ui_button(ui_idn(ui_id(newDir[0] ? newDir : "."), 0x4e46), b, ICON_PLUS, NULL, BTN_ICON)) new_file_in(newDir);
+        ui_tooltip(b, tip);
+        r.width -= 34;
+    }
+    {
     if (TH.lcars) {
         Color fc = TH.lc[colorIdx % 8];
         ui_rect((Rectangle){ r.x + 14, y + 1, 18, 18 }, 9, fc);
@@ -644,6 +702,7 @@ static float file_group(Rectangle r, float y, const char *label, int colorIdx)
     } else {
         ui_icon(ICON_FOLDER, r.x + 22, y + 10, 15, TH.text3);
         ui_text_clip(F_SEMI, 13, label, r.x + 38, y + 2, r.width - 52, TH.text2);
+    }
     }
     return 28;
 }
@@ -677,7 +736,7 @@ static void file_list(Rectangle r)
     float y = ui_scroll_begin(sc, r) + 10;
     float bw = ui_button_width(ICON_PLUS, "New file");
     if (ui_button(ui_id("f-new"), (Rectangle){ r.x + 14, y, bw, 30 }, ICON_PLUS, "New file", BTN_GHOST)) {
-        A.modal = MD_NEW_FILE; A.mErr[0] = 0;
+        new_file_in("");
         snprintf(A.mText, sizeof A.mText, "%s", c->s.prog ? "" : c->region[0] ? case_rpath(c, "system/") : "system/");
     }
     y += 42;
@@ -692,7 +751,7 @@ static void file_list(Rectangle r)
             if (strcmp(dir, cur)) {
                 if (cur[0] != '-') y += 8;
                 pl_strlcpy(cur, dir, sizeof cur);
-                y += file_group(r, y, dir[0] ? dir : c->s.name, 1 + (int)(strlen(dir) % 6));
+                y += file_group(r, y, dir[0] ? dir : c->s.name, 1 + (int)(strlen(dir) % 6), dir);
             }
             Rectangle rr = { r.x + 10, y, r.width - 24, 32 };
             if (ui_row(ui_id(rel), rr, !strcmp(A.filesSel, rel))) snprintf(A.filesSel, sizeof A.filesSel, "%s", rel);
@@ -711,12 +770,12 @@ static void file_list(Rectangle r)
         const NameList *root = pl_list_dir_cached(c->s.path, false, true);
         int shown = 0;
         for (int i = 0; i < root->n; i++) if (root_file_listed(c->s.path, root->names[i])) shown++;
-        if (shown) { y += file_group(r, y, "case", 0); y += file_rows(r, y, "", 0) + 12; }
+        if (shown) { y += file_group(r, y, "case", 0, ""); y += file_rows(r, y, "", 0) + 12; }
     }
     /* system and constant, with their sub-folders (regions); the fields folder of the selected region */
     const char *tops[2] = { "system", "constant" };
     for (int d = 0; d < 2; d++) {
-        y += file_group(r, y, tops[d], d * 3 + 1);
+        y += file_group(r, y, tops[d], d * 3 + 1, tops[d]);
         y += file_rows(r, y, tops[d], 0);
         NameList sub = { 0 };
         char p[PL_PATH]; pl_join(p, sizeof p, c->s.path, tops[d]);
@@ -734,7 +793,7 @@ static void file_list(Rectangle r)
         names_free(&sub);
         y += 12;
     }
-    y += file_group(r, y, c->fieldDir, 7);
+    y += file_group(r, y, c->fieldDir, 7, c->fieldDir);
     y += file_rows(r, y, c->fieldDir, 0);
     ui_scroll_end(sc, y - (r.y - roundf(sc->y)) + 10);
 }
@@ -759,7 +818,7 @@ void page_files(Rectangle r)
 
     /* a name that doesn't fit beside the buttons gets its own line above them */
     float btns = ui_button_width(ICON_EXTERNAL_LINK, "Open in editor") + ui_button_width(ICON_REFRESH_CW, "Reload") + 190 +
-                 ui_button_width(ICON_SAVE, "Save") + 30;
+                 ui_button_width(ICON_SAVE, "Save") + ui_button_width(ICON_TRASH_2, "Delete") + 38;
     bool ownLine = ui_text_w(F_SEMI, 20, A.filesSel) > w - btns;
     if (ownLine) { ui_text_clip(F_SEMI, 20, A.filesSel, x, y, w, TH.text); y += 42; }
 
@@ -782,6 +841,16 @@ void page_files(Rectangle r)
         if (fd_save(f)) ui_toast(TOAST_OK, "Saved %s", A.filesSel); else ui_toast(TOAST_ERR, "Could not write %s", A.filesSel);
     }
     ui_disable(false);
+    /* delete (user request, 2026-11-03): to the case's trash, restorable on History; not while the case's job runs */
+    float b4 = ui_button_width(ICON_TRASH_2, "Delete");
+    rx -= b4 + 8;
+    ui_disable(A.cj->active);
+    if (ui_button(ui_id("f-del"), (Rectangle){ rx, y - 4, b4, 34 }, ICON_TRASH_2, "Delete", BTN_GHOST)) {
+        A.modal = MD_DEL_FILE; A.mErr[0] = 0;
+        pl_strlcpy(A.mPath, A.filesSel, sizeof A.mPath);
+    }
+    ui_disable(false);
+    if (A.cj->active) ui_tooltip((Rectangle){ rx, y - 4, b4, 34 }, "Wait for the case's job to finish first");
     if (!ownLine) ui_text_clip(F_SEMI, 20, A.filesSel, x, y, rx - x - 14, TH.text);
     y += 50;
     if (!f) {

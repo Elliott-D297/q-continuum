@@ -1,6 +1,6 @@
 # 1.10 two instances, A: runs a long cavity, waits for B to look at it, then stops it
 open $SB/ws/cavity
-shell sed -i 's/^endTime .*/endTime         50;/; s/^writeInterval .*/writeInterval   2000;/' system/controlDict
+shell sed -i 's/^endTime .*/endTime         5000;/; s/^writeInterval .*/writeInterval   2000;/' system/controlDict
 wait 10
 click nav:run
 wait-until page Run

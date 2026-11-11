@@ -74,6 +74,8 @@ void  pl_spawn_detached(const char *script);                    /* fire and forg
 int   pl_run_wait(const char *script, char *out, size_t cap);   /* run, capture stdout    */
 char *pl_run_capture(const char *script, size_t maxBytes, int *status);   /* malloc'd stdout, at most maxBytes */
 bool  pl_which(const char *exe, char *out, size_t cap);
+void  pl_which_cache_clear(void);                  /* pl_which's answers are kept 60 s; this forgets them */
+bool  pl_slow_fs(const char *p);                   /* a Windows drive under WSL (/mnt/c ...): stats cost 1-2 ms */
 bool  pl_is_wsl(void);
 
 #endif

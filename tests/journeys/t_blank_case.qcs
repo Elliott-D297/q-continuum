@@ -1,0 +1,44 @@
+# A blank case (user request, 2026-10-26): New case > Blank case makes an empty OpenFOAM case; "A box" gives it a
+# blockMeshDict that meshes. Duplicate copies its setup and mesh but not its logs or results.
+budget p95 80 max 600
+click nav:new case
+wait 5
+click starter-blank
+wait 3
+assert modal blank
+click blank-name
+key a ctrl
+type mybox
+wait 2
+click blank-start#2
+wait 2
+assert text A 1 m box of 20 x 20 x 20 cells
+click blank-create
+wait 10
+assert page Mesh
+assert file system/controlDict
+assert file system/blockMeshDict
+assert log system/controlDict simpleFoam
+action mesh.generate
+wait-until job running timeout 20
+wait-until job finished timeout 120
+assert log log.checkMesh Mesh OK.
+assert log constant/polyMesh/boundary inlet
+note duplicate: setup and mesh, no logs
+action case.duplicate
+wait 10
+assert file $SB/ws/mybox-copy/system/blockMeshDict
+assert file $SB/ws/mybox-copy/constant/polyMesh/boundary
+assert not file $SB/ws/mybox-copy/log.checkMesh
+note the palette's way in, and a transient one that starts at the STL mesher
+action case.blank
+wait 3
+assert modal blank
+click blank-app#1
+click blank-start#0
+wait 2
+click blank-create
+wait 10
+assert file $SB/ws/case/system/controlDict
+assert log $SB/ws/case/system/controlDict pimpleFoam
+assert text Start with the part

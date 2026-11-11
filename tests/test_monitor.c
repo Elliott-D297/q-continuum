@@ -2,6 +2,7 @@
  * a sampled-sets function object (a folder per write time, no "# Time" header) is skipped and never listed again, so
  * damBreak's 100 000 sampleSets folders no longer freeze the window (2026-10-22); a time series whose first file is
  * still empty is picked up once it is written. */
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -37,11 +38,28 @@ int main(int argc, char **argv)
     for (int i = 0; i < 2000; i++) {
         snprintf(p, sizeof p, "%s/postProcessing/sampleSets/%g/line_U.xy", c, 0.001 * (i + 1)); put(p, "0 0 0 0\n0.1 1 0 0\n");
     }
+    /* wallHeatFlux: a row per wall at each time (the patch's name a column), merged into one row a time */
+    snprintf(p, sizeof p, "%s/postProcessing/wallHeatFlux/0/wallHeatFlux.dat", c);
+    put(p, "# Wall heat-flux\n# Time          \tpatch           \tmin             \tmax             \tintegral        \n"
+           "1\thot\t3.1e+01\t3.3e+01\t3.2e-02\n1\tcold\t-3.3e+01\t-3.1e+01\t-3.2e-02\n2\thot\t2.5e+01\t3.0e+01\t2.6e-02\n2\tcold\t-3.0e+01\t-2.5e+01\t-2.7e-02\n");
     /* a probe file not written yet at the first scan */
     snprintf(p, sizeof p, "%s/postProcessing/probes/0/p", c); put(p, "");
 
+    /* forces' moment.dat in v2606: the header's names in tab-separated groups, the rows plain numbers */
+    snprintf(p, sizeof p, "%s/postProcessing/rotor_torque/0/moment.dat", c);
+    put(p, "# Moment\n# Time          \ttotal_x total_y total_z\tpressure_x pressure_y pressure_z\n"
+           "1                1e-06 2e-06 -9.5e-05 0 0 -1e-05\n2                1e-06 2e-06 -9.6e-05 0 0 -1e-05\n");
+
     MonSet *s = calloc(1, sizeof *s);
     monset_open(s, c);
+    int mi = monset_find(s, "rotor_torque/moment.dat");
+    CHECK(mi >= 0, "moment.dat found");
+    if (mi >= 0) {
+        MonFile *m = &s->f[mi];
+        int tz = -1;
+        for (int k = 0; k < m->nCols; k++) if (!strcmp(m->col[k], "total_z")) tz = k;
+        CHECK(m->nCols == 6 && tz >= 0 && m->n == 2 && fabs(m->v[tz][1] + 9.6e-05) < 1e-9, "moment.dat: %d columns, total_z %d", m->nCols, tz);
+    }
     int fi = monset_find(s, "forces/force.dat");
     CHECK(fi >= 0, "forces series found (%d files)", s->n);
     if (fi >= 0) CHECK(s->f[fi].nParts == 2 && s->f[fi].n == 3, "forces: %d parts, %d rows", s->f[fi].nParts, s->f[fi].n);
@@ -50,6 +68,15 @@ int main(int argc, char **argv)
     CHECK(sk, "sampleSets skipped (%d skipped)", s->nSkip);
     for (int i = 0; i < s->n; i++) CHECK(strncmp(s->f[i].key, "sampleSets/", 11), "sampleSets file taken as a series: %s", s->f[i].key);
     CHECK(monset_find(s, "probes/p") < 0, "empty probe file is no series yet");
+    int hi = monset_find(s, "wallHeatFlux/wallHeatFlux.dat");
+    CHECK(hi >= 0, "wallHeatFlux found");
+    if (hi >= 0) {
+        MonFile *h = &s->f[hi];
+        int ki = -1, kc = -1;
+        for (int k = 0; k < h->nCols; k++) { if (!strcmp(h->col[k], "hot integral")) ki = k; if (!strcmp(h->col[k], "cold integral")) kc = k; }
+        CHECK(h->n == 2 && ki >= 0 && kc >= 0 && h->nCols == 6, "wallHeatFlux: %d rows, %d columns (%s ...)", h->n, h->nCols, h->nCols ? h->col[0] : "");
+        if (ki >= 0 && kc >= 0) CHECK(fabsf(h->v[ki][1] - 0.026f) < 1e-6f && fabsf(h->v[kc][1] + 0.027f) < 1e-6f, "the walls' heat per row");
+    }
 
     /* later scans: the skipped folder costs nothing, the probe file shows up once written */
     snprintf(p, sizeof p, "%s/postProcessing/probes/0/p", c);

@@ -1,0 +1,74 @@
+# Every OpenFOAM setting (2026-11-13, user: "when I check that I want advanced meshing, give me access to literally every
+# thing I could change in a mesh that OpenFOAM will allow"): Advanced under Mesh settings lists every keyword of the
+# mesher's dictionaries with the value Q-Continuum writes; a value changed there goes to mesher/advanced.ini, Generate
+# writes it into the dictionary, and a keyword outside the table can be added by its path.
+budget p95 80 max 500
+shell mkdir -p $SB/ws/adv/system && python3 "$QC_TESTS/tools/gen_named_box.py" $SB/ws/box.stl && printf 'FoamFile { version 2.0; format ascii; class dictionary; object controlDict; }\napplication simpleFoam;\nstartTime 0;\nendTime 10;\ndeltaT 1;\nwriteControl timeStep;\nwriteInterval 10;\n' > $SB/ws/adv/system/controlDict
+open $SB/ws/adv
+click nav:mesh
+wait-until page Mesh
+click text:STL mesher
+wait 5
+click stl-path
+enter $SB/ws/box.stl
+wait 10
+click stl-next
+wait 3
+click stl-next
+wait 5
+click stl-name-kinds
+wait 5
+click stl-next
+wait 5
+click stl-adv
+wait 5
+assert text Every OpenFOAM setting
+click ma-search
+wait 5
+assert text snappyHexMesh: castellation (refining the background)
+screenshot $OUT/1_groups.png
+# find one, change it
+click ma-search
+type nCellsBetweenLevels
+wait 5
+assert text Cells between levels
+assert text Q-Continuum writes this
+click ma-opt#19>in
+enter 5
+wait 20
+assert log mesher/advanced.ini castellatedMeshControls/nCellsBetweenLevels = 5
+assert text Yours
+screenshot $OUT/2_changed.png
+# a per-boundary group
+click ma-search
+key ESCAPE
+click ma-search
+type layers on each
+wait 10
+assert text Boundary
+assert text Layers
+screenshot $OUT/3_per_boundary.png
+# any other keyword, by path
+click ma-search
+key ESCAPE
+click ma-search
+type Any other
+wait 5
+click ma-add-path
+type castellatedMeshControls/maxLoadUnbalance
+click ma-add-val
+type 0.2
+click ma-add
+wait 20
+assert log mesher/advanced.ini system/snappyHexMeshDict castellatedMeshControls/maxLoadUnbalance = 0.2
+screenshot $OUT/4_free.png
+# Generate writes them in
+click stl-next
+wait 5
+click stl-gen
+wait-until job running timeout 20
+wait-until job finished timeout 600
+assert log system/snappyHexMeshDict nCellsBetweenLevels 5;
+assert log system/snappyHexMeshDict maxLoadUnbalance    0.2;
+assert log log.checkMesh Mesh OK.
+screenshot $OUT/5_meshed.png

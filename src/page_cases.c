@@ -253,20 +253,38 @@ void page_cases(Rectangle r)
 }
 
 /* ============================================================================ new case */
-typedef struct { const char *suffix[3]; const char *title; const char *desc; } Starter;
+/* W8 (workflow plan): each starter says what it teaches and the answer to expect; the case made from it keeps both in
+   .qc-starter (Overview and Results show them) */
+typedef struct { const char *suffix[3]; const char *title; const char *desc; const char *learn; const char *expect; } Starter;
 static const Starter STARTERS[] = {
     { { "incompressible/icoFoam/cavity/cavity", "incompressibleFluid/cavity", NULL }, "Lid-driven cavity",
-      "A moving lid drives a laminar vortex in a square box. The classic first case." },
+      "A moving lid drives a laminar vortex in a square box. The classic first case.",
+      "how a moving wall drives a flow, a transient laminar solver (PISO) and how the Courant number sets the time step",
+      "Re = U L / nu = 1 x 0.1 / 0.01 = 10: one vortex, a little towards the moving lid, steady after about 0.3 s. For Re 100 set nu to 0.001 "
+      "(Physics): the vortex centre then sits at about (0.62, 0.74) of the box, as Ghia, Ghia and Shin (1982) measured." },
     { { "incompressible/simpleFoam/pitzDaily", "incompressibleFluid/pitzDailySteady", NULL }, "Backward-facing step",
-      "Steady turbulent flow over a step, solved with the k-epsilon model." },
+      "Steady turbulent flow over a step, solved with the k-epsilon model.",
+      "steady RANS (k-epsilon) with wall functions, and judging convergence by the residuals and the numbers settling",
+      "A recirculation zone behind the 25.4 mm step; the flow reattaches roughly 6 to 7 step heights downstream (Pitz and Daily's experiment, "
+      "1983: about 7; k-epsilon reattaches a little early). simpleFoam converges in about 300 iterations." },
     { { "heatTransfer/buoyantSimpleFoam/buoyantCavity", "fluid/buoyantCavity", NULL }, "Heated cavity",
-      "Natural convection in a tall cavity between a hot and a cold wall." },
+      "Natural convection in a tall cavity between a hot and a cold wall.",
+      "natural convection: buoyancy, the Rayleigh number and heat through walls",
+      "A thin rising layer on the hot wall, a falling one on the cold wall and a stratified core; the tutorial's validation data (Betts and "
+      "Bokhari's measurements) gives the mean temperature across the cavity to compare with." },
     { { "heatTransfer/buoyantSimpleFoam/hotRadiationRoom", "fluid/hotRadiationRoom", NULL }, "Radiating room, P1",
-      "A hot box heats a room by convection and thermal radiation, using the P1 model." },
+      "A hot box heats a room by convection and thermal radiation, using the P1 model.",
+      "thermal radiation (the P1 model) working alongside convection",
+      "The walls facing the box warm by radiation as well as the rising plume; P1 is cheap and smooth but blurs shadows: compare with the fvDOM room." },
     { { "heatTransfer/buoyantSimpleFoam/hotRadiationRoomFvDOM", "fluid/hotRadiationRoomFvDOM", NULL }, "Radiating room, fvDOM",
-      "The same room with discrete-ordinates radiation: one transport equation per ray direction." },
+      "The same room with discrete-ordinates radiation: one transport equation per ray direction.",
+      "discrete-ordinates radiation: one equation per ray direction, sharper than P1 at a higher cost",
+      "The wall temperatures against the P1 room's: fvDOM resolves the shadows behind the box that P1 smears out." },
     { { "multiphase/interFoam/laminar/damBreak/damBreak", "incompressibleVoF/damBreakLaminar/damBreak", NULL }, "Dam break",
-      "A water column collapses under gravity, tracked with the volume-of-fluid method." },
+      "A water column collapses under gravity, tracked with the volume-of-fluid method.",
+      "two-phase flow with a free surface (volume of fluid), alpha.water and the interface Courant number",
+      "The column collapses, the surge runs along the floor, hits the obstacle and splashes over it. alpha.water should stay between 0 and 1 with a "
+      "sharp interface, and the interface Courant number under 1." },
 };
 #define N_STARTERS ((int)(sizeof STARTERS / sizeof STARTERS[0]))
 
@@ -331,8 +349,37 @@ static void do_clone(void)
         pl_strlcpy(open, dst, sizeof open);
         ui_toast(TOAST_OK, "Created %s from %s", A.cloneName, t->rel);
     }
+    /* a starter: what it teaches and the answer to expect, for Overview and Results (W8) */
+    for (int i = 0; i < N_STARTERS; i++)
+        for (int k = 0; k < 3 && STARTERS[i].suffix[k]; k++)
+            if (pl_ends_with(t->rel, STARTERS[i].suffix[k])) {
+                char sp[PL_PATH]; pl_join(sp, sizeof sp, open, ".qc-starter");
+                Str o; str_init(&o);
+                str_catf(&o, "title = %s\nlearn = %s\nexpect = %s\n", STARTERS[i].title, STARTERS[i].learn, STARTERS[i].expect);
+                pl_write_file(sp, o.s, o.len);
+                str_free(&o);
+                i = N_STARTERS; break;
+            }
     app_rescan_cases(true);
     app_open_case(open, PG_OVERVIEW);
+}
+
+/* a case made from a starter: its title, what it teaches and what to expect (false: not one) */
+bool app_starter_info(const char *casePath, char *title, int tcap, char *learn, int lcap, char *expect, int ecap)
+{
+    char p[PL_PATH]; pl_join(p, sizeof p, casePath, ".qc-starter");
+    char *t = pl_read_file(p, NULL);
+    if (!t) return false;
+    title[0] = learn[0] = expect[0] = 0;
+    for (char *l = t; l && *l; ) {
+        char *e = strchr(l, '\n'); if (e) *e = 0;
+        if (!strncmp(l, "title = ", 8)) pl_strlcpy(title, l + 8, (size_t)tcap);
+        else if (!strncmp(l, "learn = ", 8)) pl_strlcpy(learn, l + 8, (size_t)lcap);
+        else if (!strncmp(l, "expect = ", 9)) pl_strlcpy(expect, l + 9, (size_t)ecap);
+        l = e ? e + 1 : NULL;
+    }
+    free(t);
+    return title[0] != 0;
 }
 
 /* the tour's practice case: OpenFOAM's lid-driven cavity copied into the workspace as tour-cavity and opened */
@@ -374,8 +421,11 @@ static void starter_card(Rectangle r, int i, int ti)
     }
     ui_icon(cat_icon(t->cat), r.x + 26, r.y + 28, 18, cc);
     ui_text_clip(F_SEMI, 15, s->title, r.x + 46, r.y + 18, r.width - 64, TH.text);
-    ui_text_wrap(F_REG, 13, s->desc, (Rectangle){ r.x + 18, r.y + 50, r.width - 36, 60 }, 19, TH.text2, true);
+    float dh = ui_text_wrap(F_REG, 13, s->desc, (Rectangle){ r.x + 18, r.y + 50, r.width - 36, 60 }, 19, TH.text2, true);
+    char ln[300]; pl_fmt_ui(ln, sizeof ln, "You'll learn %s.", s->learn);
+    ui_text_wrap(F_REG, 12.5f, ln, (Rectangle){ r.x + 18, r.y + 54 + dh, r.width - 36, r.height - 54 - dh - 42 }, 17, TH.text3, true);
     ui_badge(r.x + 18, r.y + r.height - 34, NULL, t->solver, TH.lcars ? cc : TH.text2, TH.lineSoft);
+    ui_register(id, r, s->title);
     if (hov) ui_cursor(MOUSE_CURSOR_POINTING_HAND);
     if (ui_clicked(r)) select_tutorial(ti);
 }
@@ -676,7 +726,7 @@ static float new_program_section(float x, float y, float w, int prog)
         y += rowH;
     }
     /* the detail */
-    Rectangle dr = { dx, top, dw, 330 };
+    Rectangle dr = { dx, top, dw, 400 };
     ui_rect(dr, 12, TH.surface);
     ui_rect_lines(dr, 12, 1, TH.lineSoft);
     if (A.newSel < 0 || A.newSel >= n) {
@@ -687,7 +737,12 @@ static float new_program_section(float x, float y, float w, int prog)
         const NewItem *s = &it[A.newSel];
         float yy = dr.y + 22, xx = dr.x + 24, ww = dr.width - 48;
         ui_text_clip(F_SEMI, 18, s->name, xx, yy, ww, TH.text); yy += 32;
-        yy += ui_text_wrap(F_REG, 13, s->note, (Rectangle){ xx, yy, ww, 80 }, 19, TH.text2, true) + 12;
+        yy += ui_text_wrap(F_REG, 13, s->note, (Rectangle){ xx, yy, ww, 80 }, 19, TH.text2, true) + 8;
+        if (s->kind == 0 && PROG_TEMPLATES[s->idx].learn) {    /* what the starter teaches (C4) */
+            char ln[400]; pl_fmt_ui(ln, sizeof ln, "You'll learn %s.", PROG_TEMPLATES[s->idx].learn);
+            yy += ui_text_wrap(F_REG, 12.5f, ln, (Rectangle){ xx, yy, ww, 80 }, 18, TH.text3, true) + 8;
+        }
+        yy += 4;
         ui_text(F_MED, 13.5f, "Name", xx, yy, TH.text); yy += 24;
         ui_input(ui_id("clone-name"), (Rectangle){ xx, yy, ww, 36 }, A.cloneName, sizeof A.cloneName, "my-project", INPUT_LIVE);
         yy += 46;
@@ -776,7 +831,7 @@ void page_new(Rectangle r)
         y += section_head(x, y, w, "Good places to start", "One case for each kind of physics this app is set up for.");
         float gap = 16;
         int cols = w > 1100 ? 3 : 2;
-        float cw = (w - gap * (cols - 1)) / cols, chh = 150;
+        float cw = (w - gap * (cols - 1)) / cols, chh = 184;
         for (int i = 0; i < ns; i++) {
             // NOLINTNEXTLINE(bugprone-integer-division): row and column indices
             Rectangle cr = { x + (float)(i % cols) * (cw + gap), y + (float)(i / cols) * (chh + gap), cw, chh };   /* column, row */
@@ -902,4 +957,20 @@ void page_new(Rectangle r)
     }
     y = listTop + listH + 30;
     ui_scroll_end(sc, y - top + 20);
+}
+
+/* a case or project made from a starter: "<title>: what it teaches" with what to expect, until "Got it" (writes
+   .qc-starter-seen); returns the height used (W8, C4) */
+float app_starter_callout(const char *casePath, float x, float y, float w)
+{
+    char st[96], ln[400], ex[700];
+    char hide[PL_PATH]; pl_join(hide, sizeof hide, casePath, ".qc-starter-seen");
+    if (!app_starter_info(casePath, st, sizeof st, ln, sizeof ln, ex, sizeof ex) || pl_is_file(hide)) return 0;
+    char t[160], d[1200]; pl_fmt_ui(t, sizeof t, "%s: what it teaches", st);
+    pl_fmt_ui(d, sizeof d, "You'll learn %s. What to expect: %s", ln, ex);
+    float bw = ui_button_width(NULL, "Got it"), cw = w - bw - 16;
+    float ch = callout_height(cw, t, d);
+    callout((Rectangle){ x, y, cw, ch }, TOAST_INFO, ICON_BOOK_OPEN, t, d);
+    if (ui_button(ui_id("ov-starter-seen"), (Rectangle){ x + w - bw, y + (ch - 32) / 2, bw, 32 }, NULL, "Got it", BTN_GHOST)) pl_touch(hide);
+    return ch + 20;
 }

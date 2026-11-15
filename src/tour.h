@@ -6,6 +6,8 @@
 #include <stdbool.h>
 
 void tour_start(void);
+void tour_start_mesh(void);     /* the meshing tutorial (user request 2026-11-13): Settings > Help, the palette */
+void tour_start_first(void);    /* the first start: the tour, then the meshing tutorial */
 bool tour_active(void);
 void tour_draw(void);          /* after the page and the modals, every frame: nothing when the tour is off */
 

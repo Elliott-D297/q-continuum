@@ -45,6 +45,9 @@ wait 5
 shell grep -q '^density = 7800$' $SB/home/deme/craterTest/params.ini && grep -q '^restitution = 0.8$' $SB/home/deme/craterTest/params.ini && touch $OUT/material-ok
 assert file $OUT/material-ok
 # a time step far above the Rayleigh step is flagged, and the fix sets 20 % of it
+# the time step is a numerical choice: under Advanced (workflow plan D1)
+click dm-advanced
+wait 3
 click label:dt
 key A ctrl
 enter 1e-4

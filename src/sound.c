@@ -306,6 +306,12 @@ static const Pack PACKS[] = {
        suit's charge-up, the Black Mesa klaxon */
     { METAL, 4, { 900, 1100, 800, 1200 }, 0.05, 0.015, false, SQ3, 3, { 523, 784, 1047, 1568 }, 4, 0.08, 0.3, false,
       SAW, 8, { 500, 380 }, 4, 0.7, 0.35, 700, 140 },
+    /* Rebel Alliance: an astromech's chirps on keys, a brass fanfare climbing a fifth to the octave, the base's evacuation alarm */
+    { SINE1, 1, { 2637, 3520, 2093, 3951 }, 0.045, 0.014, false, SQ3, 3, { 392, 523, 784, 1047, 1568 }, 5, 0.1, 0.5, false,
+      SQ3, 3, { 784, 587 }, 6, 0.4, 0.25, 1760, 220 },
+    /* Galactic Empire: hard console clicks, a minor march (G, B flat, D, then the low E flat under it), the battle station's klaxon */
+    { METAL, 4, { 620, 700, 560, 760 }, 0.04, 0.012, false, SAW, 8, { 196, 233, 294, 156 }, 4, 0.24, 0.6, false,
+      SAW, 8, { 440, 415 }, 6, 0.45, 0.3, 500, 90 },
 };
 
 static Wave synth_pack(const Pack *P, Snd which, int variant, float gain)
@@ -365,9 +371,9 @@ static Wave synth(Snd which, int variant, float gain)
 }
 static int synth_clicks(void) { return S.pack >= SOUND_SEVERANCE ? 4 : S.pack == SOUND_STARDEW ? 4 : S.pack == SOUND_POKEMON ? 3 : S.pack == SOUND_JARVIS ? 4 : CLICK_VARIANTS; }
 static const char *const PACK_DIR[SOUND__N] = { "", "/stardew", "/pokemon", "/jarvis", "/severance", "/alien", "/pipboy", "/nerv",
-                                                 "/portal", "/souls", "/factorio", "/win95", "/starcitizen", "/halflife" };
+                                                 "/portal", "/souls", "/factorio", "/win95", "/starcitizen", "/halflife", "/rebel", "/empire" };
 static const char *const PACK_NAME[SOUND__N] = { "lcars", "stardew", "pokemon", "jarvis", "severance", "alien", "pipboy", "nerv",
-                                                  "portal", "souls", "factorio", "win95", "starcitizen", "halflife" };
+                                                  "portal", "souls", "factorio", "win95", "starcitizen", "halflife", "rebel", "empire" };
 
 /* your own recordings override the synthesised cues: <config>/q-continuum/sounds/<name>.wav (or .ogg, .mp3), and
    click.wav, click-2.wav, ... for the keys (a different one each press) */

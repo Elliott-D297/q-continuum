@@ -1,0 +1,51 @@
+# Workflow plan step C2 (docs/WORKFLOW_PLAN.md, 2026-11-14): CalculiX results in the app. The beam starter run in ccx: Results
+# gives the largest displacement and von Mises stress, the safety factor against steel's yield, and beside it the
+# Euler-Bernoulli hand calculation (0.1905 mm against FE); the reactions aren't written, so the button adds RF to the output,
+# and after another run they balance the 1 kN load. A side view of the deformed beam, coloured by stress.
+action go.new
+wait-until page New case
+click new-prog:calculix
+wait 5
+click label:Cantilever beam
+wait 5
+click clone-name
+key A ctrl
+type c2beam
+click clone-go
+wait-until page Overview timeout 10
+click nav:run
+wait-until page Run
+click run-go
+wait-until job finished timeout 120
+wait 20
+click nav:results
+wait-until page Results
+wait 30
+assert text The answer
+assert text Largest displacement 0.19
+assert text Largest von Mises stress
+assert text Safety factor
+assert text Hand calculation: tip deflection 0.1905 mm
+assert text Reactions not written
+click ccx-working
+wait 5
+assert text I = b h^3 / 12
+screenshot $OUT/c2_answer.png
+click ccx-add-rf
+wait 10
+shell grep -q '^U, RF$' $SB/home/calculix/c2beam/beam.inp && touch $OUT/rf-ok
+assert file $OUT/rf-ok
+click nav:run
+wait-until page Run
+click run-go
+wait-until job finished timeout 120
+wait 20
+click nav:results
+wait-until page Results
+wait 60
+assert text Reactions at the supports
+assert text They balance the loads
+screenshot $OUT/c2_reactions.png
+wheel -6
+wait 10
+screenshot $OUT/c2_view.png

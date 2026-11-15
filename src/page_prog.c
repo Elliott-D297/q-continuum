@@ -7,7 +7,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include "app.h"
+#include "ccxmodel.h"
+#include "gpu.h"
 #include "params.h"
 #include "program.h"
 #include "safety.h"
@@ -296,6 +299,7 @@ void page_prog_overview(Rectangle r)
     stat_tile((Rectangle){ x + 2 * (tw + gap), y, tw, 96 }, ICON_FILE_TEXT, info()->inputWord, v1, s3);
     stat_tile((Rectangle){ x + 3 * (tw + gap), y, tw, 96 }, ICON_BOXES, "Results", v2, P.nres ? P.res[0].rel : "none yet");
     y += 116;
+    y += app_starter_callout(c->s.path, x, y, w);              /* a starter: what it teaches, what to expect (C4) */
 
     /* what to do next */
     float bx = x;
@@ -414,6 +418,158 @@ static bool shown(const Param *p)
     return true;
 }
 
+
+/* ============================================================================ CalculiX in engineering words (workflow plan C1)
+ * Above the values: the unit system the numbers imply (and a warning when the model's size or density disagree), each
+ * material with a library to pick from, each support as the directions it holds, each load as a force along a direction
+ * with its total (a *CLOAD acts on every node of its set). Edits go into the input's own data lines through params.c. */
+static int param_at(int line, const char *key)
+{
+    for (int i = 0; i < P.pf.n; i++) if (P.pf.p[i].line == line && !strcmp(P.pf.p[i].key, key)) return i;
+    return -1;
+}
+static void put_param(int line, const char *key, const char *value)
+{
+    int i = param_at(line, key);
+    if (i >= 0 && params_set(&P.pf, i, value)) edits_from_params();
+}
+static const char *fmt_si(double v, const char *unit)    /* 210000000000 Pa -> "210 GPa" */
+{
+    static char b[4][48]; static int k; char *o = b[k = (k + 1) % 4];
+    double a = fabs(v);
+    if (a >= 1e9) snprintf(o, 48, "%.4g G%s", v / 1e9, unit); else if (a >= 1e6) snprintf(o, 48, "%.4g M%s", v / 1e6, unit);
+    else if (a >= 1e3) snprintf(o, 48, "%.4g k%s", v / 1e3, unit); else snprintf(o, 48, "%.4g %s", v, unit);
+    return o;
+}
+static const char *const HOLD_NAME[] = { "x only", "y only", "z only", "x and y", "y and z", "x, y and z (fixed)" };
+static const int HOLD_D0[] = { 1, 2, 3, 1, 2, 1 }, HOLD_D1[] = { 1, 2, 3, 2, 3, 3 };
+static const char *const DIR_NAME[] = { "+x", "-x", "+y", "-y", "+z", "-z" };
+
+static float ccx_model_view(Case *c, float x, float y, float w);
+static float ccx_model_panel(Case *c, float x, float y, float w)
+{
+    float y0 = y;
+    CcxModel m;
+    ccx_model_load_text(c->s.path, setup_file(), P.pf.text, &m);
+    char um[400]; int u = ccx_units(&m, um, sizeof um);
+    bool mm = u == CCX_UNITS_MM;
+    char sub[300];
+    pl_fmt_ui(sub, sizeof sub, "%s · %d nodes, %ld %s elements · units: %s", ccx_analysis_name(m.analysis), m.nNodes, m.nElems, m.elType[0] ? m.elType : "",
+              u == CCX_UNITS_SI ? "metres, newtons, pascals" : mm ? "millimetres, newtons, megapascals" : "not clear from the numbers");
+    y += section_head(x, y, w, "The model", sub);
+    if (um[0]) {
+        float ch = callout_height(w, "The units don't agree", um);
+        callout((Rectangle){ x, y, w, ch }, TOAST_WARN, ICON_TRIANGLE_ALERT, "The units don't agree", um);
+        y += ch + 12;
+    }
+    /* materials */
+    for (int i = 0; i < m.nMat; i++) {
+        const CcxMat *mt = &m.mat[i];
+        int lib = ccx_lib_match(mt, u);
+        char line1[300] = "";
+        double E = mm ? mt->E * 1e6 : mt->E, rho = mm ? mt->rho * 1e12 : mt->rho;
+        if (mt->hasE) pl_fmt_ui(line1, sizeof line1, "E %s, Poisson's ratio %.3g", fmt_si(E, "Pa"), mt->nu);
+        if (mt->hasRho) { size_t n = strlen(line1); pl_fmt_ui(line1 + n, sizeof line1 - n, "%sdensity %.4g kg/m³", n ? ", " : "", rho); }
+        if (mt->hasK) { size_t n = strlen(line1); pl_fmt_ui(line1 + n, sizeof line1 - n, "%sconductivity %.4g W/(m K)", n ? ", " : "", mt->k); }
+        ui_icon(ICON_BOXES, x + 10, y + 13, 15, TH.text2);
+        char nm[120]; pl_fmt_ui(nm, sizeof nm, "Material %s%s%s", mt->name, lib >= 0 ? " · " : "", lib >= 0 ? CCX_LIB[lib].name : "");
+        ui_text_clip(F_MED, 14, nm, x + 28, y + 3, w * 0.5f, TH.text);
+        ui_text_clip(F_REG, 12.5f, line1, x + 28, y + 24, w - 260, TH.text3);
+        if (mt->lineE || mt->lineRho) {
+            static const char *items[8]; int n = 0;
+            items[n++] = "Use a material...";
+            for (int k = 0; k < CCX_LIB_N && n < 8; k++) items[n++] = CCX_LIB[k].name;
+            int pick = 0;
+            if (ui_select(ui_idn(ui_id("ccx-mat"), i), (Rectangle){ x + w - 230, y + 4, 230, 34 }, items, n, &pick) && pick > 0) {
+                const CcxLibMat *L = &CCX_LIB[pick - 1];
+                char v[64];
+                if (mt->lineE) {
+                    snprintf(v, sizeof v, "%.6g", mm ? L->E / 1e6 : L->E); put_param(mt->lineE, "E", v);
+                    snprintf(v, sizeof v, "%.4g", L->nu); put_param(mt->lineE, "nu", v);
+                }
+                if (mt->lineRho) { snprintf(v, sizeof v, "%.6g", mm ? L->rho * 1e-12 : L->rho); put_param(mt->lineRho, "rho", v); }
+                ui_toast(TOAST_OK, "%s: E %s, density %.4g kg/m³ (in the model's %s). Save to keep it", L->name, fmt_si(L->E, "Pa"), L->rho, mm ? "millimetres" : "metres");
+            }
+        }
+        y += 50;
+    }
+    /* supports */
+    for (int i = 0; i < m.nBc; i++) {
+        const CcxBc *b = &m.bc[i];
+        int nn = ccx_set_nodes(&m, b->set);
+        char t[200], nodes[48];
+        pl_fmt_ui(nodes, sizeof nodes, nn > 0 ? "%d node%s" : "", nn, nn == 1 ? "" : "s");
+        ui_icon(ICON_SQUARE, x + 10, y + 13, 15, TH.text2);
+        if (b->d0 == 11) {
+            pl_fmt_ui(t, sizeof t, "%s%s%s: temperature held at %.4g K", b->set, nodes[0] ? " · " : "", nodes, b->value);
+            ui_text_clip(F_MED, 14, t, x + 28, y + 9, w - 40, TH.text);
+            y += 40; continue;
+        }
+        pl_fmt_ui(t, sizeof t, "Support %s%s%s", b->set, nodes[0] ? " · " : "", nodes);
+        ui_text_clip(F_MED, 14, t, x + 28, y + 3, w * 0.45f, TH.text);
+        char what[200];
+        if (b->hasValue && b->value != 0) pl_fmt_ui(what, sizeof what, "moved %.4g %s along %s", b->value, mm ? "mm" : "m", ccx_dof_name(b->d0));
+        else if (b->d0 >= 1 && b->d1 <= 3) pl_fmt_ui(what, sizeof what, "held in %s%s%s", ccx_dof_name(b->d0), b->d1 > b->d0 ? " to " : "", b->d1 > b->d0 ? ccx_dof_name(b->d1) : "");
+        else pl_fmt_ui(what, sizeof what, "degrees of freedom %d to %d held", b->d0, b->d1);
+        ui_text_clip(F_REG, 12.5f, what, x + 28, y + 24, w * 0.45f, TH.text3);
+        int sel = -1;
+        for (int k = 0; k < 6; k++) if (HOLD_D0[k] == b->d0 && HOLD_D1[k] == b->d1) sel = k;
+        if (b->line && sel >= 0 && !(b->hasValue && b->value != 0)) {
+            int s0 = sel;
+            if (ui_select(ui_idn(ui_id("ccx-hold"), i), (Rectangle){ x + w - 230, y + 4, 230, 34 }, HOLD_NAME, 6, &sel) && sel != s0) {
+                char v[160]; snprintf(v, sizeof v, "%s, %d, %d", b->set, HOLD_D0[sel], HOLD_D1[sel]);
+                put_param(b->line, "boundary", v);
+            }
+        }
+        y += 50;
+    }
+    /* loads */
+    for (int i = 0; i < m.nLoad; i++) {
+        const CcxLoad *ld = &m.load[i];
+        int nn = ccx_set_nodes(&m, ld->set);
+        ui_icon(ICON_ZAP, x + 10, y + 13, 15, TH.text2);
+        char t[240], d[260];
+        if (ld->dof == 11) { pl_fmt_ui(t, sizeof t, "Heat into %s: %.4g W per node", ld->set, ld->mag); ui_text_clip(F_MED, 14, t, x + 28, y + 9, w - 40, TH.text); y += 40; continue; }
+        pl_fmt_ui(t, sizeof t, "Force on %s%s", ld->set, nn > 1 ? TextFormat(" · %d nodes", nn) : "");
+        ui_text_clip(F_MED, 14, t, x + 28, y + 3, w * 0.4f, TH.text);
+        if (nn > 1) pl_fmt_ui(d, sizeof d, "%.4g N on each node along %s%s: %.4g N in total", fabs(ld->mag), ld->mag < 0 ? "-" : "+", ccx_dof_name(ld->dof), fabs(ld->mag) * nn);
+        else pl_fmt_ui(d, sizeof d, "%.4g N along %s%s", fabs(ld->mag), ld->mag < 0 ? "-" : "+", ccx_dof_name(ld->dof));
+        ui_text_clip(F_REG, 12.5f, d, x + 28, y + 24, w * 0.4f, TH.text3);
+        if (ld->line && ld->dof >= 1 && ld->dof <= 3) {
+            int dir = (ld->dof - 1) * 2 + (ld->mag < 0 ? 1 : 0), d0 = dir;
+            double total = fabs(ld->mag) * (nn > 0 ? nn : 1), t0 = total;
+            float fx = x + w - 380;
+            ui_select(ui_idn(ui_id("ccx-dir"), i), (Rectangle){ fx, y + 4, 90, 34 }, DIR_NAME, 6, &dir);
+            char tb[32]; snprintf(tb, sizeof tb, "%.6g", total);
+            static char edit[CCX_MAX_BC][32];
+            if (!ui_input_focused(ui_idn(ui_id("ccx-total"), i))) pl_strlcpy(edit[i], tb, sizeof edit[i]);
+            if (ui_input(ui_idn(ui_id("ccx-total"), i), (Rectangle){ fx + 100, y + 4, 150, 34 }, edit[i], sizeof edit[i], NULL, INPUT_MONO | INPUT_NUMERIC)) total = atof(edit[i]);
+            ui_text(F_REG, 12.5f, "N in total", fx + 258, y + 13, TH.text3);
+            if (dir != d0 || (total != t0 && total > 0)) {
+                double per = total / (nn > 0 ? nn : 1) * (dir % 2 ? -1 : 1);
+                char v[160]; snprintf(v, sizeof v, "%s, %d, %.6g", ld->set, dir / 2 + 1, per);
+                put_param(ld->line, "load", v);
+            }
+        }
+        y += 50;
+    }
+    for (int i = 0; i < m.nDl; i++) {
+        const CcxDload *dl = &m.dl[i];
+        char t[240];
+        if (!strncasecmp(dl->kind, "GRAV", 4)) pl_fmt_ui(t, sizeof t, "Gravity on %s: %.4g %s along (%g %g %g)", dl->set, dl->mag, mm ? "mm/s²" : "m/s²", dl->dir[0], dl->dir[1], dl->dir[2]);
+        else if (dl->kind[0] == 'P' || dl->kind[0] == 'p') pl_fmt_ui(t, sizeof t, "Pressure on %s (face %s): %s", dl->set, dl->kind + 1, mm ? TextFormat("%.4g MPa", dl->mag) : fmt_si(dl->mag, "Pa"));
+        else pl_fmt_ui(t, sizeof t, "Distributed load on %s: %s %.4g", dl->set, dl->kind, dl->mag);
+        ui_icon(ICON_ZAP, x + 10, y + 11, 15, TH.text2);
+        ui_text_clip(F_MED, 14, t, x + 28, y + 3, w - 40, TH.text);
+        y += 36;
+    }
+    if (!m.nMat && !m.nBc && !m.nLoad && !m.nDl) y += ui_text_wrap(F_REG, 13, "No materials, supports or loads found in this input.", (Rectangle){ x, y, w, 40 }, 19, TH.text3, true) + 8;
+    y += ui_text_wrap(F_REG, 12.5f, "Below: every value of the input as it is written, with its line (Basic: the usual ones; All values: everything).",
+                      (Rectangle){ x, y + 4, w, 40 }, 18, TH.text3, true) + 18;
+    ui_divider(x, y, w);
+    return y + 18 - y0;
+}
+
 void page_prog_setup(Rectangle r)
 {
     if (!A.cs) return;
@@ -490,6 +646,8 @@ void page_prog_setup(Rectangle r)
     ui_disable(false);
     if (P.pf.dirty) { float bw = ui_badge_width(ICON_PENCIL, "Edited, not saved"); ui_badge(rx - bw - 12, y + 4, ICON_PENCIL, "Edited, not saved", TH.accent, TH.accentSoft); }
     y += 48;
+    if (prog() == PROG_CALCULIX && P.pf.path[0] && P.pf.text) y += ccx_model_panel(c, x, y, w);   /* in engineering words (C1) */
+    if (prog() == PROG_CALCULIX && P.pf.path[0]) y += ccx_model_view(c, x, y, w);   /* the wireframe, locking (C4) */
     /* Basic / All, search */
     static const char *modes[] = { "Basic", "All values" };
     ui_segmented(ui_id("ps-mode"), (Rectangle){ x, y, 220, 34 }, modes, 2, &P.mode);
@@ -547,12 +705,199 @@ void page_prog_setup(Rectangle r)
     ui_scroll_end(sc, y - top + 60);
 }
 
-/* ============================================================================ Run */
 static void kpi(Rectangle r, const char *label, const char *value, Color vc)
 {
     ui_text(F_REG, 12, ui_cap(label), r.x, r.y, TH.text3);
     ui_text_clip(F_SEMI, 18, value, r.x, r.y + 18, r.width - 8, vc);
 }
+
+/* ============================================================================ CalculiX: what the run did (workflow plan C3)
+   By analysis type: a linear static run is one solve; a nonlinear, dynamic or heat run is increments of Newton iterations
+   with cutbacks; a frequency run is its list of modes (against a cantilever's hand calculation when the model is one). */
+static struct { char path[PL_PATH]; time_t sig; double at; CcxRun r; CcxModel m; } R;
+static void cpu_text(char *v, size_t cap, double s)   /* a solver time; under a minute to two figures */
+{
+    if (s < 0) pl_strlcpy(v, "-", cap);
+    else if (s < 60) pl_fmt_ui(v, cap, "%.2g s", s);
+    else pl_duration(v, cap, s);
+}
+/* the run's files, read again when they change */
+static const CcxRun *ccx_run_get(Case *c, bool mine)
+{
+    char key[PL_PATH]; pl_join(key, sizeof key, c->s.path, input());
+    char job[256]; pl_strlcpy(job, input(), sizeof job);
+    char *dot = strrchr(job, '.'); if (dot && !strcasecmp(dot, ".inp")) *dot = 0;
+    char ln[96], lp[PL_PATH], f[300], fp[PL_PATH]; prog_log_name(prog(), input(), ln, sizeof ln); pl_join(lp, sizeof lp, c->s.path, ln);
+    /* the files it reads, so a finished run shows at once; mtimes are whole seconds, so files under 3 s old are read again
+       every half second (a header and the rows written within one second) */
+    time_t mt[4] = { pl_mtime(lp), pl_mtime(key), 0, 0 };
+    snprintf(f, sizeof f, "%s.sta", job); pl_join(fp, sizeof fp, c->s.path, f); mt[2] = pl_mtime(fp);
+    snprintf(f, sizeof f, "%s.dat", job); pl_join(fp, sizeof fp, c->s.path, f); mt[3] = pl_mtime(fp);
+    time_t sig = 0, newest = 0; for (int i = 0; i < 4; i++) { sig += mt[i]; if (mt[i] > newest) newest = mt[i]; }
+    bool fresh = time(NULL) - newest < 3;
+    if (strcmp(R.path, key) || sig != R.sig || ((mine || fresh) && GetTime() - R.at > 0.5)) {
+        pl_strlcpy(R.path, key, sizeof R.path); R.sig = sig; R.at = GetTime();
+        ccx_run_load(c->s.path, job, lp, &R.r);
+        ccx_model_load(c->s.path, input(), &R.m);
+    }
+    return &R.r;
+}
+
+static float ccx_run_panel(Case *c, float x, float y, float w, bool mine)
+{
+    ccx_run_get(c, mine);
+    const CcxRun *r = &R.r; const CcxModel *m = &R.m;
+    if (!r->hasSta && !r->nModes) return 0;
+    float y0 = y, kw = w / 4;
+    char v[64], t[200], d[900];
+    if (r->nModes) {                                                   /* ---- frequency */
+        pl_fmt_ui(d, sizeof d, "%d natural frequencies, lowest first, in cycles per unit time (Hz with times in seconds, as in both m-N-Pa and mm-N-MPa)."
+                  " Each is a shape the part vibrates in by itself.", r->nModes);
+        y += section_head(x, y, w, "The modes", d);
+        snprintf(v, sizeof v, "%d", r->nModes); kpi((Rectangle){ x, y, kw, 50 }, "Modes", v, TH.text);
+        pl_fmt_ui(v, sizeof v, "%.4g Hz", r->hz[0]); kpi((Rectangle){ x + kw, y, kw, 50 }, "Lowest", v, TH.text);
+        pl_fmt_ui(v, sizeof v, "%.4g Hz", r->hz[r->nModes - 1]); kpi((Rectangle){ x + 2 * kw, y, kw, 50 }, "Highest", v, TH.text);
+        cpu_text(v, sizeof v, r->cpu); kpi((Rectangle){ x + 3 * kw, y, kw, 50 }, "Solver time", v, TH.text);
+        y += 58;
+        bool radC = w >= 3 * 250.f;                                 /* rad/s too when three columns of both fit */
+        int cols = radC || w > 480 ? 3 : 2, rows = (r->nModes + cols - 1) / cols;
+        float cw = w / cols;
+        for (int i = 0; i < r->nModes; i++) {
+            float cx = x + (float)(i / rows) * cw, cy = y + (float)(i % rows) * 22;
+            pl_fmt_ui(t, sizeof t, "%d", i + 1); ui_text(F_MONO, 12.5f, t, cx, cy, TH.text3);
+            if (radC) pl_fmt_ui(t, sizeof t, "%10.4g Hz  %9.4g rad/s", r->hz[i], r->rad[i]); else pl_fmt_ui(t, sizeof t, "%10.4g Hz", r->hz[i]); ui_text_clip(F_MONO, 12.5f, t, cx + 28, cy, cw - 36, TH.text);
+        }
+        y += (float)rows * 22 + 10;
+        if (r->nNeg) {
+            pl_fmt_ui(t, sizeof t, "%d negative eigenvalue%s, shown as 0 Hz", r->nNeg, r->nNeg == 1 ? "" : "s");
+            pl_fmt_ui(d, sizeof d, "No real vibration has a negative eigenvalue: either the part isn't held, or the eigensolver returned a spurious one "
+                      "(it can with several threads). If the supports are right, run it again, with 1 thread to be sure.");
+            float ch = callout_height(w, t, d); callout((Rectangle){ x, y, w, ch }, TOAST_WARN, ICON_TRIANGLE_ALERT, t, d); y += ch + 10;
+        }
+        int rigid = 0; for (int i = 0; i < r->nModes; i++) if (r->hz[i] < 1e-3 * r->hz[r->nModes - 1] && r->hz[i] < 1) rigid++;
+        rigid -= r->nNeg;
+        if (rigid) {
+            pl_fmt_ui(t, sizeof t, "%d mode%s at almost zero: the part can move freely", rigid, rigid == 1 ? "" : "s");
+            pl_fmt_ui(d, sizeof d, "A frequency near zero is a rigid-body motion, not a vibration: the supports don't hold the part in every direction. "
+                      "Hold it (*BOUNDARY, Setup > Supports) unless it really is free, as in a part in flight.");
+            float ch = callout_height(w, t, d); callout((Rectangle){ x, y, w, ch }, TOAST_WARN, ICON_TRIANGLE_ALERT, t, d); y += ch + 10;
+        }
+        for (int i = 0; i + 1 < r->nModes; i++)
+            if (r->hz[i] > 0 && fabs(r->hz[i + 1] - r->hz[i]) < 0.01 * r->hz[i]) {
+                pl_fmt_ui(d, sizeof d, "Modes %d and %d have the same frequency (within 1 %%): a symmetric section bends the same way in two directions, so the "
+                          "pair is one shape turned 90°.", i + 1, i + 2);
+                ui_icon(ICON_INFO, x + 8, y + 9, 14, TH.text3);
+                y += ui_text_wrap(F_REG, 13, d, (Rectangle){ x + 24, y, w - 24, 80 }, 19, TH.text2, true) + 8;
+                break;
+            }
+        double f1 = ccx_beam_f1(m);
+        if (f1 > 0 && !r->nNeg && rigid <= 0) {
+            double err = (r->hz[0] - f1) / f1 * 100;
+            pl_fmt_ui(d, sizeof d, "By hand, a cantilever's first bending mode: f1 = 1.875² / (2 pi) x sqrt(E I / (ρ A L^4)) = %.4g Hz. CalculiX: %.4g Hz, %+.1f %%. "
+                      "Higher modes of a real beam depart from the formula as it gets stubby.", f1, r->hz[0], err);
+            ui_icon(fabs(err) < 5 ? ICON_CIRCLE_CHECK : ICON_INFO, x + 8, y + 9, 14, fabs(err) < 5 ? TH.ok : TH.text3);
+            y += ui_text_wrap(F_REG, 13, d, (Rectangle){ x + 24, y, w - 24, 80 }, 19, TH.text2, true) + 8;
+        }
+        return y - y0 + 10;
+    }
+    bool linear = m->analysis == CCX_STATIC && !m->nonlinear && r->nInc <= 1 && r->itersMax <= 1;
+    if (linear) {                                                      /* ---- linear static */
+        y += section_head(x, y, w, "What CalculiX did", r->nInc ? "Solved in one increment" : "Solving");
+        char du[32] = ""; if (r->cpu >= 0) { char dd[24]; cpu_text(dd, sizeof dd, r->cpu); pl_fmt_ui(du, sizeof du, "Solver time %s. ", dd); }
+        pl_fmt_ui(d, sizeof d, "%sA linear static analysis is one solve of K u = F: no time steps and nothing to converge, so it takes one increment. "
+                  "Large deflections (NLGEOM), contact or plasticity make it nonlinear: then it goes in increments, each iterated until the forces balance.", du);
+        y += ui_text_wrap(F_REG, 13, d, (Rectangle){ x, y, w, 120 }, 19, TH.text2, true) + 10;
+        return y - y0 + 10;
+    }
+    /* ---- nonlinear static, dynamic, heat transfer: increments */
+    pl_fmt_ui(t, sizeof t, "%s in increments", m->analysis == CCX_STATIC ? (m->nonlinear ? "Nonlinear static" : "Static") : ccx_analysis_name(m->analysis));
+    y += section_head(x, y, w, "What CalculiX did", t);
+    snprintf(v, sizeof v, "%d", r->nInc); kpi((Rectangle){ x, y, kw, 50 }, "Increments", v, TH.text);
+    pl_fmt_ui(v, sizeof v, "%.1f / inc", r->nInc ? (double)r->itersTotal / r->nInc : 0); kpi((Rectangle){ x + kw, y, kw, 50 }, "Iterations", v, TH.text);
+    snprintf(v, sizeof v, "%d", r->cutbacks); kpi((Rectangle){ x + 2 * kw, y, kw, 50 }, "Cutbacks", v, r->cutbacks ? TH.warn : TH.text);
+    cpu_text(v, sizeof v, r->cpu); kpi((Rectangle){ x + 3 * kw, y, kw, 50 }, "Solver time", v, TH.text);
+    y += 58;
+    bool fixed = r->nInc > 1 && fabs(r->incMax - r->incMin) < 1e-9 * fmax(1e-30, r->incMax);
+    if (fixed) pl_fmt_ui(d, sizeof d, "%d increments of %.4g, a fixed size (DIRECT on the step line): no automatic control, so a too-large increment fails instead of shrinking. "
+                         "Step time reached %.4g.", r->nInc, r->incMax, r->stepTime);
+    else pl_fmt_ui(d, sizeof d, "Step time reached %.4g in increments from %.4g to %.4g (the first %.4g). Each increment is solved by Newton iterations until the forces "
+                   "(or heat flows) balance; at most %d in one. An increment that converges easily lets the next grow; one that doesn't is cut back and tried smaller.",
+                   r->stepTime, r->incMin, r->incMax, r->incFirst, r->itersMax);
+    y += ui_text_wrap(F_REG, 13, d, (Rectangle){ x, y, w, 140 }, 19, TH.text2, true) + 10;
+    if (r->cutbacks >= 3 || (r->cutbacks && r->cutbacks * 2 >= r->nInc)) {
+        pl_fmt_ui(t, sizeof t, "The increment was cut back %d time%s", r->cutbacks, r->cutbacks == 1 ? "" : "s");
+        pl_fmt_ui(d, sizeof d, "Increments that didn't converge were halved and tried again. A few is normal; many slow the run and can end it. "
+                  "Start smaller (the first number on the *STATIC or *DYNAMIC line), and check the supports and contact: a part that isn't held, "
+                  "or contact that opens and closes, are the usual causes.");
+        float ch = callout_height(w, t, d); callout((Rectangle){ x, y, w, ch }, TOAST_WARN, ICON_TRIANGLE_ALERT, t, d); y += ch + 10;
+    }
+    return y - y0 + 10;
+}
+
+/* ============================================================================ DEME: the GPU (workflow plan D3)
+   What nvidia-smi says (polled off the frame), and the run's size against the free memory, learned from this project's own
+   runs: while one goes the GPU memory it adds is watched, and <project>/.qc-gpu keeps "particles peak_mb" for the next. */
+static long deme_max_particles(const char *proj)
+{
+    char p[PL_PATH]; pl_join(p, sizeof p, proj, "params.ini");
+    char *t = pl_read_file(p, NULL); long n = 0;
+    for (char *l = t; l && *l; ) {
+        char *e = strchr(l, '\n'); if (e) *e = 0;
+        while (*l == ' ' || *l == '\t') l++;
+        if (!strncmp(l, "max_particles", 13)) { char *q = strchr(l, '='); if (q) n = atol(q + 1); }
+        l = e ? e + 1 : NULL;
+    }
+    free(t);
+    return n;
+}
+
+static float deme_gpu_row(Case *c, float x, float y, float w, bool mine)
+{
+    static struct { char path[PL_PATH]; bool on; int base, peak; long parts; } W;   /* the run being watched */
+    GpuInfo g = gpu_get();
+    gpu_poll_fast(mine);
+    if (mine && !W.on && g.ok) { W.on = true; pl_strlcpy(W.path, c->s.path, sizeof W.path); W.base = g.usedMB; W.peak = 0; W.parts = deme_max_particles(c->s.path); }
+    if (W.on && g.ok && g.usedMB - W.base > W.peak) W.peak = g.usedMB - W.base;
+    if (W.on && !mine) {                                         /* it ended: keep what it took, when it took something */
+        W.on = false;
+        if (W.peak > 20 && W.parts > 0) {
+            char p[PL_PATH]; pl_join(p, sizeof p, W.path, ".qc-gpu");
+            char b[96]; int n = snprintf(b, sizeof b, "%ld %d\n", W.parts, W.peak);
+            pl_write_file(p, b, (size_t)n);
+        }
+    }
+    if (!g.probed) return 0;
+    float y0 = y;
+    char t[300];
+    if (!g.ok) {
+        ui_icon(ICON_CIRCLE_X, x + 8, y + 9, 14, TH.err);
+        y += ui_text_wrap(F_REG, 13, "No NVIDIA GPU answers (nvidia-smi): DEME runs on CUDA only. Under WSL the GPU comes from the Windows NVIDIA driver; "
+                          "update it, then nvidia-smi in a terminal should list the card.", (Rectangle){ x + 24, y, w - 24, 100 }, 19, TH.err, true) + 8;
+        return y - y0;
+    }
+    int freeMB = g.totalMB - g.usedMB;
+    pl_fmt_ui(t, sizeof t, "GPU: %s, %.1f GB free of %.1f GB", g.name, freeMB / 1024.0, g.totalMB / 1024.0);
+    bool low = freeMB < 1024;
+    ui_icon(low ? ICON_TRIANGLE_ALERT : ICON_CIRCLE_CHECK, x + 8, y + 9, 14, low ? TH.warn : TH.ok);
+    y += ui_text_wrap(F_REG, 13, t, (Rectangle){ x + 24, y, w - 24, 60 }, 19, TH.text2, true) + 4;
+    if (low) y += ui_text_wrap(F_REG, 12.5f, "Under 1 GB free: another program holds the GPU's memory. Close it, or the run may fail to start.",
+                               (Rectangle){ x + 24, y, w - 24, 60 }, 18, TH.warn, true) + 4;
+    char p[PL_PATH]; pl_join(p, sizeof p, c->s.path, ".qc-gpu");
+    char *h = pl_read_file(p, NULL); long hp = 0; int hm = 0;
+    long want = deme_max_particles(c->s.path);
+    if (h && sscanf(h, "%ld %d", &hp, &hm) == 2 && hp > 0 && hm > 0 && want > 0 && !mine) {
+        double per = (double)hm / hp, need = per * want;
+        bool tight = need > 0.9 * freeMB;
+        pl_fmt_ui(t, sizeof t, "The last run took %d MB for up to %ld particles (%.2g kB each); this one allows %ld: about %.0f MB%s",
+                  hm, hp, per * 1024, want, need, tight ? ", more than is free" : "");
+        ui_icon(tight ? ICON_TRIANGLE_ALERT : ICON_INFO, x + 8, y + 9, 14, tight ? TH.warn : TH.text3);
+        y += ui_text_wrap(F_REG, 12.5f, t, (Rectangle){ x + 24, y, w - 24, 80 }, 18, tight ? TH.warn : TH.text3, true) + 4;
+    }
+    free(h);
+    return y - y0 + 6;
+}
+
+/* ============================================================================ Run */
 
 void page_prog_run(Rectangle r)
 {
@@ -603,15 +948,27 @@ void page_prog_run(Rectangle r)
         ui_text(F_REG, 12.5f, pinfo, x, y, TH.text3);
         y += 30;
     }
+    static bool adv;                                             /* D3: the rebuild switch and the coupled run, behind Advanced */
     if (info()->build) {
-        ui_checkbox(ui_id("pr-rebuild"), (Rectangle){ x, y, w, 24 }, &P.rebuild, "Rebuild before running");
-        ui_tooltip((Rectangle){ x, y, w, 24 }, "It rebuilds by itself when the source is newer than the program");
+        y += ui_text_wrap(F_REG, 12.5f, "It builds by itself before running when the driver's source or CMakeLists.txt changed since the last build.",
+                          (Rectangle){ x, y, w, 60 }, 18, TH.text3, true) + 8;
+        ui_disable(false);
+        ui_switch(ui_id("pr-advanced"), x, y, &adv);
+        ui_register(ui_id("pr-advanced"), (Rectangle){ x, y, 44, 26 }, "Advanced");
+        ui_text(F_MED, 13.5f, prog() == PROG_DEME ? "Advanced: rebuild, run with OpenFOAM" : "Advanced: rebuild", x + 56, y + 4, TH.text);
         y += 36;
+        ui_disable(mine);
+        if (adv) {
+            ui_checkbox(ui_id("pr-rebuild"), (Rectangle){ x, y, w, 24 }, &P.rebuild, "Rebuild anyway, from scratch");
+            ui_tooltip((Rectangle){ x, y, w, 24 }, "For a change it can't see: a library updated underneath, or a header outside the project");
+            y += 36;
+        }
     }
     ui_disable(false);
     ui_divider(x, y, w); y += 20;
     ui_text(F_MED, 13.5f, term(T_SWEEP), x, y, TH.text); y += 28;
     y += checks_list(x, y, w, true) + 6;
+    if (prog() == PROG_DEME) y += deme_gpu_row(c, x, y, w, mine);   /* the GPU against the run's size (D3) */
     ui_divider(x, y, w); y += 20;
     if (mine) {
         if (ui_button(ui_id("run-stop"), (Rectangle){ x, y, w, 42 }, ICON_SQUARE, "Stop run", BTN_DANGER)) job_stop(A.cj, GetTime());
@@ -638,7 +995,7 @@ void page_prog_run(Rectangle r)
     if (ui_button(ui_id("run-clean"), (Rectangle){ x + hb + 8, y, hb, 34 }, ICON_TRASH_2, "Clean results", BTN_GHOST)) { A.modal = MD_PROG_CLEAN; }
     ui_disable(false);
     y += 46;
-    if (prog() == PROG_DEME) { y += 10; y += deme_pair_panel(x, y, w, mine, start_both); }
+    if (prog() == PROG_DEME && adv) { y += 10; y += deme_pair_panel(x, y, w, mine, start_both); }
     ui_scroll_end(sc, y - top + 20);
 
     /* ---------------- right: progress */
@@ -662,28 +1019,33 @@ void page_prog_run(Rectangle r)
     ui_progress((Rectangle){ mx, my, mw, 10 }, known && total > 0 ? (float)(done / total) : (pm && (pm->ended || pm->exitCode == 0) ? 1.f : 0.f), barC);
     my += 20;
     char t[300];
-    if (known) pl_fmt_ui(t, sizeof t, steps ? "step %.0f of %.0f" : "t = %.4g of %.4g s", done, total);
+    const CcxRun *cr = prog() == PROG_CALCULIX ? ccx_run_get(c, mine) : NULL;   /* C3: its increments, not the log's steps */
+    if (cr && cr->nModes) pl_fmt_ui(t, sizeof t, "%d modes", cr->nModes);
+    else if (known) pl_fmt_ui(t, sizeof t, steps ? "step %.0f of %.0f" : "t = %.4g of %.4g s", done, total);
     else if (pm && pm->steps) pl_fmt_ui(t, sizeof t, "%d step%s, t = %.4g", pm->steps, pm->steps == 1 ? "" : "s", pm->time);
-    else pl_fmt_ui(t, sizeof t, mine ? "Starting..." : "No run yet");
+    else pl_fmt_ui(t, sizeof t, mine ? "Starting..." : pm && (pm->ended || pm->exitCode == 0) ? "Ended" : "No run yet");
     ui_text(F_MED, 13, t, mx, my, TH.text2);
     my += 30;
-    /* kpis */
-    float kw = mw / 5;
-    char v[64];
-    snprintf(v, sizeof v, "%d", pm ? pm->steps : 0);
-    kpi((Rectangle){ mx, my, kw, 50 }, steps ? "Steps" : "Steps / increments", v, TH.text);
-    snprintf(v, sizeof v, pm && pm->steps ? "%.4g" : "-", pm ? pm->time : 0);
-    kpi((Rectangle){ mx + kw, my, kw, 50 }, prog() == PROG_SPARTA ? "Step number" : "Simulated time", v, TH.text);
-    double el = mine ? GetTime() - A.cj->startedAt : (A.cj->n && !strcmp(A.cj->casePath, c->s.path) ? A.cj->finishedAt - A.cj->startedAt : -1);
-    pl_duration(v, sizeof v, el);
-    kpi((Rectangle){ mx + 2 * kw, my, kw, 50 }, "Wall time", el > 0 ? v : "-", TH.text);
-    double eta = -1;
-    if (mine && known && el > 5 && done > 0 && total > done) eta = el * (total - done) / done;
-    pl_duration(v, sizeof v, eta);
-    kpi((Rectangle){ mx + 3 * kw, my, kw, 50 }, "Remaining", eta >= 0 ? v : "-", TH.text);
-    snprintf(v, sizeof v, "%d", pm ? pm->warnings : 0);
-    kpi((Rectangle){ mx + 4 * kw, my, kw, 50 }, "Warnings", v, pm && pm->warnings ? TH.warn : TH.text);
+    if (!(cr && cr->nModes)) {   /* a modal run: the modes panel has its own figures */
+        /* kpis */
+        float kw = mw / 5;
+        char v[64];
+        snprintf(v, sizeof v, "%d", cr && cr->hasSta ? cr->nInc : pm ? pm->steps : 0);
+        kpi((Rectangle){ mx, my, kw, 50 }, cr ? "Increments" : steps ? "Steps" : "Steps / increments", v, TH.text);
+        if (cr && cr->nInc) snprintf(v, sizeof v, "%.4g", cr->tot);
+        else snprintf(v, sizeof v, pm && pm->steps ? "%.4g" : "-", pm ? pm->time : 0);
+        kpi((Rectangle){ mx + kw, my, kw, 50 }, prog() == PROG_SPARTA ? "Step number" : "Simulated time", v, TH.text);
+        double el = mine ? GetTime() - A.cj->startedAt : (A.cj->n && !strcmp(A.cj->casePath, c->s.path) ? A.cj->finishedAt - A.cj->startedAt : -1);
+        pl_duration(v, sizeof v, el);
+        kpi((Rectangle){ mx + 2 * kw, my, kw, 50 }, "Wall time", el > 0 ? v : "-", TH.text);
+        double eta = -1;
+        if (mine && known && el > 5 && done > 0 && total > done) eta = el * (total - done) / done;
+        pl_duration(v, sizeof v, eta);
+        kpi((Rectangle){ mx + 3 * kw, my, kw, 50 }, "Remaining", eta >= 0 ? v : "-", TH.text);
+        snprintf(v, sizeof v, "%d", pm ? pm->warnings : 0);
+        kpi((Rectangle){ mx + 4 * kw, my, kw, 50 }, "Warnings", v, pm && pm->warnings ? TH.warn : TH.text);
     my += 62;
+    }
     /* what went wrong, in words */
     if (pm && pm->fatal && !mine && pm->fatalMsg[0]) {
         char title[96]; pl_fmt_ui(title, sizeof title, "%s stopped with an error", info()->name);
@@ -698,6 +1060,7 @@ void page_prog_run(Rectangle r)
         char lp[PL_PATH]; char ln[96]; prog_log_name(prog(), input(), ln, sizeof ln); pl_join(lp, sizeof lp, c->s.path, ln);
         my += deme_run_panel(c->s.path, lp, mx, my, mw, mine);
     }
+    if (prog() == PROG_CALCULIX) my += ccx_run_panel(c, mx, my, mw, mine);   /* by analysis type (C3) */
     if (prog() == PROG_DEME || prog() == PROG_CHRONO) {         /* a failed build: its first error */
         if (A.cj->failed && !strcmp(A.cj->casePath, c->s.path) && A.cj->cur < A.cj->n && !strcmp(A.cj->steps[A.cj->cur].id, "build")) {
             char e[300]; deme_build_error(c->s.path, e, sizeof e);
@@ -741,8 +1104,18 @@ static void table_load(const char *path)
         s = e + 1;
     }
     free(t);
+    /* the first column across; up against it the first three that aren't another clock (W0, 2026-11-14: a DEME history
+       plotted t_phys against t_sim, a straight line that dwarfed the temperatures) */
     P.tblX = 0;
-    for (int i = 0; i < 16; i++) P.tblOn[i] = i > 0 && i < 4;
+    int on = 0;
+    for (int i = 0; i < 16; i++) {
+        const char *n = i < P.nCols ? P.tblCols[i] : "";
+        bool clock = !strcmp(n, "t") || !strcasecmp(n, "time") || !strcasecmp(n, "step") || !strcasecmp(n, "frame") ||
+                     !strncmp(n, "t_", 2) || !strncasecmp(n, "time_", 5);
+        P.tblOn[i] = i > 0 && i < P.nCols && !clock && on < 3;
+        if (P.tblOn[i]) on++;
+    }
+    if (!on) for (int i = 1; i < 4 && i < P.nCols; i++) P.tblOn[i] = true;   /* only clocks: show them rather than nothing */
 }
 
 static void table_chart(Rectangle r)
@@ -821,6 +1194,349 @@ static void open_result(const ProgResult *res)
     }
 }
 
+
+/* ============================================================================ CalculiX: the model before running (workflow plan C4)
+   A wireframe of the input's mesh, turned by dragging, with the nodes the supports hold and the point loads push (arrows
+   along the force); and the note when plain C3D8 bricks with few layers through the thickness carry bending (shear locking). */
+static struct { char path[PL_PATH]; time_t mt; double at; CcxMesh g; CcxModel m; bool ok; float yaw, pitch; bool drag; } MV = { .yaw = -0.6f, .pitch = 0.45f };
+
+static float ccx_model_view(Case *c, float x, float y, float w)
+{
+    char p[PL_PATH]; pl_join(p, sizeof p, c->s.path, setup_file());
+    time_t mt = pl_mtime(p);
+    if (strcmp(MV.path, p) || mt != MV.mt || GetTime() - MV.at > 5) {          /* an included mesh file may change too */
+        if (MV.ok) ccx_mesh_free(&MV.g);
+        pl_strlcpy(MV.path, p, sizeof MV.path); MV.mt = mt; MV.at = GetTime();
+        ccx_model_load(c->s.path, setup_file(), &MV.m);
+        MV.ok = ccx_mesh_load(c->s.path, setup_file(), &MV.m, &MV.g);
+    }
+    if (!MV.ok || !MV.g.nEdges) return 0;
+    const CcxMesh *g = &MV.g; const CcxModel *m = &MV.m;
+    float y0 = y;
+    char d[600], t[200];
+    pl_fmt_ui(d, sizeof d, "%d nodes, %d elements. Drag to turn it. Check the supports and loads sit where you mean before running.", g->n, g->nElems);
+    y += section_head(x, y, w, "The mesh", d);
+    Rectangle box = { x, y, w, fminf(360, fmaxf(240, w * 0.42f)) };
+    ui_rect(box, 10, TH.chartBg); ui_rect_lines(box, 10, 1, TH.lineSoft);
+    /* turning */
+    if (ui_hovered(box) && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) MV.drag = true;
+    if (!IsMouseButtonDown(MOUSE_BUTTON_LEFT)) MV.drag = false;
+    if (MV.drag) {
+        Vector2 dm = GetMouseDelta();
+        MV.yaw += dm.x / ui_scale() * 0.01f;
+        MV.pitch = fmaxf(-1.5f, fminf(1.5f, MV.pitch + dm.y / ui_scale() * 0.01f));
+        ui_cursor(MOUSE_CURSOR_RESIZE_ALL);
+    } else if (ui_hovered(box)) ui_cursor(MOUSE_CURSOR_POINTING_HAND);
+    float cyw = cosf(MV.yaw), syw = sinf(MV.yaw), cp = cosf(MV.pitch), sp = sinf(MV.pitch);
+    float ctr[3];
+    for (int k = 0; k < 3; k++) ctr[k] = (float)(m->lo[k] + m->hi[k]) / 2;
+    /* fitted to the outline it has from this side: the nodes' projected extent */
+    float plo[2] = { 1e30f, 1e30f }, phi[2] = { -1e30f, -1e30f };
+    for (int i = 0; i < g->n; i++) {
+        float X = g->x[3 * i] - ctr[0], Y = g->x[3 * i + 1] - ctr[1], Z = g->x[3 * i + 2] - ctr[2];
+        float u = X * cyw - Y * syw, y1 = X * syw + Y * cyw, v = Z * cp - y1 * sp;
+        plo[0] = fminf(plo[0], u); phi[0] = fmaxf(phi[0], u);
+        plo[1] = fminf(plo[1], v); phi[1] = fmaxf(phi[1], v);
+    }
+    float aw = box.width - 60, ah = box.height - 70;
+    float kk = fminf(aw / fmaxf(phi[0] - plo[0], 1e-12f), ah / fmaxf(phi[1] - plo[1], 1e-12f));
+    float ox = box.x + box.width / 2 - kk * (plo[0] + phi[0]) / 2, oy = box.y + 26 + (box.height - 30) / 2 + kk * (plo[1] + phi[1]) / 2;
+    #define PROJ(X_, Y_, Z_, OUT_) do { float x1_ = (X_) * cyw - (Y_) * syw, y1_ = (X_) * syw + (Y_) * cyw, z1_ = (Z_); \
+                                        (OUT_) = (Vector2){ ox + kk * x1_, oy - kk * (z1_ * cp - y1_ * sp) }; } while (0)
+    Color edgeC = ui_alpha(TH.text2, g->nEdges > 20000 ? 0.18f : 0.4f);
+    for (int e = 0; e < g->nEdges; e++) {
+        const float *a = &g->x[3 * g->edge[2 * e]], *b = &g->x[3 * g->edge[2 * e + 1]];
+        Vector2 pa, pb;
+        PROJ(a[0] - ctr[0], a[1] - ctr[1], a[2] - ctr[2], pa);
+        PROJ(b[0] - ctr[0], b[1] - ctr[1], b[2] - ctr[2], pb);
+        DrawLineEx(pa, pb, 1, edgeC);
+    }
+    /* held nodes coloured by what they can't do: x red, y green, z blue (the axes' colours), all three teal, temperature orange */
+    static const Color AXC[3] = { { 239, 68, 68, 255 }, { 34, 197, 94, 255 }, { 59, 130, 246, 255 } };
+    Color allC = { 45, 212, 191, 255 }, tempC = { 249, 115, 22, 255 }, loadC = TH.warn;
+    int nHeld = 0, nLoaded = 0, kinds[6] = { 0 };   /* x y z all temperature mixed */
+    for (int i = 0; i < g->n; i++) {
+        int r = g->role[i] & 7;
+        if (r || (g->role[i] & 8)) nHeld++;
+        if (g->role[i] & 16) nLoaded++;
+        if (r == 1) kinds[0]++; else if (r == 2) kinds[1]++; else if (r == 4) kinds[2]++; else if (r == 7) kinds[3]++; else if (r) kinds[5]++;
+        if (g->role[i] & 8) kinds[4]++;
+    }
+    float hs = nHeld > 200 ? 1.8f : 3;
+    for (int i = 0; i < g->n; i++) {
+        int r = g->role[i] & 7;
+        if (!r && !(g->role[i] & 8)) continue;
+        Color col = r == 1 ? AXC[0] : r == 2 ? AXC[1] : r == 4 ? AXC[2] : r == 7 ? allC : r ? ui_mix(allC, TH.text, 0.3f) : tempC;
+        Vector2 q; PROJ(g->x[3 * i] - ctr[0], g->x[3 * i + 1] - ctr[1], g->x[3 * i + 2] - ctr[2], q);
+        DrawRectangleRec((Rectangle){ q.x - hs, q.y - hs, 2 * hs, 2 * hs }, col);
+    }
+    if (nLoaded) {                                      /* an arrow along each point load's force, ending on its node */
+        float dir[3] = { 0, 0, 0 };
+        for (int l = 0; l < m->nLoad; l++) if (m->load[l].dof >= 1 && m->load[l].dof <= 3) dir[m->load[l].dof - 1] += m->load[l].mag >= 0 ? 1.f : -1.f;
+        float dl = sqrtf(dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]);
+        Vector2 o0, o1; PROJ(0, 0, 0, o0); PROJ(dir[0], dir[1], dir[2], o1);
+        Vector2 sd = { o1.x - o0.x, o1.y - o0.y }; float sl = sqrtf(sd.x * sd.x + sd.y * sd.y);
+        int stride = nLoaded > 60 ? nLoaded / 60 : 1, seen = 0;
+        for (int i = 0; i < g->n; i++) if (g->role[i] & 16) {
+            if (seen++ % stride) continue;
+            Vector2 q; PROJ(g->x[3 * i] - ctr[0], g->x[3 * i + 1] - ctr[1], g->x[3 * i + 2] - ctr[2], q);
+            if (dl > 0 && sl > 1e-6f) {
+                float L = 26; Vector2 u = { sd.x / sl, sd.y / sl };
+                Vector2 tail = { q.x - u.x * L, q.y - u.y * L };
+                DrawLineEx(tail, q, 1.6f, loadC);
+                Vector2 n = { -u.y, u.x }; float hl = 7, hw = 4;
+                DrawTriangle(q, (Vector2){ q.x - u.x * hl - n.x * hw, q.y - u.y * hl - n.y * hw }, (Vector2){ q.x - u.x * hl + n.x * hw, q.y - u.y * hl + n.y * hw }, loadC);
+                DrawTriangle(q, (Vector2){ q.x - u.x * hl + n.x * hw, q.y - u.y * hl + n.y * hw }, (Vector2){ q.x - u.x * hl - n.x * hw, q.y - u.y * hl - n.y * hw }, loadC);
+            } else DrawCircleV(q, 3, loadC);
+        }
+    }
+    /* the axes, bottom left, in the held colours */
+    {
+        static const char *const AXN[3] = { "x", "y", "z" };
+        Vector2 o; PROJ(0, 0, 0, o);
+        float L = 22 / kk;
+        Vector2 base = { box.x + 26, box.y + box.height - 26 };
+        for (int k = 0; k < 3; k++) {
+            float v[3] = { 0, 0, 0 }; v[k] = L;
+            Vector2 q; PROJ(v[0], v[1], v[2], q);
+            Vector2 e = { base.x + q.x - o.x, base.y + q.y - o.y };
+            DrawLineEx(base, e, 1.6f, AXC[k]);
+            ui_text(F_REG, 11, AXN[k], e.x + 2, e.y - 7, AXC[k]);
+        }
+    }
+    #undef PROJ
+    /* legend */
+    float lx = box.x + 12, ly = box.y + 8;
+    static const char *const KN[6] = { "held in x", "held in y", "held in z", "held in x, y and z", "temperature held", "held in two directions" };
+    for (int k = 0; k < 6; k++) if (kinds[k]) {
+        Color col = k < 3 ? AXC[k] : k == 3 ? allC : k == 4 ? tempC : ui_mix(allC, TH.text, 0.3f);
+        ui_rect((Rectangle){ lx, ly + 4, 8, 8 }, 1, col); lx += 13;
+        pl_fmt_ui(t, sizeof t, "%s: %d", KN[k], kinds[k]); ui_text(F_REG, 12, t, lx, ly, TH.text2); lx += ui_text_w(F_REG, 12, t) + 14;
+    }
+    if (nLoaded) {
+        ui_rect((Rectangle){ lx, ly + 7, 12, 2 }, 1, loadC); lx += 16;
+        pl_fmt_ui(t, sizeof t, "point loads: %d node%s", nLoaded, nLoaded == 1 ? "" : "s"); ui_text(F_REG, 12, t, lx, ly, TH.text2); lx += ui_text_w(F_REG, 12, t) + 14;
+    }
+    if (m->nDl) { pl_fmt_ui(t, sizeof t, "%d pressure / gravity load%s (*DLOAD) not drawn", m->nDl, m->nDl == 1 ? "" : "s"); ui_text_clip(F_REG, 12, t, lx, ly, box.x + box.width - lx - 12, TH.text3); }
+    y += box.height + 14;
+    /* shear locking */
+    int layers = ccx_locking_risk(m, g);
+    if (layers) {
+        pl_fmt_ui(t, sizeof t, layers > 0 ? "Plain C3D8 bricks, %d through the thickness, will be too stiff in bending" : "Plain C3D8 bricks will be too stiff in bending", layers);
+        pl_fmt_ui(d, sizeof d, "Fully integrated linear bricks can't bend without shearing, so they lock: in a test cantilever, one brick through the thickness "
+                  "came out 35 %% too stiff, two 12 %%, four 3.5 %%. C3D8I (incompatible modes) bends correctly with one; C3D20R (quadratic) does too.");
+        float bw = ui_button_width(NULL, "Use C3D8I"), cw = w - bw - 16;
+        float ch = callout_height(cw, t, d);
+        callout((Rectangle){ x, y, cw, ch }, TOAST_WARN, ICON_TRIANGLE_ALERT, t, d);
+        if (ui_button(ui_id("ccx-c3d8i"), (Rectangle){ x + w - bw, y + (ch - 34) / 2, bw, 34 }, NULL, "Use C3D8I", BTN_SECONDARY)) {
+            if (!P.pf.dirty || prog_setup_save()) {
+                int nchg = ccx_set_element_type(c->s.path, setup_file(), "C3D8", "C3D8I");
+                ui_toast(nchg ? TOAST_OK : TOAST_ERR, nchg ? "The elements are C3D8I now (%d *ELEMENT line%s)" : "No *ELEMENT, TYPE=C3D8 line found", nchg, nchg == 1 ? "" : "s");
+                MV.path[0] = 0;
+                load_setup();
+            }
+        }
+        y += ch + 14;
+    }
+    return y - y0;
+}
+
+/* ============================================================================ CalculiX results in the app (workflow plan C2)
+ * The newest .frd of the input: the largest displacement and von Mises stress and where, the safety factor against the
+ * material's yield (when it is a library material), the reactions at the supports against the loads, the Euler-Bernoulli
+ * hand calculation beside a slender cantilever's, a heat run's temperature range, and a side view of the deformed part
+ * coloured by stress. */
+static struct { char path[PL_PATH]; long long stamp; CcxFrd r; bool ok; } F;
+static const CcxFrd *frd_for(Case *c)
+{
+    char stem[160]; pl_strlcpy(stem, input(), sizeof stem);
+    char *dot = strrchr(stem, '.'); if (dot) *dot = 0;
+    char rel[200]; snprintf(rel, sizeof rel, "%s.frd", stem);
+    char p[PL_PATH]; pl_join(p, sizeof p, c->s.path, rel);
+    long long st = params_stamp(p);
+    if (strcmp(F.path, p) || st != F.stamp) {
+        if (F.ok) ccx_frd_free(&F.r);
+        pl_strlcpy(F.path, p, sizeof F.path); F.stamp = st;
+        F.ok = st > 0 && ccx_frd_load(p, &F.r);
+    }
+    return F.ok ? &F.r : NULL;
+}
+
+static Color stress_color(float t)                       /* blue (low) to red (high) */
+{
+    t = t < 0 ? 0 : t > 1 ? 1 : t;
+    return t < 0.5f ? ui_mix((Color){ 59, 130, 246, 255 }, (Color){ 34, 197, 94, 255 }, t * 2) : ui_mix((Color){ 34, 197, 94, 255 }, (Color){ 239, 68, 68, 255 }, (t - 0.5f) * 2);
+}
+
+static float deformed_view(const CcxFrd *r, int ax, int ay, Rectangle box, bool mm)
+{
+    ui_rect(box, 10, TH.chartBg); ui_rect_lines(box, 10, 1, TH.lineSoft);
+    if (!r->nEdges || !r->u) return box.height;
+    float lo[2] = { 1e30f, 1e30f }, hi[2] = { -1e30f, -1e30f };
+    for (int i = 0; i < r->n; i++) {
+        float p[2] = { r->x[3 * i + ax], r->x[3 * i + ay] };
+        for (int k = 0; k < 2; k++) { if (p[k] < lo[k]) lo[k] = p[k]; if (p[k] > hi[k]) hi[k] = p[k]; }
+    }
+    float ext = fmaxf(hi[0] - lo[0], hi[1] - lo[1]);
+    float scale = r->uMax > 0 ? 0.12f * ext / (float)r->uMax : 1;      /* the largest displacement drawn at 12 % of the part */
+    float pad = 30, sx = (box.width - 2 * pad) / fmaxf(hi[0] - lo[0], 1e-12f), sy = (box.height - 2 * pad) / fmaxf(hi[1] - lo[1] + 0.25f * ext, 1e-12f);
+    float k = fminf(sx, sy);
+    float cx = box.x + box.width / 2 - k * (lo[0] + hi[0]) / 2, cy = box.y + box.height / 2 + k * (lo[1] + hi[1]) / 2;
+    for (int e = 0; e < r->nEdges; e++) {
+        int a = r->edge[2 * e], b = r->edge[2 * e + 1];
+        Vector2 pa = { cx + k * r->x[3 * a + ax], cy - k * r->x[3 * a + ay] }, pb = { cx + k * r->x[3 * b + ax], cy - k * r->x[3 * b + ay] };
+        DrawLineEx(pa, pb, 1, ui_alpha(TH.text3, 0.25f));
+    }
+    for (int e = 0; e < r->nEdges; e++) {
+        int a = r->edge[2 * e], b = r->edge[2 * e + 1];
+        Vector2 pa = { cx + k * (r->x[3 * a + ax] + scale * r->u[3 * a + ax]), cy - k * (r->x[3 * a + ay] + scale * r->u[3 * a + ay]) };
+        Vector2 pb = { cx + k * (r->x[3 * b + ax] + scale * r->u[3 * b + ax]), cy - k * (r->x[3 * b + ay] + scale * r->u[3 * b + ay]) };
+        float t = r->vm && r->vmMax > 0 ? (r->vm[a] + r->vm[b]) / 2 / (float)r->vmMax : 0.5f;
+        DrawLineEx(pa, pb, 1.4f, stress_color(t));
+    }
+    static const char *const AX[3] = { "x", "y", "z" };
+    char lab[160]; pl_fmt_ui(lab, sizeof lab, "Side view (%s across, %s up) · displacements drawn %.3g times larger · colour: von Mises stress, blue low, red high",
+                             AX[ax], AX[ay], scale);
+    ui_text_clip(F_REG, 12, lab, box.x + 12, box.y + 8, box.width - 24, TH.text3);
+    (void)mm;
+    return box.height;
+}
+
+static float ccx_results_panel(Case *c, float x, float y, float w)
+{
+    const CcxFrd *r = frd_for(c);
+    if (!r) return 0;
+    float y0 = y;
+    CcxModel m; ccx_model_load(c->s.path, input(), &m);
+    int u = ccx_units(&m, NULL, 0);
+    bool mm = u == CCX_UNITS_MM;
+    y += section_head(x, y, w, "The answer", ccx_analysis_name(m.analysis));
+    char t[300], d[400];
+    #define ROW(IC_, COL_, TT_, DD_) do { ui_icon(IC_, x + 10, y + 13, 15, COL_); ui_text_clip(F_MED, 14, TT_, x + 28, y + 3, w - 40, TH.text); \
+                                           if ((DD_)[0]) ui_text_clip(F_REG, 12.5f, DD_, x + 28, y + 24, w - 40, TH.text3); \
+                                           y += (DD_)[0] ? 48 : 32; } while (0)
+    bool modal = m.analysis == CCX_FREQUENCY;
+    if (modal) {                                             /* a modal run writes mode shapes: their size means nothing (C4) */
+        const CcxRun *ru = ccx_run_get(c, false);
+        if (ru->nModes) {
+            pl_fmt_ui(t, sizeof t, "Lowest natural frequency %.4g Hz", ru->hz[0]);
+            pl_fmt_ui(d, sizeof d, "%d modes, up to %.4g Hz; the Run page lists them. The displacements written are the mode shapes, scaled arbitrarily: only their shape means anything",
+                      ru->nModes, ru->hz[ru->nModes - 1]);
+            ROW(ICON_ACTIVITY, TH.accent, t, d);
+        }
+    }
+    if (r->u && !modal) {
+        int i = r->uMaxAt;
+        double um = mm ? r->uMax : r->uMax * 1e3;
+        pl_fmt_ui(t, sizeof t, "Largest displacement %.4g mm", um);
+        if (i >= 0) pl_fmt_ui(d, sizeof d, "at node %d (%.4g, %.4g, %.4g) %s", r->id[i], r->x[3 * i], r->x[3 * i + 1], r->x[3 * i + 2], mm ? "mm" : "m"); else d[0] = 0;
+        ROW(ICON_ARROW_RIGHT, TH.accent, t, d);
+    }
+    if (r->vm && !modal) {
+        double sm = mm ? r->vmMax : r->vmMax / 1e6;
+        int i = r->vmMaxAt;
+        pl_fmt_ui(t, sizeof t, "Largest von Mises stress %.4g MPa", sm);
+        if (i >= 0) pl_fmt_ui(d, sizeof d, "at node %d (%.4g, %.4g, %.4g) %s; corners and point loads concentrate stress, so look at where it is", r->id[i],
+                              r->x[3 * i], r->x[3 * i + 1], r->x[3 * i + 2], mm ? "mm" : "m"); else d[0] = 0;
+        ROW(ICON_GAUGE, TH.accent, t, d);
+        int lib = m.nMat ? ccx_lib_match(&m.mat[0], u) : -1;
+        if (lib >= 0 && sm > 0) {
+            double sf = CCX_LIB[lib].yield / 1e6 / sm;
+            pl_fmt_ui(t, sizeof t, "Safety factor %.3g against yielding", sf);
+            pl_fmt_ui(d, sizeof d, "%s yields at %.0f MPa; %s", CCX_LIB[lib].name, CCX_LIB[lib].yield / 1e6,
+                      sf < 1 ? "the part yields: the linear answer no longer holds there" : sf < 1.5 ? "little margin for a structure (1.5 to 2 is usual)" : "the stress is well within the material's strength");
+            ROW(sf < 1.5 ? ICON_TRIANGLE_ALERT : ICON_CIRCLE_CHECK, sf < 1.5 ? TH.warn : TH.ok, t, d);
+        }
+    }
+    if (r->T) { pl_fmt_ui(t, sizeof t, "Temperature from %.4g to %.4g K at t = %.4g", r->tMin, r->tMax, r->time); ROW(ICON_THERMOMETER, TH.accent, t, ""); }
+    /* the reactions against the loads */
+    if (m.analysis == CCX_STATIC || m.analysis == CCX_COUPLED) {
+        double applied[3] = { 0, 0, 0 };
+        for (int i = 0; i < m.nLoad; i++) { int nn = ccx_set_nodes(&m, m.load[i].set); if (m.load[i].dof >= 1 && m.load[i].dof <= 3 && nn > 0) applied[m.load[i].dof - 1] += m.load[i].mag * nn; }
+        if (r->rf) {
+            double res = sqrt((r->rfSum[0] + applied[0]) * (r->rfSum[0] + applied[0]) + (r->rfSum[1] + applied[1]) * (r->rfSum[1] + applied[1]) + (r->rfSum[2] + applied[2]) * (r->rfSum[2] + applied[2]));
+            double amag = sqrt(applied[0] * applied[0] + applied[1] * applied[1] + applied[2] * applied[2]);
+            bool ok = amag > 0 ? res < 0.01 * amag : true;
+            pl_fmt_ui(t, sizeof t, "Reactions at the supports (%.4g, %.4g, %.4g) N", r->rfSum[0], r->rfSum[1], r->rfSum[2]);
+            pl_fmt_ui(d, sizeof d, ok ? "They balance the loads (%.4g, %.4g, %.4g) N: the model is in equilibrium" : "They don't balance the loads (%.4g, %.4g, %.4g) N: check for loads on held nodes or a pressure not counted here",
+                      applied[0], applied[1], applied[2]);
+            ROW(ok ? ICON_CIRCLE_CHECK : ICON_TRIANGLE_ALERT, ok ? TH.ok : TH.warn, t, d);
+        } else if (m.nBc) {
+            ROW(ICON_INFO, TH.info, "Reactions not written", "Add RF to the node output to see the support forces and check they balance the loads.");
+            float bw = ui_button_width(ICON_PLUS, "Add reaction forces to the output");
+            if (ui_button(ui_id("ccx-add-rf"), (Rectangle){ x + 28, y, bw, 32 }, ICON_PLUS, "Add reaction forces to the output", BTN_SECONDARY)) {
+                char p[PL_PATH]; pl_join(p, sizeof p, c->s.path, input());
+                char *txt = pl_read_file(p, NULL);
+                char *k = txt ? strcasestr(txt, "*NODE FILE") : NULL;
+                char *nl = k ? strchr(k, '\n') : NULL, *e2 = nl ? strchr(nl + 1, '\n') : NULL;
+                if (nl && e2) {
+                    Str o; str_init(&o);
+                    str_catf(&o, "%.*s, RF%s", (int)(e2 - txt), txt, e2);
+                    if (pl_write_file(p, o.s, o.len)) { ui_toast(TOAST_OK, "RF added to *NODE FILE in %s: run again to get the reactions", input()); load_setup(); }
+                    str_free(&o);
+                } else ui_toast(TOAST_ERR, "No *NODE FILE line with outputs in %s: add \"*NODE FILE\" and \"U, RF\" before *END STEP", input());
+                free(txt);
+            }
+            y += 44;
+        }
+        CcxBeam bm;
+        if (r->u && ccx_beam_check(&m, &bm)) {
+            double fe = mm ? r->uMax : r->uMax * 1e3, hc = mm ? bm.delta : bm.delta * 1e3;
+            pl_fmt_ui(t, sizeof t, "Hand calculation: tip deflection %.4g mm (FE %.4g mm, %+.1f %%)", hc, fe, (fe - hc) / hc * 100);
+            pl_fmt_ui(d, sizeof d, "Euler-Bernoulli cantilever: delta = F L^3 / (3 E I), I = b h^3 / 12. Root stress M c / I = %.4g MPa (FE %.4g MPa: a root corner's is higher)",
+                      mm ? bm.sigma : bm.sigma / 1e6, r->vm ? (mm ? r->vmMax : r->vmMax / 1e6) : 0.0);
+            ROW(ICON_SIGMA, fabs(fe - hc) < 0.05 * hc ? TH.ok : TH.warn, t, d);
+            static bool work;
+            if (ui_button(ui_id("ccx-working"), (Rectangle){ x + 28, y, ui_button_width(work ? ICON_CHEVRON_DOWN : ICON_CHEVRON_RIGHT, "Show the working"), 30 },
+                          work ? ICON_CHEVRON_DOWN : ICON_CHEVRON_RIGHT, "Show the working", BTN_GHOST)) work = !work;
+            y += 36;
+            if (work) {
+                const char *lu = mm ? "mm" : "m", *su = mm ? "MPa" : "Pa";
+                char wk[900];
+                pl_fmt_ui(wk, sizeof wk, "F = %.4g N (the load on each node times the %s set's nodes), L = %.4g %s, b = %.4g %s, h = %.4g %s (the side the load bends), E = %.4g %s.\n"
+                          "I = b h^3 / 12 = %.4g %s^4.\ndelta = F L^3 / (3 E I) = %.4g %s.\nsigma = M c / I = F L (h / 2) / I = %.4g %s.\n"
+                          "Beam theory ignores shear and the fixed end's local restraint: within a few percent for a slender beam (L / h above 10).",
+                          bm.F, m.load[0].set, bm.L, lu, bm.b, lu, bm.h, lu, bm.E, su, bm.I, lu, bm.delta, lu, bm.sigma, su);
+                y += ui_text_wrap(F_MONO, 12.5f, wk, (Rectangle){ x + 28, y, w - 40, 200 }, 19, TH.text2, true) + 10;
+            }
+        }
+    }
+    {   /* a starter's promised answer against this run's (C4): .qc-starter "check = <umax|vmmax|f1> <SI value>" */
+        char sp[PL_PATH]; pl_join(sp, sizeof sp, c->s.path, ".qc-starter");
+        char *note = pl_read_file(sp, NULL), *ck = note ? strstr(note, "check = ") : NULL;
+        char kind[16] = ""; double want = 0, got = -1;
+        if (ck && sscanf(ck + 8, "%15s %lf", kind, &want) == 2 && want != 0) {
+            const char *what = "", *unit = ""; double sc = 1;
+            if (!strcmp(kind, "umax") && r->u && !modal) { got = mm ? r->uMax / 1e3 : r->uMax; what = "largest displacement"; unit = "mm"; sc = 1e3; }
+            else if (!strcmp(kind, "vmmax") && r->vm && !modal) { got = mm ? r->vmMax * 1e6 : r->vmMax; what = "largest von Mises stress"; unit = "MPa"; sc = 1e-6; }
+            else if (!strcmp(kind, "f1")) { const CcxRun *ru = ccx_run_get(c, false); if (ru->nModes) { got = ru->hz[0]; what = "first natural frequency"; unit = "Hz"; } }
+            if (got >= 0) {
+                double err = (got - want) / want * 100;
+                pl_fmt_ui(t, sizeof t, "Compare with: the %s should be about %.4g %s; this run %.4g %s (%+.1f %%)", what, want * sc, unit, got * sc, unit, err);
+                char *ex = strstr(note, "expect = "), *nl = ex ? strchr(ex, '\n') : NULL;
+                if (ex) pl_fmt_ui(d, sizeof d, "%.*s", (int)(nl ? nl - ex - 9 : (long)strlen(ex + 9)), ex + 9); else d[0] = 0;
+                ui_icon(fabs(err) < 5 ? ICON_CIRCLE_CHECK : ICON_TRIANGLE_ALERT, x + 10, y + 13, 15, fabs(err) < 5 ? TH.ok : TH.warn);
+                ui_text_clip(F_MED, 14, t, x + 28, y + 3, w - 40, TH.text);
+                y += 26;
+                if (d[0]) y += ui_text_wrap(F_REG, 12.5f, d, (Rectangle){ x + 28, y, w - 40, 100 }, 18, TH.text3, true);
+                y += 12;
+            }
+        }
+        free(note);
+    }
+    #undef ROW
+    if (r->u && r->nEdges && !modal) {                       /* the deformed part, side on: across the long side, up the way it bends most */
+        double ext[3]; for (int k = 0; k < 3; k++) ext[k] = m.hi[k] - m.lo[k];
+        int ax = 0; for (int k = 1; k < 3; k++) if (ext[k] > ext[ax]) ax = k;
+        int ay = ax == 0 ? 2 : 0;
+        if (r->uMaxAt >= 0) { double best = -1; for (int k = 0; k < 3; k++) if (k != ax && fabs(r->u[3 * r->uMaxAt + k]) > best) { best = fabs(r->u[3 * r->uMaxAt + k]); ay = k; } }
+        y += 8;
+        y += deformed_view(r, ax, ay, (Rectangle){ x, y, w, fminf(320, w * 0.4f) }, mm) + 16;
+    }
+    ui_divider(x, y, w);
+    return y + 16 - y0;
+}
+
 void page_prog_results(Rectangle r)
 {
     if (!A.cs) return;
@@ -841,6 +1557,7 @@ void page_prog_results(Rectangle r)
         ui_scroll_end(sc, y - top + 100);
         return;
     }
+    if (prog() == PROG_CALCULIX) y += ccx_results_panel(c, x, y, w);   /* the answer, in the app (C2) */
     /* the particle viewer first */
     char pd[PL_PATH], pre[128];
     if (particles_result(pd, sizeof pd, pre, sizeof pre)) {

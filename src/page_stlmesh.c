@@ -25,6 +25,9 @@
 #include "rlgl.h"
 #include "simsetup.h"
 #include "stlmesh.h"
+#include "meshopts.h"
+#include "page_meshadv.h"
+#include "meshexamples.h"
 #include "salometool.h"
 
 static struct {
@@ -168,7 +171,7 @@ static void remove_stl(Case *c)
 /* ============================================================================ the file dialog */
 static void start_picker(bool newCase)
 {
-    if (T.picker > 0) return;
+    if (T.picker > 0) { ui_toast(TOAST_INFO, "The file dialog is already open: finish or cancel it first"); return; }
     snprintf(T.pickOut, sizeof T.pickOut, "/tmp/qc-pick-%d.txt", (int)getpid());
     unlink(T.pickOut);
     char q[PL_PATH + 8]; pl_shell_quote(q, sizeof q, T.pickOut);
@@ -179,14 +182,9 @@ static void start_picker(bool newCase)
         if (!pl_fmt(cmd, sizeof cmd, "printf '%%s' %s > %s", tq, q)) return;
     } else if (A.env.wsl)
         /* Windows' own Open dialog, on top; its path comes back as C:\..., wslpath makes it /mnt/c/... */
-        snprintf(cmd, sizeof cmd,
-                 "p=$(powershell.exe -NoProfile -STA -Command \"Add-Type -AssemblyName System.Windows.Forms; "
-                 "\\$f = New-Object System.Windows.Forms.Form -Property @{TopMost=\\$true}; "
-                 "\\$d = New-Object System.Windows.Forms.OpenFileDialog; \\$d.Title = 'Choose a part to mesh (STL, STEP, IGES)'; "
-                 "\\$d.Filter = 'Parts (*.stl;*.step;*.stp;*.iges;*.igs;*.brep)|*.stl;*.STL;*.step;*.STEP;*.stp;*.STP;*.iges;*.IGES;*.igs;*.IGS;*.brep|"
-                 "STL (*.stl)|*.stl;*.STL|STEP (*.step;*.stp)|*.step;*.STEP;*.stp;*.STP|All files (*.*)|*.*'; "
-                 "if (\\$d.ShowDialog(\\$f) -eq 'OK') { \\$d.FileName }\" 2>/dev/null | tr -d '\\r'); "
-                 "[ -n \"$p\" ] && wslpath -u \"$p\" > %s; true", q);
+        pl_win_open_dialog_cmd(cmd, sizeof cmd, "Choose a part to mesh (STL, STEP, IGES)",
+                               "Parts (*.stl;*.step;*.stp;*.iges;*.igs;*.brep)|*.stl;*.STL;*.step;*.STEP;*.stp;*.STP;*.iges;*.IGES;*.igs;*.IGS;*.brep|"
+                               "STL (*.stl)|*.stl;*.STL|STEP (*.step;*.stp)|*.step;*.STEP;*.stp;*.STP|All files (*.*)|*.*", q);
     else
         snprintf(cmd, sizeof cmd,
                  "{ zenity --file-selection --title='Choose a part to mesh (STL, STEP, IGES)' "
@@ -241,6 +239,37 @@ static void new_case_finish(const char *dir, const char *stl, const char *cad)
     pl_strlcpy(T.casePath, "", sizeof T.casePath);            /* sync_case loads it from the new folder */
     if (A.cs && !strcmp(A.cs->s.path, dir)) sync_case(A.cs);
     ui_toast(TOAST_OK, "Made the case %s for %s", pl_basename(dir), pl_basename(cad ? cad : stl));
+}
+
+/* ---------------------------------------------------------------------------- the meshing tutorial's example cases
+   (tour.c): the part written into a new case (example-duct, example-sphere, example-airfoil, or -2 ...), its boundaries
+   named and typed from its solids, the flow set as the tutorial describes it, opened at Geometry in the STL mesher */
+bool stlmesh_example_case(int k)
+{
+    if (k < 0 || k >= MESH_EX__N) return false;
+    const MeshExample *ex = &MESH_EXAMPLES[k];
+    char dir[PL_PATH];
+    if (!new_case_dir(ex->caseName, dir, sizeof dir)) return false;
+    char err[300];
+    if (!mesh_example_setup(k, dir, err, sizeof err)) { ui_toast(TOAST_ERR, "%s", err); return false; }
+    char sp[PL_PATH]; pl_join(sp, sizeof sp, dir, "mesher/steps");
+    pl_write_file(sp, "4 0\n", 4);                            /* every step reachable (the tutorial opens each), Geometry open */
+    app_rescan_cases(true);
+    app_open_case(dir, PG_MESH);
+    A.meshTab = 3;
+    pl_strlcpy(T.casePath, "", sizeof T.casePath);
+    if (A.cs && !strcmp(A.cs->s.path, dir)) sync_case(A.cs);
+    ui_toast(TOAST_OK, "Made the example case %s", pl_basename(dir));
+    return A.cs != NULL;
+}
+
+/* the open case is that example (its folder example-duct, example-duct-2 ...) */
+bool stlmesh_example_open(int k)
+{
+    if (!A.cs || k < 0 || k >= MESH_EX__N) return false;
+    const char *b = pl_basename(A.cs->s.path), *n = MESH_EXAMPLES[k].caseName;
+    size_t L = strlen(n);
+    return !strncmp(b, n, L) && (b[L] == 0 || b[L] == '-');
 }
 
 /* ============================================================================ CAD files: STEP, IGES, BREP -> STL
@@ -415,6 +444,7 @@ static void generate(Case *c)
     }
     if (salome_mesher() && !A.env.salome[0]) { ui_toast(TOAST_ERR, "SALOME is not installed: see the note under Mesher"); return; }
     if (!prepare(c)) return;
+    MeshOverrides ov; mo_init(&ov); mo_load(c->s.path, &ov);   /* the Advanced panel's command-line options */
     job_reset(A.cj, "Mesh");
     job_add(A.cj, "clear", "Clear the old mesh", "rm -rf constant/polyMesh 0/polyMesh; echo cleared", "log.meshClear", false);
     if (T.m.mesher == MESHER_FOAMY) {
@@ -431,10 +461,12 @@ static void generate(Case *c)
         char prog[64];
         Str fe; str_init(&fe);
         if (T.m.twoD) mesher_cf2d_script(&T.m, true, &fe);
-        str_catf(&fe, "surfaceFeatureEdges -angle %g constant/triSurface/cfmesh.stl constant/triSurface/cfmesh.fms", T.m.featureAngle);
+        char fa[32]; snprintf(fa, sizeof fa, "%g", T.m.featureAngle);
+        str_catf(&fe, "surfaceFeatureEdges -angle %s constant/triSurface/cfmesh.stl constant/triSurface/cfmesh.fms", mo_cmd_value(&ov, "surfaceFeatureEdges", "-angle", fa));
         job_add(A.cj, "surfaceFeatureEdges", "surfaceFeatureEdges", fe.s, "log.surfaceFeatureEdges", false);
         str_free(&fe);
-        pl_strlcpy(prog, mesher_program(&T.m), sizeof prog);
+        snprintf(prog, sizeof prog, "%s", mesher_program(&T.m));
+        char progCmd[200]; snprintf(progCmd, sizeof progCmd, "%s %s", prog, mo_cmd_extra(&ov, "cfMesh"));
         /* cfMesh's layers can turn cells inside out (user's intake, pMesh: 117 cells with 10 layers, none with 6 or 3, and
            cfMesh's own layer optimisation didn't help): checked, and made again with half as many */
         char cfc[1400];
@@ -446,7 +478,7 @@ static void generate(Case *c)
                  "  if [ -n \"$n\" ]; then h=$((L / 2)); echo; echo \"Q-Continuum: $n cells inside out with $L prism layers: "
                  "meshing again with $h (cfMesh's layers fold on this part; system/meshDict says $h until the next Generate)\"; echo\n"
                  "    sed -i \"s/nLayers $L;/nLayers $h;/g\" system/meshDict && %s || exit 1; fi\n"
-                 "fi", prog, prog);
+                 "fi", progCmd, progCmd);
         job_add(A.cj, prog, prog, cfc, TextFormat("log.%s", prog), false);
         Str ty; str_init(&ty);
         if (T.m.twoD) mesher_cf2d_script(&T.m, false, &ty);
@@ -455,9 +487,13 @@ static void generate(Case *c)
         job_add(A.cj, "patchTypes", "Patch types", ty.s, "log.patchTypes", false);
         str_free(&ty);
     } else if (!salome_mesher()) {
-        job_add(A.cj, "surfaceFeatureExtract", "surfaceFeatureExtract", "surfaceFeatureExtract", "log.surfaceFeatureExtract", false);
-        job_add(A.cj, "blockMesh", "blockMesh (background)", "blockMesh", "log.blockMesh", false);
-        job_add(A.cj, "snappyHexMesh", "snappyHexMesh", SNAPPY_CMD, "log.snappyHexMesh", false);
+        char sfe[200], bm[200], sn[sizeof SNAPPY_CMD + 200];
+        snprintf(sfe, sizeof sfe, "surfaceFeatureExtract %s", mo_cmd_extra(&ov, "surfaceFeatureExtract"));
+        snprintf(bm, sizeof bm, "blockMesh %s", mo_cmd_extra(&ov, "blockMesh"));
+        snprintf(sn, sizeof sn, "snappyHexMesh -overwrite %s%s", mo_cmd_extra(&ov, "snappyHexMesh"), SNAPPY_CMD + strlen("snappyHexMesh -overwrite"));
+        job_add(A.cj, "surfaceFeatureExtract", "surfaceFeatureExtract", sfe, "log.surfaceFeatureExtract", false);
+        job_add(A.cj, "blockMesh", "blockMesh (background)", bm, "log.blockMesh", false);
+        job_add(A.cj, "snappyHexMesh", "snappyHexMesh", sn, "log.snappyHexMesh", false);
         if (T.m.twoD) {                                   /* the slab's front face, one cell thick; front and back empty */
             Str ex; str_init(&ex);
             mesher_2d_script(&T.m, &T.stl, &ex);
@@ -483,10 +519,15 @@ static void generate(Case *c)
     if (mesher_poly_convert(&T.m)) {                      /* any 3-D mesh into polyhedra (2-D: they would span the depth) */
         /* the dual of thin prism layers can come out inside out (user's intake, 2026-11-10: 125 negative cells after cfMesh
            tetMesh, 127 after cartesianMesh, none without layers): the mesh before is kept and put back then */
-        char pd[1800];
+        char pd[2000], fa[32], pflags[160];
+        snprintf(fa, sizeof fa, "%g", T.m.featureAngle);
+        snprintf(pflags, sizeof pflags, "%s -overwrite%s%s%s", mo_cmd_value(&ov, "polyDualMesh", "featureAngle", fa),
+                 mo_cmd_flag(&ov, "polyDualMesh", "-concaveMultiCells", true) ? " -concaveMultiCells" : "",
+                 mo_cmd_flag(&ov, "polyDualMesh", "-splitAllFaces", false) ? " -splitAllFaces" : "",
+                 mo_cmd_flag(&ov, "polyDualMesh", "-doNotPreserveFaceZones", false) ? " -doNotPreserveFaceZones" : "");
         snprintf(pd, sizeof pd,
                  "rm -rf .qc-prepoly && cp -r constant/polyMesh .qc-prepoly || exit 1\n"
-                 "if ! polyDualMesh %g -overwrite -concaveMultiCells; then rm -rf constant/polyMesh && mv .qc-prepoly constant/polyMesh; "
+                 "if ! polyDualMesh %s; then rm -rf constant/polyMesh && mv .qc-prepoly constant/polyMesh; "
                  "echo \"Q-Continuum: polyDualMesh stopped on this mesh (above: usually a face it would make with only two corners, "
                  "where the layers pinch): kept the mesh as the mesher made it. cfMesh pMesh or SALOME's polyhedral mesher make "
                  "polyhedra directly.\"; exit 0; fi\n"
@@ -495,10 +536,15 @@ static void generate(Case *c)
                  "if [ -n \"$n\" ]; then rm -rf constant/polyMesh && mv .qc-prepoly constant/polyMesh; "
                  "echo \"Q-Continuum: the polyhedra came out with $n cells inside out (polyDualMesh cannot take this part's thin prism "
                  "layers): kept the mesh as the mesher made it. To convert, turn the prism layers off.\"; "
-                 "else rm -rf .qc-prepoly; echo 'Q-Continuum: polyhedra checked: no cells inside out'; fi", T.m.featureAngle);
+                 "else rm -rf .qc-prepoly; echo 'Q-Continuum: polyhedra checked: no cells inside out'; fi", pflags);
         job_add(A.cj, "polyDualMesh", "polyDualMesh (to polyhedra)", pd, "log.polyDualMesh", false);
     }
-    job_add(A.cj, "checkMesh", "checkMesh", "checkMesh", "log.checkMesh", false);
+    char cm[300];
+    snprintf(cm, sizeof cm, "checkMesh%s%s%s %s", mo_cmd_flag(&ov, "checkMesh", "-allGeometry", false) ? " -allGeometry" : "",
+             mo_cmd_flag(&ov, "checkMesh", "-allTopology", false) ? " -allTopology" : "",
+             mo_cmd_flag(&ov, "checkMesh", "-meshQuality", false) ? " -meshQuality" : "", mo_cmd_extra(&ov, "checkMesh"));
+    job_add(A.cj, "checkMesh", "checkMesh", cm, "log.checkMesh", false);
+    mo_free(&ov);
     if (job_start(A.cj, c->s.path, app_bashrc(), GetTime())) ui_toast(TOAST_INFO, "Meshing %s: the Run page shows the log", pl_basename(T.m.cad[0] ? T.m.cad : T.m.stl));
     else ui_toast(TOAST_ERR, "Could not start the mesher");
 }
@@ -2389,9 +2435,20 @@ static float mesh_step(float x, float y, float w)
     /* the rest when wanted: growth, curvature, feature angle (in the sizes above) and the refinement regions */
     if (T.m.nZones > 0) T.adv = true;
     ui_switch(ui_id("stl-adv"), x, y + 10, &T.adv);
-    ui_text(F_MED, 13.5f, "Advanced: minimum size, curvature, growth, feature angle, refinement regions", x + 46, y + 11, TH.text2);
+    int mine = meshadv_count(T.casePath, &T.m);
+    char al[160];
+    pl_fmt_ui(al, sizeof al, "Advanced: every OpenFOAM meshing setting, refinement regions, minimum size, growth%s", "");
+    ui_text_clip(F_MED, 13.5f, al, x + 46, y + 11, w - 46, TH.text2);
+    if (mine && !T.adv) {                                  /* hidden, still applied: say so */
+        char t[96]; pl_fmt_ui(t, sizeof t, "%d OpenFOAM setting%s of yours in use", mine, mine == 1 ? "" : "s");
+        ui_text_clip(F_REG, 12.5f, t, x + 46, y + 31, w - 46, TH.accent);
+        y += 18;
+    }
     y += 44;
-    if (T.adv) y += zones_section(x, y + 6, w) + 6;
+    if (T.adv) {
+        y += zones_section(x, y + 6, w) + 6;
+        y += meshadv_panel(T.casePath, &T.m, &T.stl, x, y + 10, w) + 10;
+    }
     return y - y0;
 }
 

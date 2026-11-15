@@ -9,6 +9,7 @@
 #include <unistd.h>
 #include <sys/wait.h>
 #include "app.h"
+#include "program.h"
 #include "simsetup.h"
 const SimSetup *setup_current(Case *c);            /* page_setup.c: NULL without a simulation.ini */
 #include "physics.h"
@@ -824,8 +825,14 @@ void run_chart(Rectangle r, LogMon *m)
     ui_rect_lines(r, 12, 1, TH.lineSoft);
     float xw = m && m->nSeries ? chart_max_button(r.x + r.width - 10, r.y + 10) + 8 : 0;   /* the legend wraps before it */
     if (!m || m->nSeries == 0) {
-        ui_icon(ICON_CHART_LINE, r.x + r.width / 2, r.y + r.height / 2 - 18, 28, TH.text3);
-        ui_text_center(F_REG, 13.5f, "Residuals appear here while a solver runs.", (Rectangle){ r.x, r.y + r.height / 2 + 2, r.width, 22 }, TH.text3);
+        /* a run that ended with nothing to plot: a linear step (CalculiX *STATIC) is solved in one go, no iterations to show
+           (W0, 2026-11-14: it said residuals would appear, after the run) */
+        bool done = m && m->ended && !m->fatal;
+        ui_icon(done ? ICON_CIRCLE_CHECK : ICON_CHART_LINE, r.x + r.width / 2, r.y + r.height / 2 - 18, 28, TH.text3);
+        const char *t = !done ? "Residuals appear here while a solver runs."
+                      : A.cs && A.cs->s.prog == PROG_CALCULIX ? "Solved in one go: a linear step has no iterations to plot. The results are on the Results page."
+                      : "The run ended without iterations to plot. The results are on the Results page.";
+        ui_text_center(F_REG, 13.5f, t, (Rectangle){ r.x, r.y + r.height / 2 + 2, r.width, 22 }, TH.text3);
         return;
     }
     /* multi-region logs: one row of region pills; with many series start on the first region */
@@ -2014,7 +2021,7 @@ void page_run(Rectangle r)
     float top = ui_scroll_begin(sc, left);
     float x = left.x + 28, w = lw - 56, y = top + 28;
     ui_text(F_SEMI, TH.lcars ? 26 : 20, ui_cap("Run"), x, y - (TH.lcars ? 3 : 0), head_color()); y += 40;
-    y += stl_workflow(c, x, y, w);                             /* a case made from an STL: where it is, STL to run */
+    y += case_steps(c, x, y, w);                               /* where the case is: STL (or Mesh) to Run (workflow plan W1) */
     {   /* a preCICE participant runs with its partners, from the coupled run */
         char par[PL_PATH], who[64];
         if (precice_participant(c, par, sizeof par, who, sizeof who)) {
@@ -2036,6 +2043,41 @@ void page_run(Rectangle r)
         }
     }
     FDFile *cd = case_dict(c, "system/controlDict");
+    /* W4: a case the setup owns has its solver and times in Physics > Setup; here they are read out, with what they come to
+       (the end time in flow-throughs, the writes as frames). "Edit here" brings back the fields */
+    static bool editHere;
+    if (cd && setup_owns(c) && !editHere) {
+        char app[64] = "", et[32] = "", dt[32] = "", wi[32] = "", wc[32] = "", adj[16] = "";
+        fd_get(cd, "application", app, sizeof app); fd_get(cd, "endTime", et, sizeof et); fd_get(cd, "deltaT", dt, sizeof dt);
+        fd_get(cd, "writeInterval", wi, sizeof wi); fd_get(cd, "writeControl", wc, sizeof wc); fd_get(cd, "adjustTimeStep", adj, sizeof adj);
+        bool steady = strstr(app, "simple") || strstr(app, "Simple");
+        double E = atof(et), D = atof(dt), WI = atof(wi);
+        char l1[200], l2[300] = "", l3[200] = "";
+        pl_fmt_ui(l1, sizeof l1, "%s · %s", app, steady ? "steady" : "transient");
+        if (steady) {
+            pl_fmt_ui(l2, sizeof l2, "%.0f iterations", E / (D > 0 ? D : 1));
+            if (WI > 0) pl_fmt_ui(l3, sizeof l3, "results written every %.0f: %.0f sets", WI, floor(E / (D > 0 ? D : 1) / WI));
+        } else {
+            double Lf, Uf;
+            pl_fmt_ui(l2, sizeof l2, "to t = %g s, step %g s%s", E, D, !strcmp(adj, "yes") || !strcmp(adj, "on") || !strcmp(adj, "true") ? " (adjusts to the Courant limit)" : "");
+            if (setup_flow_through(c, &Lf, &Uf) && Lf > 0) {
+                size_t n = strlen(l2);
+                pl_fmt_ui(l2 + n, sizeof l2 - n, ": %.2g flow-throughs (%.3g m at %.3g m/s)", E * Uf / Lf, Lf, Uf);
+            }
+            double wt = !strcmp(wc, "timeStep") ? WI * D : WI;
+            if (wt > 0) pl_fmt_ui(l3, sizeof l3, "written every %g s: %.0f frames", wt, floor(E / wt));
+        }
+        ui_text(F_MED, 13, "From Physics > Setup", x, y, TH.text2);
+        float cbw = ui_button_width(ICON_SLIDERS_HORIZONTAL, "Change");
+        if (ui_button(ui_id("run-change"), (Rectangle){ x + w - cbw, y - 6, cbw, 30 }, ICON_SLIDERS_HORIZONTAL, "Change", BTN_GHOST)) setup_open_step(6);
+        y += 26;
+        ui_text_clip(F_MONO_MED, 14, l1, x, y, w, TH.text); y += 22;
+        y += ui_text_wrap(F_REG, 13, l2, (Rectangle){ x, y, w, 60 }, 19, TH.text2, true) + 2;
+        if (l3[0]) y += ui_text_wrap(F_REG, 13, l3, (Rectangle){ x, y, w, 60 }, 19, TH.text3, true) + 2;
+        if (ui_button(ui_id("run-edit-here"), (Rectangle){ x, y + 4, ui_button_width(NULL, "Edit here"), 26 }, NULL, "Edit here", BTN_GHOST)) editHere = true;
+        y += 40;
+        cd = NULL;                                           /* the fields below stay hidden */
+    }
     if (cd) {
         ui_disable(mine);
         ui_text(F_MED, 13, "Solver", x, y, TH.text2); y += 22;

@@ -1,0 +1,27 @@
+# Workflow plan step D1 (docs/WORKFLOW_PLAN.md, 2026-11-14): DEME Setup in layers. The physical setup first (the grains, the
+# material and its presets, gravity, the box, the times); the numerical choices (time step, softened stiffness, search speed,
+# output frames ...) behind Advanced, with a line saying what they amount to, and each one with what it changes.
+action go.new
+wait-until page New case
+click new-prog:deme
+wait 5
+click label:Settle a bed
+wait 5
+click clone-name
+key A ctrl
+type d1bed
+click clone-go
+wait-until page Overview timeout 10
+click nav:setup
+wait-until page Setup
+wait 10
+assert text Advanced: the numerical choices
+assert text They make the run feasible on a GPU
+assert text Material preset
+assert not text The step the contacts are integrated with
+screenshot $OUT/d1_closed.png
+click dm-advanced
+wait 5
+assert text The step the contacts are integrated with
+assert text The fastest a grain may go
+screenshot $OUT/d1_open.png

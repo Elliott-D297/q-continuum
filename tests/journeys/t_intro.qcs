@@ -1,0 +1,33 @@
+# The start-up animation (intro.c, user request 2026-11-14): one for each theme. Played from the palette it covers the
+# window, a key skips it to its fade, and the app is back once the fade is over. Settings > Appearance plays it again;
+# the Star Wars themes' scenes play through to the end.
+budget p95 40 max 250
+action view.intro
+wait 20
+assert widget intro-screen
+assert not widget nav:settings
+key ESCAPE
+wait 45
+assert not widget intro-screen
+assert widget nav:settings
+click nav:settings
+wait-until page Settings
+assert widget intro-play
+click intro-play
+wait 20
+assert widget intro-screen
+wait 260
+assert not widget intro-screen
+theme 16
+action view.intro
+wait 120
+screenshot $OUT/intro_rebel.png
+wait 260
+assert not widget intro-screen
+theme 17
+action view.intro
+wait 180
+screenshot $OUT/intro_empire.png
+wait 140
+assert not widget intro-screen
+theme 0

@@ -9,6 +9,7 @@
 #include "simsetup.h"
 #include "foamdict.h"
 #include "stlmesh.h"
+#include "foamcase.h"
 
 static int fails;
 #define CHECK(c, ...) do { if (!(c)) { printf("FAIL line %d: ", __LINE__); printf(__VA_ARGS__); printf("\n"); fails++; } } while (0)
@@ -604,8 +605,54 @@ static void start_unit(const char *dir)
     CHECK(sim_start_why_not(&s, SV_POTENTIAL) && sim_start_why_not(&s, SV_MAP), "free surface: no potential flow or mapping");
 }
 
+/* workflow plan W2: a hand-made case read into a setup. "adopt <case> read": the mesh's patches as the boundaries, the setup
+   read from the files, simulation.ini and the merge bases written (the case's own files untouched); "adopt <case> write":
+   Write case files as the app does; "adopt <case> vec <patch> x y z": an inlet's velocity changed in the setup, then written */
+static int adopt(int argc, char **argv)
+{
+    const char *cd = argv[2], *phase = argv[3];
+    SimSetup s;
+    char err[400], notes[4000];
+    if (!strcmp(phase, "read")) {
+        Case *c = case_open(cd);
+        if (!c) { printf("no case at %s\n", cd); return 1; }
+        sim_defaults(&s, 1);
+        SimPatch p[SIM_MAX_B]; int n = 0;
+        for (int i = 0; i < c->nPatches && n < SIM_MAX_B; i++) p[n++] = (SimPatch){ c->patches[i].name, ROLE_WALL, c->patches[i].type, false, 0 };
+        sim_set_boundaries(&s, p, n);
+        int ok = sim_adopt(cd, c->fieldDir, &s, notes, sizeof notes);
+        printf("adopt: %s\n%s", ok ? "ok" : "refused", notes);
+        if (!ok) { case_close(c); return 3; }
+        printf("app %s, turbulence %s, flow %s, nu %g\n", sim_app(&s), TURB_NAME[s.turb], s.flow == FLOW_STEADY ? "steady" : "transient", s.nu);
+        for (int i = 0; i < s.nB; i++) {
+            const SimBoundary *b = &s.b[i];
+            printf("boundary %s: %s", b->name, sim_constraint(b->meshType) ? b->meshType : ROLE_NAME[b->role]);
+            if (b->role == ROLE_INLET && b->inlet == IN_VECTOR) printf(" vec (%g %g %g)", b->vec[0], b->vec[1], b->vec[2]);
+            if (b->role == ROLE_INLET) printf(" I %g%% L %g", b->intensity, b->length);
+            if (b->role == ROLE_WALL && b->wall == WL_MOVING) printf(" moving (%g %g %g)", b->wallU[0], b->wallU[1], b->wallU[2]);
+            if (b->role == ROLE_OUTLET) printf(" p %g", b->p);
+            printf("\n");
+        }
+        case_close(c);
+        if (!sim_save(cd, &s)) { printf("sim_save failed\n"); return 1; }
+        if (!sim_adopt_bases(cd, &s, err, sizeof err)) { printf("bases: %s\n", err); return 1; }
+        return 0;
+    }
+    if (!sim_load(cd, &s, 1)) { printf("no simulation.ini\n"); return 1; }
+    if (!strcmp(phase, "vec") && argc >= 8) {
+        SimBoundary *b = sim_find(&s, argv[4]);
+        if (!b) { printf("no boundary %s\n", argv[4]); return 1; }
+        b->inlet = IN_VECTOR; b->vec[0] = atof(argv[5]); b->vec[1] = atof(argv[6]); b->vec[2] = atof(argv[7]);
+        sim_save(cd, &s);
+    }
+    if (!sim_write(cd, &s, err, sizeof err)) { printf("write: %s\n", err); return 1; }
+    printf("kept:\n%sreplaced:\n%s", sim_write_kept(), sim_write_replaced());
+    return 0;
+}
+
 int main(int argc, char **argv)
 {
+    if (argc >= 4 && !strcmp(argv[1], "adopt")) return adopt(argc, argv);
     if (argc >= 4 && !strcmp(argv[1], "pitz")) return pitz(argc, argv);
     if (argc >= 3 && !strcmp(argv[1], "mixer")) return mixer(argv);
     if (argc >= 5 && !strcmp(argv[1], "dambreak")) return dambreak(argv);

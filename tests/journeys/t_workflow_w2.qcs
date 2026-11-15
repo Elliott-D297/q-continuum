@@ -1,0 +1,67 @@
+# Workflow plan steps W2 and W3 (docs/WORKFLOW_PLAN.md, 2026-11-14): a tutorial read into Physics > Setup, and boundaries in
+# physical words. The cavity (icoFoam): Physics offers "Read it into Setup"; once read, Setup shows the case (laminar,
+# transient, the lid a moving wall) and what it kept as written; Boundary conditions shows each boundary by what it is,
+# with the patch-by-field table behind Every field. The lid's speed changed there: the steps bar asks to write again, its
+# Next writes the case files, the table shows the new value, and the case runs.
+open $SB/ws/cavity
+wait 10
+click wf-next
+wait-until job finished timeout 60
+wait 20
+click nav:boundary conditions
+wait 10
+assert widget bc-adopt
+assert text See these as inlets, outlets and walls
+click nav:physics
+wait 10
+assert widget phys-adopt
+screenshot $OUT/physics_offer.png
+click phys-adopt
+wait 20
+assert text Setup read the case
+assert text Read from the case's own files
+assert text The case files match this setup
+assert text Kept as the case has it
+assert file $SB/ws/cavity/simulation.ini
+assert file $SB/ws/cavity/.qc-setup/adopted
+# nothing written to the case yet: the bar has Physics done
+assert not text Setup changed: write again
+screenshot $OUT/setup_adopted.png
+click su-adopt-notes
+wait 5
+assert text icoFoam
+screenshot $OUT/setup_notes.png
+click nav:boundary conditions
+wait 10
+assert widget bc-every
+assert text movingWall
+assert text Moving
+screenshot $OUT/bc_roles.png
+click bc-every
+wait 10
+# the table: the case's own condition for the lid, as the tutorial writes it
+assert text fixedValue
+screenshot $OUT/bc_every.png
+click bc-every
+wait 10
+# the lid twice as fast, on its card
+click su-b#0>movingWall>wall-u#0
+key A ctrl
+enter 2
+wait 10
+shell grep -q 'wall_velocity = 2 0 0' $SB/ws/cavity/simulation.ini && touch $OUT/edited
+assert file $OUT/edited
+wait 10
+assert text Setup changed: write again
+click wf-next
+wait 30
+shell grep -q '(2 0 0)' $SB/ws/cavity/0/U && touch $OUT/written
+assert file $OUT/written
+shell grep -q 'icoFoam' $SB/ws/cavity/system/controlDict && touch $OUT/still-ico
+assert file $OUT/still-ico
+click nav:run
+wait-until page Run
+click run-go
+wait-until job finished timeout 120
+wait 20
+assert text Finished

@@ -1,0 +1,30 @@
+# Workflow plan step D3 (docs/WORKFLOW_PLAN.md, 2026-11-14): the DEME run flow. The Run page says it builds by itself when
+# the source changed; the rebuild switch and "Run with an OpenFOAM case" are behind Advanced. The GPU as nvidia-smi gives it,
+# and the run's size against the free memory from the project's last run (.qc-gpu: particles, MB it took).
+action go.new
+wait-until page New case
+click new-prog:deme
+wait 5
+click label:Settle a bed
+wait 5
+click clone-name
+key A ctrl
+type d3bed
+click clone-go
+wait-until page Overview timeout 10
+click nav:run
+wait-until page Run
+wait 60
+assert text It builds by itself before running when the driver's source
+assert not text Run with an OpenFOAM case
+assert not text Rebuild anyway
+assert text GPU: 
+screenshot $OUT/d3_run.png
+click pr-advanced
+wait 10
+assert text Rebuild anyway, from scratch
+assert text Run with an OpenFOAM case
+shell echo "20000 700" > .qc-gpu
+wait 30
+assert text The last run took 700 MB for up to 20000 particles
+screenshot $OUT/d3_advanced.png

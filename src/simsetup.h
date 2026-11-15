@@ -419,4 +419,10 @@ const char *sim_write_replaced(void);
    the setup's solver as the application (a tutorial's own controlDict, or one for another solver: false) */
 bool sim_take_controls(const char *casePath, SimSetup *s);
 
+/* ---- adoption (workflow plan W2): a hand-made case read into a setup. sim_adopt fills s (its boundaries already the mesh's,
+   sim_set_boundaries) from the case's files; returns 0 with the reason in notes when Setup can't take the case, else 1 with
+   what it couldn't name (kept as written) in notes, a line each. sim_adopt_bases records what the setup writes for s as the
+   merge's base without touching the case's files: the next sim_write keeps everything the setup didn't change */
+int  sim_adopt(const char *casePath, const char *fieldDir, SimSetup *s, char *notes, int cap);
+bool sim_adopt_bases(const char *casePath, const SimSetup *s, char *err, int cap);
 #endif

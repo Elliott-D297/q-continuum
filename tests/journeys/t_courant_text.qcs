@@ -3,6 +3,7 @@ open $SB/ws/cavity
 click nav:run
 wait-until page Run
 wait-until text Co ≈ 1.0 timeout 5
+wheel -8 np-in
 wheel 0 text:Co ≈ 1.0
 wait 60
 screenshot $OUT/courant_tip.png

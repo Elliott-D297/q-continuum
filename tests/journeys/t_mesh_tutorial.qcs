@@ -1,0 +1,161 @@
+# The meshing tutorial (user request 2026-11-13: "an individual tutorial (separate from the 1st install tutorial) of how to
+# mesh parts, what makes a good mesh, and a couple of examples to go through; for the 1st launch, attach it to the back end
+# of the beginning walkthrough"): the tour as on the first start hands on to it at its end; the ideas; each example case
+# made by its button and walked through the STL mesher's steps; the duct and the sphere meshed with Try it; the airfoil
+# made; the end.
+budget p95 80 max 3000
+action help.tourfull
+wait 10
+assert widget tour-card
+click tour-next
+wait 8
+click tour-next
+wait 8
+click tour-next
+wait 8
+click tour-next
+wait 8
+click tour-practice
+wait-until case-open timeout 20
+wait 8
+click tour-next
+wait 6
+click tour-next
+wait 6
+click tour-next
+wait 6
+click tour-next
+wait 6
+click tour-next
+wait 6
+click tour-next
+wait 6
+click tour-next
+wait 6
+click tour-next
+wait 6
+click tour-next
+wait 6
+click tour-next
+wait 6
+click tour-next
+wait 6
+click tour-next
+wait 6
+click tour-next
+wait 6
+click tour-next
+wait 6
+click tour-next
+wait 6
+click tour-next
+wait 6
+assert text On to the meshing tutorial
+screenshot $OUT/m00_handoff.png
+click tour-next
+wait 10
+assert text Start the tutorial
+screenshot $OUT/m01.png
+click tour-next
+wait 10
+screenshot $OUT/m02.png
+click tour-next
+wait 10
+screenshot $OUT/m03.png
+click tour-next
+wait 10
+screenshot $OUT/m04.png
+click tour-next
+wait 10
+screenshot $OUT/m05.png
+click tour-next
+wait 10
+screenshot $OUT/m06.png
+click tour-next
+wait 10
+screenshot $OUT/m07.png
+click tour-next
+wait 10
+screenshot $OUT/m08.png
+assert widget tour-example
+click tour-example
+wait-until case-open timeout 20
+wait 20
+assert log mesher/mesher.ini domain = internal
+screenshot $OUT/m09_geometry.png
+click tour-next
+wait 15
+screenshot $OUT/m10_flow.png
+click tour-next
+wait 15
+screenshot $OUT/m11_boundaries.png
+click tour-next
+wait 15
+screenshot $OUT/m12_settings.png
+click tour-next
+wait 15
+screenshot $OUT/m13_generate.png
+click tour-try
+wait 5
+click stl-gen
+wait-until job running timeout 20
+wait-until job finished timeout 600
+assert log log.checkMesh Mesh OK.
+click tour-resume
+wait 10
+click tour-next
+wait 20
+screenshot $OUT/m14_quality.png
+click tour-next
+wait 10
+assert widget tour-example
+click tour-example
+wait-until case-open timeout 20
+wait 20
+assert log mesher/mesher.ini domain = external
+screenshot $OUT/m16_tunnel.png
+click tour-next
+wait 15
+screenshot $OUT/m17_wake.png
+click tour-next
+wait 15
+click tour-try
+wait 5
+click stl-gen
+wait-until job running timeout 20
+wait-until job finished timeout 600
+assert log log.checkMesh Mesh OK.
+click tour-resume
+wait 10
+screenshot $OUT/m18_sphere_generated.png
+click tour-next
+wait 10
+assert widget tour-example
+click tour-example
+wait-until case-open timeout 20
+wait 20
+assert log mesher/mesher.ini two_d = 1
+screenshot $OUT/m20_2d.png
+click tour-next
+wait 15
+screenshot $OUT/m21_layers.png
+click tour-next
+wait 15
+screenshot $OUT/m22_generate.png
+click tour-next
+wait 15
+screenshot $OUT/m23_every.png
+click tour-next
+wait 10
+screenshot $OUT/m24_list.png
+click tour-next
+wait 10
+assert not widget tour-card
+# on its own (Settings > Help > Meshing tutorial, the palette): it opens at its start and Skip ends it
+action help.meshtour
+wait 10
+assert widget tour-card
+assert text Skip the tutorial
+click tour-skip2
+wait 5
+assert not widget tour-card

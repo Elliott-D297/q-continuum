@@ -204,6 +204,13 @@ double mesher_layer_cell(const MeshCfg *m);        /* the surface cell the layer
    system dictionaries a case needs and, for snappyHexMesh, its dictionaries (blockMesh, surfaceFeatureExtract, snappy,
    meshQuality: a file of the user's is kept as <name>.orig first); false with err */
 bool mesher_prepare(const char *casePath, const MeshCfg *m, Stl *s, char *err, int cap);
+/* the dictionaries mesher_prepare would write for m (without the Advanced panel's values), nothing written: what Q-Continuum
+   itself puts in each keyword. text[i] is system/<rel[i]>'s whole text */
+#define MESH_PREVIEW_MAX 16
+typedef struct { int n; char rel[MESH_PREVIEW_MAX][64]; char *text[MESH_PREVIEW_MAX]; } MeshPreview;
+bool        mesher_preview(const MeshCfg *m, Stl *s, MeshPreview *out);
+void        mesher_preview_free(MeshPreview *p);
+const char *mesher_preview_text(const MeshPreview *p, const char *rel);
 /* 2-D, after snappyHexMesh: the shell lines that make one cell of the slab's front face (extrudeMesh), as deep as the part
    and moved onto it, with front2D and back2D empty */
 void mesher_2d_script(const MeshCfg *m, const Stl *s, Str *out);

@@ -59,6 +59,7 @@ typedef struct {
     char  lastPage[48];
     char  lastRegion[64];
     bool  sounds;               /* the LCARS theme's sound cues                        */
+    bool  intro;                /* the theme's start-up animation (intro.c)            */
     bool  meshView;             /* Mesh > View and the Overview's cross section drawn  */
     int   soundLevel;           /*   0 quiet, 1 medium, 2 loud                         */
     NameList recent;            /* cases opened from outside the workspace    */

@@ -81,7 +81,9 @@ bool prog_parse_line(LogMon *m, const char *line);
 bool prog_progress(int prog, const LogMon *m, double inputEnd, bool inputSteps, double *done, double *total, bool *steps);
 
 /* a starter project for a program (New case): files written into dir; false with err when it can't */
-typedef struct { int prog; const char *id, *name, *note; } ProgTemplate;
+/* learn, expect: what the starter teaches and the answer to expect (workflow plan W8/C4), written to <project>/.qc-starter;
+   check: "<quantity> <value>" the Results page measures against (umax in m, vmmax in Pa, f1 in Hz), or NULL */
+typedef struct { int prog; const char *id, *name, *note; const char *learn, *expect, *check; } ProgTemplate;
 extern const ProgTemplate PROG_TEMPLATES[];
 extern const int PROG_N_TEMPLATES;
 bool prog_template_write(const ProgTemplate *t, const char *dir, char *err, int cap);

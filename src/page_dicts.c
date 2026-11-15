@@ -475,6 +475,7 @@ void page_physics(Rectangle r)
     pl_fmt_ui(sub, sizeof sub, "Models and material properties from %s/. Changes are written when you save.", dir);
     y += page_header(x, y, w, "Physics", sub);
     y += region_bar(x, y, w);
+    y += case_steps(A.cs, x, y, w);                          /* where the case is, Mesh to Run (workflow plan W1) */
     /* shown in this order; A.physicsTab keeps its numbers (0 models, 1 all files, 2 setup). Setup writes a single-region
        simpleFoam/pimpleFoam case: it is there for a case made from an STL, one set up there before, or an empty one
        (no physics dictionaries yet); never for a multi-region case (chtMultiRegionFoam ... keeps its own files), where
@@ -499,7 +500,18 @@ void page_physics(Rectangle r)
     if (ui_tabs(ui_id("phys-tabs"), x, y, tabs, nt, &shown, &th)) A.physicsTab = TAB_OF[shown];
     ui_divider(x, y + th, w);
     y += th + 26;
-    if (A.physicsTab == 2) { y += stl_workflow(A.cs, x, y, w); y += page_setup(x, y, w); }
+    if (A.physicsTab != 2 && setup_can_adopt(A.cs)) {        /* a hand-made case: the guided path, one click away (workflow plan W2) */
+        const char *t = "Set this case up in plain terms";
+        const char *d = "Physics > Setup can read this case: the flow, the fluid, the turbulence model and what each boundary is (inlet, outlet, wall) "
+                        "with its values. Writing case files then changes only what you change there; everything else stays as the case has it.";
+        float bw = ui_button_width(ICON_SLIDERS_HORIZONTAL, "Read it into Setup"), cw = w - bw - 16;
+        float ch = fmaxf(callout_height(cw, t, d), 48);
+        callout((Rectangle){ x, y, cw, ch }, TOAST_INFO, ICON_SLIDERS_HORIZONTAL, t, d);
+        if (ui_button(ui_id("phys-adopt"), (Rectangle){ x + w - bw, y + (ch - 36) / 2, bw, 36 }, ICON_SLIDERS_HORIZONTAL, "Read it into Setup", BTN_SECONDARY))
+            setup_adopt(A.cs);
+        y += ch + 18;
+    }
+    if (A.physicsTab == 2) y += page_setup(x, y, w);
     else if (A.physicsTab == 0) y += physics_models(x, y, w);
     else {
         static const char *const skip[] = { NULL };
@@ -582,9 +594,36 @@ void page_numerics(Rectangle r)
     snprintf(sub, sizeof sub, "Discretisation schemes and linear solvers from %s and %s.", case_rpath(A.cs, "system/fvSchemes"), case_rpath(A.cs, "system/fvSolution"));
     y += page_header(x, y, w, "Numerics", sub);
     y += region_bar(x, y, w);
+    y += case_steps(A.cs, x, y, w);
     /* plan step 9: what the setup's numerics preset wrote, or Custom once edited by hand */
     int nm = A.cs && A.cs->s.nRegions == 0 ? sim_numerics_of(A.cs->s.path) : -1;
-    if (nm >= 0) {
+    static bool everyScheme;
+    int own = setup_numerics(A.cs);
+    if (own >= 0) {                                          /* W4: the preset here, the schemes behind Every scheme */
+        static const char *PN[NUM__N] = { "Robust", "Balanced", "Accurate" };
+        static const char *const PD[NUM__N] = {
+            "First-order upwind, firmly relaxed SIMPLE: gets a hard case going (a poor mesh, a start from rest), at some cost in accuracy. Switch to Balanced once it runs.",
+            "Second order for the velocity (linearUpwind), SIMPLEC: the usual choice, accurate on a fair mesh.",
+            "Second order everywhere with little limiting: the most accurate, needs a good mesh (non-orthogonality under about 50 degrees)." };
+        int sel = own;
+        ui_text(F_MED, 13.5f, "Numerics preset", x, y + 8, TH.text);
+        if (ui_segmented(ui_id("num-preset"), (Rectangle){ x + 150, y, fminf(420, w - 150), 34 }, PN, NUM__N, &sel) && sel != own) {
+            setup_set_numerics(A.cs, sel);
+            ui_toast(TOAST_INFO, "%s numerics: written into fvSchemes and fvSolution with the case files (the steps bar's Write case files)", PN[sel]);
+        }
+        y += 44;
+        y += ui_text_wrap(F_REG, 13, PD[sel], (Rectangle){ x + 150, y, w - 150, 60 }, 19, TH.text3, true) + 8;
+        if (nm >= 0 && sim_numerics_edited(A.cs->s.path))
+            y += ui_text_wrap(F_REG, 13, "The files have hand edits on top of the preset (Custom): writing again keeps them, except where the preset sets the same setting.",
+                              (Rectangle){ x + 150, y, w - 150, 60 }, 19, TH.warn, true) + 8;
+        y += 6;
+        ui_switch(ui_id("num-every"), x, y + 2, &everyScheme);
+        ui_register(ui_id("num-every"), (Rectangle){ x, y, 44, 26 }, "Every scheme");
+        ui_text(F_MED, 13.5f, "Every scheme", x + 52, y + 3, TH.text);
+        ui_text_clip(F_REG, 12.5f, "each scheme and linear solver as the files have it", x + 52 + ui_text_w(F_MED, 13.5f, "Every scheme") + 12, y + 4, w - 260, TH.text3);
+        y += 40;
+        if (!everyScheme) { ui_scroll_end(sc, y - top + 40); return; }
+    } else if (nm >= 0) {
         bool ed = sim_numerics_edited(A.cs->s.path);
         char t[80], d[400];
         if (ed) {

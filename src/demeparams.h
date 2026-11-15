@@ -76,4 +76,7 @@ typedef struct {
 bool deme_frame_load(DemeFrame *f, const char *csv);    /* columns found by the header (X,Y,Z,r,absv) */
 void deme_frame_free(DemeFrame *f);
 
+/* a driver result held against theory (workflow plan D2): Beverloo for a hopper's flow rate, the Froude regime for a drum,
+   random packing for a bed, contact-only conduction, the energy balance; 0 none, 1 agrees / context, 2 worth a look */
+int deme_result_context(const DemeParams *d, const char *name, double v, long nParticles, char *out, int cap);
 #endif

@@ -1381,6 +1381,9 @@ static bool parse_driver(LogMon *m, const char *l)            /* DEME, Chrono: o
         logmon_step(m, t);
         const char *ke = strstr(l, " ke="); if (ke) logmon_value(m, "kinetic energy", atof(ke + 4), false);
         const char *vm = strstr(l, " vmax="); if (vm) logmon_value(m, "max speed", atof(vm + 6), false);
+        /* the last step reached: the run is over even without the "Q-Continuum: exit" line, which a run started outside the
+           app (the project's own run.sh) never writes; it read as "Last run stopped" (W0, 2026-11-14) */
+        if (m->endTime > 0 && t >= m->endTime * (1 - 1e-9) && !m->fatal) m->ended = true;
         return true;
     }
     if (pl_starts_with(l, "QC ")) return true;
@@ -1415,17 +1418,40 @@ bool prog_parse_line(LogMon *m, const char *line)
 
 /* ============================================================================ templates */
 const ProgTemplate PROG_TEMPLATES[] = {
-    { PROG_DEME,     "settle",  "Settle a bed",          "Spheres poured into a box settle under gravity (lunar or Earth)." },
-    { PROG_DEME,     "drum",    "Rotating drum",         "A drum turns a bed of grains: angle of repose, mixing." },
-    { PROG_DEME,     "hopper",  "Hopper discharge",      "Grains drain through an orifice: the discharge rate." },
-    { PROG_DEME,     "impact",  "Impact into a bed",     "A projectile hits a settled bed: crater and ejecta." },
-    { PROG_CHRONO,   "pendulum", "Swinging pendulum",    "A rod on a hinge released from an angle: its period against theory, energy kept." },
-    { PROG_CALCULIX, "beam",    "Cantilever beam",       "Steel beam fixed at one end, a tip load: static stress and deflection." },
-    { PROG_CALCULIX, "slab",    "Heated slab",           "Transient heat conduction in a steel slab, one face held hot." },
-    { PROG_MOOSE,    "heat",    "Heat conduction",       "2-D transient conduction in a steel plate (heat_transfer module)." },
-    { PROG_ELMER,    "heat",    "Heat equation",         "Steady heat conduction in a square with a heat source." },
-    { PROG_SPARTA,   "plume",   "Flow over a wedge",     "Rarefied (DSMC) supersonic nitrogen flow over a wedge, 2-D." },
-    { PROG_ASTER,    "slab",    "Thermal slab",          "Transient linear heat conduction (THER_LINEAIRE) on a generated mesh." },
+    { PROG_DEME,     "settle",  "Settle a bed",          "Spheres poured into a box settle under gravity (lunar or Earth).", NULL, NULL, NULL },
+    { PROG_DEME,     "drum",    "Rotating drum",         "A drum turns a bed of grains: angle of repose, mixing.", NULL, NULL, NULL },
+    { PROG_DEME,     "hopper",  "Hopper discharge",      "Grains drain through an orifice: the discharge rate.", NULL, NULL, NULL },
+    { PROG_DEME,     "impact",  "Impact into a bed",     "A projectile hits a settled bed: crater and ejecta.", NULL, NULL, NULL },
+    { PROG_CHRONO,   "pendulum", "Swinging pendulum",    "A rod on a hinge released from an angle: its period against theory, energy kept.", NULL, NULL, NULL },
+    { PROG_CALCULIX, "beam",    "Cantilever beam",       "Steel beam fixed at one end, a tip load: static stress and deflection.",
+      "supports, loads and materials in a CalculiX deck, and checking a finite-element answer against beam theory",
+      "Euler-Bernoulli: tip deflection F L³ / (3 E I) = 0.190 mm and root stress F L c / I = 6 MPa; the results should agree within a few per cent.",
+      "umax 1.905e-4" },
+    { PROG_CALCULIX, "slab",    "Heated slab",           "Transient heat conduction in a steel slab, one face held hot.",
+      "transient heat conduction, fixed time increments and how far heat diffuses in a given time",
+      "Heat creeps in from the hot face: after 250 s it has diffused about sqrt(alpha t) = 2 cm (alpha = k / (rho cp) = 4e-6 m²/s), so the far face is still near 300 K.",
+      NULL },
+    { PROG_CALCULIX, "modes",   "Beam natural frequencies", "The cantilever's first six modes (*FREQUENCY): how fast it vibrates by itself.",
+      "a modal analysis: natural frequencies, mode shapes, and why a square section gives modes in equal pairs",
+      "The first bending mode of a cantilever: f1 = 1.875² / (2 pi) x sqrt(E I / (rho A L^4)) = 83.5 Hz, twice (the section is square).",
+      "f1 83.54" },
+    { PROG_CALCULIX, "bar",     "Bar thermal expansion", "A steel bar heated by 100 K, held only enough not to move as a whole.",
+      "thermal loads (*TEMPERATURE), expansion, and supports that stop rigid-body motion without adding stress",
+      "Free expansion: delta = alpha L dT = 12e-6 x 1 m x 100 K = 1.2 mm and almost no stress. Held at both ends it would carry E alpha dT = 252 MPa instead.",
+      "umax 1.2e-3" },
+    { PROG_CALCULIX, "plate",   "Plate with a hole",     "A quarter of a plate under 50 MPa tension with a hole at its middle: the stress concentration.",
+      "stress concentration, symmetry planes (a quarter model), pressure loads on faces and refining a mesh where stresses rise",
+      "The stress at the hole's edge, across the pull, is about 3 times the remote stress: Kirsch gives 3 for an infinite plate, Heywood 3.03 for this hole "
+      "(a tenth of the width), so about 152 MPa from 50 MPa. A coarser mesh near the hole reads low.",
+      "vmmax 151.5e6" },
+    { PROG_CALCULIX, "vessel",  "Pressure vessel",       "A thin-walled cylinder under 1 MPa inside (a quarter, open ends): its hoop stress.",
+      "thin-walled pressure vessels, pressure on element faces (*DLOAD) and symmetry",
+      "Hoop stress p r / t = 1 MPa x 0.1 m / 5 mm = 20 MPa (Lame's thick-wall answer at the bore: 20.0 MPa); with the -1 MPa radial stress there, von Mises 20.5 MPa.",
+      "vmmax 20.5e6" },
+    { PROG_MOOSE,    "heat",    "Heat conduction",       "2-D transient conduction in a steel plate (heat_transfer module).", NULL, NULL, NULL },
+    { PROG_ELMER,    "heat",    "Heat equation",         "Steady heat conduction in a square with a heat source.", NULL, NULL, NULL },
+    { PROG_SPARTA,   "plume",   "Flow over a wedge",     "Rarefied (DSMC) supersonic nitrogen flow over a wedge, 2-D.", NULL, NULL, NULL },
+    { PROG_ASTER,    "slab",    "Thermal slab",          "Transient linear heat conduction (THER_LINEAIRE) on a generated mesh.", NULL, NULL, NULL },
 };
 const int PROG_N_TEMPLATES = (int)(sizeof PROG_TEMPLATES / sizeof PROG_TEMPLATES[0]);
 
@@ -1448,6 +1474,114 @@ static const char CCX_BEAM[] =
 "*CLOAD\nTIP, 3, -40.\n"
 "*NODE FILE\nU\n*EL FILE\nS\n*NODE PRINT, NSET=TIP\nU\n"
 "*END STEP\n";
+
+static const char CCX_MODES[] =
+"** Natural frequencies of the cantilever: 1 m x 0.1 m x 0.1 m steel, fixed at x = 0, its first six modes.\n"
+"** By hand, the first bending mode: f1 = 1.875^2 / (2 pi) sqrt(E I / (rho A L^4)) = 83.5 Hz, in two equal directions (a square section).\n"
+"** Results: modes.dat (the frequencies), modes.frd (the mode shapes, in cgx or ParaView).\n"
+"*INCLUDE, INPUT=modes_mesh.inp\n"
+"*MATERIAL, NAME=STEEL\n*ELASTIC\n210000e6, 0.3\n*DENSITY\n7850.\n"
+"*SOLID SECTION, ELSET=EALL, MATERIAL=STEEL\n"
+"*STEP\n*FREQUENCY\n6\n"
+"*BOUNDARY\nFIXED, 1, 3\n"
+"*NODE FILE\nU\n"
+"*END STEP\n";
+
+static const char CCX_BAR[] =
+"** Free thermal expansion: a steel bar 1 m x 20 mm x 20 mm heated from 293 K to 393 K.\n"
+"** Held only enough not to move as a whole: the end x = 0 can't move along x; node 1 can't move in y or z; node 103 can't move in z\n"
+"** (that stops it turning about x). By hand: delta = alpha L dT = 1.2 mm, and almost no stress.\n"
+"** Hold the far end too (*BOUNDARY FREE, 1, 1) and the stress becomes E alpha dT = 252 MPa.\n"
+"*INCLUDE, INPUT=bar_mesh.inp\n"
+"*MATERIAL, NAME=STEEL\n*ELASTIC\n210000e6, 0.3\n*EXPANSION, ZERO=293.\n12e-6\n*DENSITY\n7850.\n"
+"*SOLID SECTION, ELSET=EALL, MATERIAL=STEEL\n"
+"*INITIAL CONDITIONS, TYPE=TEMPERATURE\nNALL, 293.\n"
+"*STEP\n*STATIC\n"
+"*BOUNDARY\nFIXED, 1, 1\n1, 2, 3\n103, 3, 3\n"
+"*TEMPERATURE\nNALL, 393.\n"
+"*NODE FILE\nU, NT\n*EL FILE\nS\n"
+"*END STEP\n";
+
+static const char CCX_PLATE[] =
+"** A plate with a hole under tension: a quarter of a 200 mm square plate, 2 mm thick, with a 20 mm hole at its middle (a tenth\n"
+"** of the width). Symmetry: x = 0 (SYMX) can't move along x, y = 0 (SYMY) along y; the back face (ZFIX) along z.\n"
+"** 50 MPa pulls on the edge x = 100 mm (a negative pressure on face 4 of the elements in LOADED).\n"
+"** By hand: the stress at the hole's edge, at x = 0, is Kt x 50 MPa, Kt = 3 for an infinite plate (Kirsch), 3.03 here (Heywood): 152 MPa.\n"
+"*INCLUDE, INPUT=plate_mesh.inp\n"
+"*MATERIAL, NAME=STEEL\n*ELASTIC\n210000e6, 0.3\n*DENSITY\n7850.\n"
+"*SOLID SECTION, ELSET=EALL, MATERIAL=STEEL\n"
+"*STEP\n*STATIC\n"
+"*BOUNDARY\nSYMX, 1, 1\nSYMY, 2, 2\nZFIX, 3, 3\n"
+"*DLOAD\nLOADED, P4, -50e6\n"
+"*NODE FILE\nU\n*EL FILE\nS\n"
+"*END STEP\n";
+
+static const char CCX_VESSEL[] =
+"** A thin-walled pressure vessel: a quarter of a cylinder, mean radius 100 mm, wall 5 mm, 50 mm long, 1 MPa inside, open ends.\n"
+"** Symmetry: y = 0 (SYMY) and x = 0 (SYMX); one end (ZFIX) can't move along z, the other is free.\n"
+"** The pressure acts on face 6 of the elements on the bore (INNER). By hand: hoop stress p r / t = 20 MPa.\n"
+"*INCLUDE, INPUT=vessel_mesh.inp\n"
+"*MATERIAL, NAME=STEEL\n*ELASTIC\n210000e6, 0.3\n*DENSITY\n7850.\n"
+"*SOLID SECTION, ELSET=EALL, MATERIAL=STEEL\n"
+"*STEP\n*STATIC\n"
+"*BOUNDARY\nSYMY, 2, 2\nSYMX, 1, 1\nZFIX, 3, 3\n"
+"*DLOAD\nINNER, P6, 1e6\n"
+"*NODE FILE\nU\n*EL FILE\nS\n"
+"*END STEP\n";
+
+/* a quarter plate with a hole of radius a at the origin, out to x = y = W, thickness t: two mapped blocks either side of 45°,
+   m elements around each, nr out from the hole (graded towards it), one through; LOADED: the elements on the edge x = W */
+static void ccx_plate_mesh(Str *b, double a, double W, double t, int m, int nr)
+{
+    int nj = 2 * m;
+    #define PN(i, j, k) (1 + (i) + (nr + 1) * ((j) + (nj + 1) * (k)))
+    str_cat(b, "*NODE, NSET=NALL\n");
+    for (int k = 0; k <= 1; k++) for (int j = 0; j <= nj; j++) for (int i = 0; i <= nr; i++) {
+        double th = M_PI / 2 * j / nj, ax = a * cos(th), ay = a * sin(th), ex, ey;
+        if (j <= m) { ex = W; ey = W * tan(th); } else { ex = W * cos(th) / sin(th); ey = W; }
+        if (j == nj) ex = 0;
+        double sfr = pow((double)i / nr, 1.6);
+        str_catf(b, "%d, %.8g, %.8g, %.8g\n", PN(i, j, k), ax + sfr * (ex - ax), ay + sfr * (ey - ay), t * k);
+    }
+    str_cat(b, "*ELEMENT, TYPE=C3D8I, ELSET=EALL\n");
+    for (int j = 0; j < nj; j++) for (int i = 0; i < nr; i++)
+        str_catf(b, "%d, %d, %d, %d, %d, %d, %d, %d, %d\n", 1 + i + nr * j, PN(i, j, 0), PN(i + 1, j, 0), PN(i + 1, j + 1, 0), PN(i, j + 1, 0),
+                 PN(i, j, 1), PN(i + 1, j, 1), PN(i + 1, j + 1, 1), PN(i, j + 1, 1));
+    str_cat(b, "*ELSET, ELSET=LOADED\n");
+    for (int j = 0; j < m; j++) str_catf(b, "%d,\n", nr + nr * j);
+    str_cat(b, "*NSET, NSET=SYMY\n");
+    for (int k = 0; k <= 1; k++) for (int i = 0; i <= nr; i++) str_catf(b, "%d,\n", PN(i, 0, k));
+    str_cat(b, "*NSET, NSET=SYMX\n");
+    for (int k = 0; k <= 1; k++) for (int i = 0; i <= nr; i++) str_catf(b, "%d,\n", PN(i, nj, k));
+    str_cat(b, "*NSET, NSET=ZFIX\n");
+    for (int j = 0; j <= nj; j++) for (int i = 0; i <= nr; i++) str_catf(b, "%d,\n", PN(i, j, 0));
+    #undef PN
+}
+
+/* a quarter cylinder, radii ri to ro, length lz: nr through the wall, nt around, nz along; INNER: the elements on the bore */
+static void ccx_vessel_mesh(Str *b, double ri, double ro, double lz, int nr, int nt, int nz)
+{
+    #define VN(i, j, k) (1 + (i) + (nr + 1) * ((j) + (nt + 1) * (k)))
+    str_cat(b, "*NODE, NSET=NALL\n");
+    for (int k = 0; k <= nz; k++) for (int j = 0; j <= nt; j++) for (int i = 0; i <= nr; i++) {
+        double r = ri + (ro - ri) * i / nr, th = M_PI / 2 * j / nt;
+        double x = j == nt ? 0 : r * cos(th), y = r * sin(th);
+        str_catf(b, "%d, %.8g, %.8g, %.8g\n", VN(i, j, k), x, y, lz * k / nz);
+    }
+    str_cat(b, "*ELEMENT, TYPE=C3D8I, ELSET=EALL\n");
+    for (int k = 0; k < nz; k++) for (int j = 0; j < nt; j++) for (int i = 0; i < nr; i++)
+        str_catf(b, "%d, %d, %d, %d, %d, %d, %d, %d, %d\n", 1 + i + nr * (j + nt * k), VN(i, j, k), VN(i + 1, j, k), VN(i + 1, j + 1, k), VN(i, j + 1, k),
+                 VN(i, j, k + 1), VN(i + 1, j, k + 1), VN(i + 1, j + 1, k + 1), VN(i, j + 1, k + 1));
+    str_cat(b, "*ELSET, ELSET=INNER\n");
+    for (int k = 0; k < nz; k++) for (int j = 0; j < nt; j++) str_catf(b, "%d,\n", 1 + nr * (j + nt * k));
+    str_cat(b, "*NSET, NSET=SYMY\n");
+    for (int k = 0; k <= nz; k++) for (int i = 0; i <= nr; i++) str_catf(b, "%d,\n", VN(i, 0, k));
+    str_cat(b, "*NSET, NSET=SYMX\n");
+    for (int k = 0; k <= nz; k++) for (int i = 0; i <= nr; i++) str_catf(b, "%d,\n", VN(i, nt, k));
+    str_cat(b, "*NSET, NSET=ZFIX\n");
+    for (int j = 0; j <= nt; j++) for (int i = 0; i <= nr; i++) str_catf(b, "%d,\n", VN(i, j, 0));
+    #undef VN
+}
 
 static const char CCX_SLAB[] =
 "** Heated slab: steel 0.1 m thick, starts at 300 K, the face x = 0 held at 400 K for 250 s.\n"
@@ -1554,7 +1688,22 @@ static const char ASTER_COMM[] =
 "IMPR_RESU(FORMAT='MED', UNITE=80, RESU=_F(RESULTAT=res))\n"
 "FIN()\n";
 
+static bool prog_template_files(const ProgTemplate *t, const char *dir, char *err, int cap);
 bool prog_template_write(const ProgTemplate *t, const char *dir, char *err, int cap)
+{
+    bool ok = prog_template_files(t, dir, err, cap);
+    if (ok && t->learn) {                     /* what it teaches and what to expect (workflow plan W8/C4) */
+        Str o; str_init(&o);
+        str_catf(&o, "title = %s\nlearn = %s\nexpect = %s\n", t->name, t->learn, t->expect ? t->expect : "");
+        if (t->check) str_catf(&o, "check = %s\n", t->check);
+        char p[PL_PATH]; pl_join(p, sizeof p, dir, ".qc-starter");
+        pl_write_file(p, o.s, o.len);
+        str_free(&o);
+    }
+    return ok;
+}
+
+static bool prog_template_files(const ProgTemplate *t, const char *dir, char *err, int cap)
 {
     err[0] = 0;
     if (!pl_mkdirs(dir)) { snprintf(err, (size_t)cap, "Could not make %s", dir); return false; }
@@ -1585,6 +1734,18 @@ bool prog_template_write(const ProgTemplate *t, const char *dir, char *err, int 
         if (!strcmp(t->id, "beam")) {
             ccx_mesh(&b, 1.0, 0.1, 0.1, 40, 4, 4, "FIXED", "TIP", false);
             ok = put(dir, "beam_mesh.inp", b.s, err, cap) && put(dir, "beam.inp", CCX_BEAM, err, cap);
+        } else if (!strcmp(t->id, "modes")) {
+            ccx_mesh(&b, 1.0, 0.1, 0.1, 40, 4, 4, "FIXED", "TIP", false);
+            ok = put(dir, "modes_mesh.inp", b.s, err, cap) && put(dir, "modes.inp", CCX_MODES, err, cap);
+        } else if (!strcmp(t->id, "bar")) {
+            ccx_mesh(&b, 1.0, 0.02, 0.02, 50, 2, 2, "FIXED", "FREE", false);   /* node 103 is (0, 0.02, 0) */
+            ok = put(dir, "bar_mesh.inp", b.s, err, cap) && put(dir, "bar.inp", CCX_BAR, err, cap);
+        } else if (!strcmp(t->id, "plate")) {
+            ccx_plate_mesh(&b, 0.01, 0.1, 0.002, 16, 16);
+            ok = put(dir, "plate_mesh.inp", b.s, err, cap) && put(dir, "plate.inp", CCX_PLATE, err, cap);
+        } else if (!strcmp(t->id, "vessel")) {
+            ccx_vessel_mesh(&b, 0.0975, 0.1025, 0.05, 2, 24, 4);
+            ok = put(dir, "vessel_mesh.inp", b.s, err, cap) && put(dir, "vessel.inp", CCX_VESSEL, err, cap);
         } else {
             ccx_mesh(&b, 0.1, 0.01, 0.01, 50, 1, 1, "HOT", "COLD", false);
             ok = put(dir, "slab_mesh.inp", b.s, err, cap) && put(dir, "slab.inp", CCX_SLAB, err, cap);

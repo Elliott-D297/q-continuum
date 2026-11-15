@@ -70,6 +70,9 @@ const NameList *pl_list_dir_cached(const char *dir, bool dirsOnly, bool filesOnl
 /* ---------- processes ---------- */
 pid_t pl_spawn_shell(const char *script, const char *logPath);   /* bash -c, own session  */
 pid_t pl_spawn_shell_log(const char *script, const char *logPath, bool append);   /* ... appending to the log */
+/* WSL: a bash command opening Windows' Open dialog (title, WinForms filter: no ' or ") that writes the chosen file, as a
+   /mnt/c/... path, to outQuoted (shell-quoted). false if it doesn't fit */
+bool  pl_win_open_dialog_cmd(char *cmd, size_t cap, const char *title, const char *filter, const char *outQuoted);
 void  pl_spawn_detached(const char *script);                    /* fire and forget        */
 int   pl_run_wait(const char *script, char *out, size_t cap);   /* run, capture stdout    */
 char *pl_run_capture(const char *script, size_t maxBytes, int *status);   /* malloc'd stdout, at most maxBytes */

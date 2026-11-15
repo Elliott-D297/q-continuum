@@ -123,6 +123,27 @@ int main(int argc, char **argv)
     CHECK(fabsf(f.lo[2] + 0.3f) < 1e-6f && fabsf(f.hi[0] - 0.1f) < 1e-6f, "frame bounds");
     deme_frame_free(&f);
 
+    /* workflow plan D2: the results against theory */
+    {
+        char src[1024], ctx[400]; snprintf(src, sizeof src, "%s/params_hopper.ini", assets);
+        DemeParams h = { 0 }; deme_params_load(&h, src);
+        /* Beverloo by hand: D0 20 mm, d 4 mm, rho_b 1500, W = 0.58 * 1500 * sqrt(9.81) * 0.014^2.5 = 0.0632 kg/s */
+        CHECK(deme_result_context(&h, "mean_flow_rate", 0.06, 1000, ctx, sizeof ctx) == 1 && strstr(ctx, "0.0632 kg/s"), "Beverloo 0.0632: %s", ctx);
+        CHECK(deme_result_context(&h, "mean_flow_rate", 0.01, 1000, ctx, sizeof ctx) == 2, "a flow far off Beverloo: worth a look");
+        CHECK(deme_result_context(&h, "discharged_fraction", 0.5, 1000, ctx, sizeof ctx) == 2 && strstr(ctx, "50 %"), "half drained: %s", ctx);
+        deme_params_free(&h);
+        CHECK(deme_result_context(NULL, "froude", 0.005, 0, ctx, sizeof ctx) == 1 && strstr(ctx, "rolling"), "Froude 0.005 rolling: %s", ctx);
+        CHECK(deme_result_context(NULL, "froude", 2, 0, ctx, sizeof ctx) == 1 && strstr(ctx, "centrifuging"), "Froude 2 centrifuging");
+        CHECK(deme_result_context(NULL, "solid_fraction", 0.504, 0, ctx, sizeof ctx) == 2 && strstr(ctx, "Packing fraction 0.504: looser"), "0.504 looser than random loose");
+        CHECK(deme_result_context(NULL, "solid_fraction", 0.62, 0, ctx, sizeof ctx) == 1, "0.62 a random packing");
+        CHECK(deme_result_context(NULL, "energy_balance_error", -2e-5, 0, ctx, sizeof ctx) == 1, "energy balance closes");
+        snprintf(src, sizeof src, "%s/params_settle.ini", assets);
+        DemeParams st = { 0 }; deme_params_load(&st, src);
+        /* 3000 grains, r 1.5-2.5 mm (mean r^3 = (r2^4 - r1^4) / (4 (r2 - r1)) = 8.5e-9 m^3), in 0.1 m square, 4.5 cm deep: phi = 3000 * 4/3 pi 8.5e-9 / 4.5e-4 = 0.237 */
+        CHECK(deme_result_context(&st, "bed_top", 0.045, 3000, ctx, sizeof ctx) > 0 && strstr(ctx, "packing fraction of about 0.24"), "bed_top to phi: %s", ctx);
+        deme_params_free(&st);
+        CHECK(deme_result_context(NULL, "rim_speed", 1, 0, ctx, sizeof ctx) == 0, "no context for a plain number");
+    }
     printf("%s\n", fails ? "FAILED" : "ok");
     return fails ? 1 : 0;
 }

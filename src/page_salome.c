@@ -223,7 +223,7 @@ static bool import_mesh(Case *c, const char *src)
 
 static void start_picker(bool newCase)
 {
-    if (I.picker > 0) return;
+    if (I.picker > 0) { ui_toast(TOAST_INFO, "The file dialog is already open: finish or cancel it first"); return; }
     snprintf(I.out, sizeof I.out, "/tmp/qc-pickmesh-%d.txt", (int)getpid());
     unlink(I.out);
     char q[PL_PATH + 8]; pl_shell_quote(q, sizeof q, I.out);
@@ -233,13 +233,8 @@ static void start_picker(bool newCase)
         char tq[PL_PATH + 8]; pl_shell_quote(tq, sizeof tq, testPick);
         if (!pl_fmt(cmd, sizeof cmd, "printf '%%s' %s > %s", tq, q)) return;
     } else if (A.env.wsl)
-        snprintf(cmd, sizeof cmd,
-                 "p=$(powershell.exe -NoProfile -STA -Command \"Add-Type -AssemblyName System.Windows.Forms; "
-                 "\\$f = New-Object System.Windows.Forms.Form -Property @{TopMost=\\$true}; "
-                 "\\$d = New-Object System.Windows.Forms.OpenFileDialog; \\$d.Title = 'Choose a mesh to import'; "
-                 "\\$d.Filter = 'Meshes (*.unv;*.med;*.hdf;*.msh)|*.unv;*.UNV;*.med;*.MED;*.hdf;*.HDF;*.msh;*.MSH|All files (*.*)|*.*'; "
-                 "if (\\$d.ShowDialog(\\$f) -eq 'OK') { \\$d.FileName }\" 2>/dev/null | tr -d '\\r'); "
-                 "[ -n \"$p\" ] && wslpath -u \"$p\" > %s; true", q);
+        pl_win_open_dialog_cmd(cmd, sizeof cmd, "Choose a mesh to import",
+                               "Meshes (*.unv;*.med;*.hdf;*.msh)|*.unv;*.UNV;*.med;*.MED;*.hdf;*.HDF;*.msh;*.MSH|All files (*.*)|*.*", q);
     else
         snprintf(cmd, sizeof cmd,
                  "{ zenity --file-selection --title='Choose a mesh to import' --file-filter='Meshes | *.unv *.UNV *.med *.MED *.hdf *.HDF *.msh *.MSH' 2>/dev/null "

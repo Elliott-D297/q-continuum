@@ -90,6 +90,22 @@ assert text HEV suit diagnostics
 assert text HEALTH
 screenshot $OUT/halflife.png
 click nav:settings
+click theme#16
+wait 10
+click nav:run
+wait 10
+assert text Astromech diagnostic
+assert text target in
+screenshot $OUT/rebel.png
+click nav:settings
+click theme#17
+wait 10
+click nav:run
+wait 10
+assert text Security sweep
+assert text PRIMARY IGNITION
+screenshot $OUT/empire.png
+click nav:settings
 click theme#0
 wait 10
 click nav:run

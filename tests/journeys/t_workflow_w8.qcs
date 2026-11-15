@@ -1,0 +1,26 @@
+# Workflow plan step W8 (docs/WORKFLOW_PLAN.md, 2026-11-14): starters that teach. Each "Good places to start" card says what
+# it teaches; the case made from it keeps that and the answer to expect (.qc-starter), shown on Overview until "Got it",
+# and on Results as "Compare with".
+click nav:new case
+wait 10
+assert text You'll learn how a moving wall drives a flow
+screenshot $OUT/w8_cards.png
+click starter#0
+wait 5
+click clone-go
+wait-until page Overview timeout 15
+wait 10
+assert file $SB/ws/cavity/.qc-starter
+assert log $SB/ws/cavity/.qc-starter Ghia
+assert text Lid-driven cavity: what it teaches
+screenshot $OUT/w8_overview.png
+click nav:results
+wait 20
+assert text Compare with
+screenshot $OUT/w8_results.png
+click nav:overview
+wait 10
+click ov-starter-seen
+wait 10
+assert file $SB/ws/cavity/.qc-starter-seen
+assert not text Lid-driven cavity: what it teaches

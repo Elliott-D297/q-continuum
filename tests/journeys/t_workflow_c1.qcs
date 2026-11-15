@@ -1,0 +1,48 @@
+# Workflow plan step C1 (docs/WORKFLOW_PLAN.md, 2026-11-14): CalculiX Setup in engineering words. The beam starter's Setup says
+# what the model is (linear static, the mesh, metres-newtons-pascals), its material (steel, matched to the library), its
+# support (FIXED, 25 nodes, held in x to z) and its load (40 N on each of TIP's 25 nodes: 1 kN in total). The total set to
+# 2000 N writes 80 N a node; the material switched to aluminium writes its E and density; saved, the file runs in ccx.
+action go.new
+wait-until page New case
+click new-prog:calculix
+wait 5
+click label:Cantilever beam
+wait 5
+click clone-name
+key A ctrl
+type c1beam
+click clone-go
+wait-until page Overview timeout 10
+click nav:setup
+wait-until page Setup
+wait 10
+assert text The model
+assert text Linear static
+assert text Material STEEL · Structural steel
+assert text Support FIXED · 25 nodes
+assert text Force on TIP · 25 nodes
+assert text 40 N on each node along -z: 1000 N in total
+screenshot $OUT/c1_model.png
+click ccx-total#0
+key A ctrl
+enter 2000
+wait 10
+assert text 80 N on each node along -z: 2000 N in total
+click ccx-mat#0
+wait 3
+click text:Aluminium 6061-T6
+wait 10
+assert text Material STEEL · Aluminium 6061-T6
+click ps-save
+wait 10
+shell grep -q '^TIP, 3, -80$' $SB/home/calculix/c1beam/beam.inp && touch $OUT/load-ok
+assert file $OUT/load-ok
+shell grep -q '^6.89e+10, 0.33$' $SB/home/calculix/c1beam/beam.inp && grep -q '^2700$' $SB/home/calculix/c1beam/beam.inp && touch $OUT/mat-ok
+assert file $OUT/mat-ok
+screenshot $OUT/c1_saved.png
+click nav:run
+wait-until page Run
+click run-go
+wait-until job finished timeout 120
+wait 20
+assert text Finished

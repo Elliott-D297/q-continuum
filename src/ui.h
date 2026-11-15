@@ -40,8 +40,8 @@ typedef struct {
 /* the themes, as Settings stores them */
 enum { THEME_LCARS = 0, THEME_DARK, THEME_LIGHT, THEME_STARDEW, THEME_POKEMON, THEME_JARVIS,
        THEME_SEVERANCE, THEME_ALIEN, THEME_PIPBOY, THEME_NERV, THEME_PORTAL, THEME_SOULS, THEME_FACTORIO, THEME_WIN95, THEME_STARCITIZEN,
-       THEME_HALFLIFE, THEME__N };
-enum { RETRO_NONE = 0, RETRO_SEVERANCE, RETRO_ALIEN, RETRO_PIPBOY, RETRO_NERV, RETRO_PORTAL, RETRO_SOULS, RETRO_FACTORIO, RETRO_WIN95, RETRO_STARCITIZEN, RETRO_HALFLIFE };
+       THEME_HALFLIFE, THEME_REBEL, THEME_EMPIRE, THEME__N };
+enum { RETRO_NONE = 0, RETRO_SEVERANCE, RETRO_ALIEN, RETRO_PIPBOY, RETRO_NERV, RETRO_PORTAL, RETRO_SOULS, RETRO_FACTORIO, RETRO_WIN95, RETRO_STARCITIZEN, RETRO_HALFLIFE, RETRO_REBEL, RETRO_EMPIRE };
 int  ui_theme_id(void);                  /* THEME_* now shown */
 enum { GAME_NONE = 0, GAME_STARDEW, GAME_POKEMON };
 
@@ -142,6 +142,7 @@ bool  ui_input(UiId id, Rectangle r, char *buf, int cap, const char *placeholder
 bool  ui_dropdown(UiId id, Rectangle r, const char *current, const char *const *items, int n, int flags,
                   char *out, int cap, const char *placeholder);
 bool  ui_select(UiId id, Rectangle r, const char *const *items, int n, int *sel);
+bool  ui_menu_button(UiId id, Rectangle r, const char *icon, const char *label, ButtonStyle st, const char *const *items, int n, int *picked);
 bool  ui_select_ph(UiId id, Rectangle r, const char *const *items, int n, int *sel, const char *placeholder);
 float ui_badge(float x, float y, const char *icon, const char *text, Color fg, Color bg);
 float ui_badge_width(const char *icon, const char *text);

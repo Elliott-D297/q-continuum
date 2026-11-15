@@ -242,7 +242,7 @@ static void make_theme(int t)
         for (int i = 0; i < 10; i++) h->series[i] = hex(se[sv ? 0 : 1][i]);
         return;
     }
-    if (t >= THEME_SEVERANCE && t <= THEME_HALFLIFE) {
+    if (t >= THEME_SEVERANCE && t <= THEME_EMPIRE) {
         /* the screen and game themes, on the classic layout. One table: bg, sidebar, surface, surface2, raised, input, line,
            lineSoft, hover, selected, text, text2, text3, onAccent, accent, ok, warn, err, info; then the series */
         static const struct { int retro; bool dark; float crt; bool upper; unsigned c[19]; unsigned se[6]; } P[] = {
@@ -286,6 +286,14 @@ static void make_theme(int t)
             { RETRO_HALFLIFE, true, 0.0f, false, { 0x161717, 0x1C1D1D, 0x262726, 0x2C2D2C, 0x343533, 0x0F1010, 0x5E5C57, 0x353533,
               0x353634, 0x4A3214, 0xEDE6D8, 0xB9B0A0, 0x837C70, 0x120D06, 0xFF8C1A, 0x9BCB4A, 0xFFC93C, 0xE8452E, 0x86B8DC },
               { 0xFF8C1A, 0x86B8DC, 0x9BCB4A, 0xE8452E, 0xFFC93C, 0xB9B0A0 } },
+            /* Rebel Alliance: a starfighter's targeting computer and the base's war room, worn olive steel, flight-suit orange */
+            { RETRO_REBEL, true, 0.0f, false, { 0x0D0F0C, 0x12150F, 0x191C15, 0x1E2219, 0x252A1F, 0x0A0C09, 0x6A6E52, 0x2C3024,
+              0x2A2F22, 0x4A3418, 0xF2E6C8, 0xC2B897, 0x868066, 0x140C04, 0xFF7A1A, 0x8BCB4A, 0xFFC93C, 0xE5483B, 0x6EC1FF },
+              { 0xFF7A1A, 0x6EC1FF, 0x8BCB4A, 0xFFC93C, 0xE5483B, 0xC2B897 } },
+            /* Galactic Empire: an Imperial console, polished black and gunmetal, cold white light, one hard red */
+            { RETRO_EMPIRE, true, 0.0f, true, { 0x07080A, 0x0C0D10, 0x121418, 0x171A1F, 0x1D2127, 0x050608, 0x4A525C, 0x22272E,
+              0x1C2026, 0x3A1418, 0xE6EAEE, 0xA4ADB7, 0x6A737D, 0xFFFFFF, 0xE8212E, 0x3FD07A, 0xFFB020, 0xFF3B3B, 0xA9C6E8 },
+              { 0xE8212E, 0xA9C6E8, 0x3FD07A, 0xFFB020, 0xE6EAEE, 0x6A737D } },
         };
         const int i = t - THEME_SEVERANCE;
         const unsigned *c = P[i].c;
@@ -454,6 +462,39 @@ static void retro_backdrop(float w, float h)
         ui_lambda(c.x, c.y, R * 1.1f, R * 0.13f, ui_alpha(a, 0.045f));
         break;
     }
+    case RETRO_REBEL: {                            /* stars, and the targeting computer's reticle faint low on the right */
+        unsigned r = 977u;
+        for (int i = 0; i < 160; i++) {
+            r = r * 1103515245u + 12345u; float sx = (r >> 8) % 10000 / 10000.0f * w;
+            r = r * 1103515245u + 12345u; float sy = (r >> 8) % 10000 / 10000.0f * h;
+            r = r * 1103515245u + 12345u; float b = 0.10f + ((r >> 8) % 100) / 100.0f * 0.35f;
+            DrawRectangleRec((Rectangle){ sx, sy, i % 11 ? 1 : 2, i % 11 ? 1 : 2 }, ui_alpha(WHITE, b));
+        }
+        Vector2 c = { w * 0.84f, h * 0.78f };
+        float R = fminf(w, h) * 0.24f;
+        Color g = ui_alpha(a, 0.07f);
+        DrawRing(c, R * 0.98f, R, 0, 360, 96, g);
+        DrawRing(c, R * 0.55f, R * 0.565f, 0, 360, 64, g);
+        for (int k = 0; k < 4; k++) {                  /* the reticle's four arms */
+            float an = k * 90.0f * DEG2RAD;
+            DrawLineEx((Vector2){ c.x + cosf(an) * R * 0.62f, c.y + sinf(an) * R * 0.62f }, (Vector2){ c.x + cosf(an) * R * 1.12f, c.y + sinf(an) * R * 1.12f }, 1.5f, g);
+        }
+        for (int k = 0; k < 6; k++) DrawRectangleRec((Rectangle){ c.x - R * 1.6f, c.y - R * 0.6f + k * R * 0.24f, R * 0.4f - k * R * 0.05f, 1 }, g);
+        break;
+    }
+    case RETRO_EMPIRE: {                           /* polished black with a cold light from above, the battle station watermarked low on the right */
+        DrawCircleGradient((int)(w * 0.5f), (int)(-h * 0.3f), s * 0.6f, ui_alpha((Color){ 169, 198, 232, 255 }, 0.05f), ui_alpha((Color){ 169, 198, 232, 255 }, 0));
+        Color g = ui_alpha(WHITE, 0.012f);
+        for (float y = 0; y < h; y += 4) DrawRectangleRec((Rectangle){ 0, y, w, 1 }, g);
+        float R = fminf(w, h) * 0.30f;
+        Vector2 c = { w * 0.86f, h * 0.82f };
+        Color st = ui_alpha((Color){ 169, 198, 232, 255 }, 0.05f);
+        DrawRing(c, R - 2, R, 0, 360, 96, st);
+        DrawRectangleRec((Rectangle){ c.x - R, c.y - 1, 2 * R, 2 }, st);          /* the equatorial trench */
+        DrawRing((Vector2){ c.x - R * 0.35f, c.y - R * 0.38f }, R * 0.20f, R * 0.22f, 0, 360, 48, st);   /* the dish */
+        DrawCircleV((Vector2){ c.x - R * 0.35f, c.y - R * 0.38f }, R * 0.04f, st);
+        break;
+    }
     case RETRO_PORTAL: {                           /* white panels of a test chamber */
         Color g = ui_alpha(BLACK, 0.035f);
         for (float x = 0; x < w; x += 96) DrawRectangleRec((Rectangle){ x, 0, 1, h }, g);
@@ -582,6 +623,8 @@ static const DisplayFace *retro_face(void)
     case RETRO_FACTORIO: return &FACE_TITILLIUM;
     case RETRO_STARCITIZEN: return &FACE_ELECTROLIZE;
     case RETRO_HALFLIFE: return &FACE_TITILLIUM;
+    case RETRO_REBEL: return &FACE_JARVIS;
+    case RETRO_EMPIRE: return &FACE_TECHMONO_LABELS;
     default: return NULL;
     }
 }
@@ -861,7 +904,8 @@ static float game_radius(float radius)
     if (U.th.glass) return radius >= 3 ? radius * 1.45f + 1 : radius;          /* iOS: generous, continuous-looking corners */
     if (U.th.hud) return fminf(radius, 3);                                        /* JARVIS: machined, nearly square */
     switch (U.th.retro) {                                                         /* the screens are square, Portal and Severance soft */
-    case RETRO_WIN95: case RETRO_ALIEN: case RETRO_NERV: case RETRO_SOULS: return 0;
+    case RETRO_WIN95: case RETRO_ALIEN: case RETRO_NERV: case RETRO_SOULS: case RETRO_EMPIRE: return 0;
+    case RETRO_REBEL: return fminf(radius, 3);
     case RETRO_PIPBOY: case RETRO_FACTORIO: return fminf(radius, 2);
     case RETRO_HALFLIFE: return fminf(radius, 3);
     case RETRO_SEVERANCE: case RETRO_STARCITIZEN: return fminf(radius, 4);
@@ -953,6 +997,22 @@ void ui_rect_lines(Rectangle r, float radius, float thick, Color c)
             DrawRectangleRec((Rectangle){ x0 + 10, y0, fminf(48, r.width * 0.18f), 2 }, ui_alpha(U.th.accent, 0.85f * k));
             for (int i = 0; i < 2; i++)                    /* rivets in the top corners */
                 DrawCircleV((Vector2){ i ? x1 - 6 : x0 + 6, y0 + 6 }, 1.5f, ui_alpha(WHITE, 0.18f * k));
+            return;
+        }
+        case RETRO_REBEL: {                        /* worn steel: a hairline, an orange flight tab on top, three stencil ticks at the bottom right */
+            float k = c.a / 255.0f;
+            DrawRectangleRoundedLinesEx(r, roundness(r, 3), 8, 1, ui_alpha(U.th.line, 0.55f * k));
+            DrawRectangleRec((Rectangle){ x0 + 12, y0 - 1, fminf(56, r.width * 0.2f), 3 }, ui_alpha(U.th.accent, 0.9f * k));
+            for (int i = 0; i < 3; i++) DrawRectangleRec((Rectangle){ x1 - 14 - i * 7, y1 - 6, 4, 2 }, ui_alpha(U.th.accent, 0.5f * k));
+            return;
+        }
+        case RETRO_EMPIRE: {                       /* a hard edge: a cold hairline, a red bar top-left, the bottom-right corner cut */
+            float k = fminf(14, fminf(r.width, r.height) * 0.2f), q = c.a / 255.0f;
+            Color hl = ui_alpha(U.th.line, 0.7f * q);
+            Vector2 pts[6] = { { x0, y0 }, { x1, y0 }, { x1, y1 - k }, { x1 - k, y1 }, { x0, y1 }, { x0, y0 } };
+            for (int i = 0; i < 5; i++) DrawLineEx(pts[i], pts[i + 1], 1, hl);
+            DrawRectangleRec((Rectangle){ x0, y0, fminf(36, r.width * 0.15f), 3 }, ui_alpha(U.th.accent, 0.95f * q));
+            DrawRectangleRec((Rectangle){ x0 + fminf(36, r.width * 0.15f) + 4, y0, 6, 3 }, ui_alpha(U.th.accent, 0.6f * q));
             return;
         }
         case RETRO_ALIEN: case RETRO_PIPBOY:       /* one phosphor line */
@@ -1447,6 +1507,9 @@ static void draw_toasts(void)
 {
     const Theme *t = &U.th;
     float y = ui_height() - 20;
+    /* at most two on screen: an older one fades out early when a third arrives, so a burst ("created", "started",
+       "finished") doesn't stack up over the page's controls (W0, 2026-11-14) */
+    for (int i = 0; i < U.nToasts - 2; i++) if (U.time - U.toasts[i].t0 < 4.0) U.toasts[i].t0 = U.time - 4.0;
     for (int i = U.nToasts - 1; i >= 0; i--) {
         Toast *o = &U.toasts[i];
         double age = U.time - o->t0;
@@ -2045,6 +2108,35 @@ bool ui_input(UiId id, Rectangle r, char *buf, int cap, const char *ph, int flag
     }
     ui_clip_pop();
     return changed;
+}
+
+/* ---------------------------------------------------------------- menu button (workflow plan W7): a button that opens a list
+   of actions under it; returns true with *picked the one chosen */
+bool ui_menu_button(UiId id, Rectangle r, const char *icon, const char *label, ButtonStyle st, const char *const *items, int n, int *picked)
+{
+    if (U.pop.resultReady && U.pop.resultOwner == id) {
+        U.pop.resultReady = false;
+        for (int i = 0; i < n; i++) if (!strcmp(items[i], U.pop.result)) { *picked = i; return true; }
+        return false;
+    }
+    bool open = U.pop.open && U.pop.owner == id;
+    if (ui_button(id, r, icon, label, st)) {
+        if (open) U.pop.open = false;
+        else {
+            Popup *p = &U.pop;
+            memset(p->items, 0, sizeof p->items);
+            p->open = true; p->owner = id; p->layer = U.layer; p->anchor = r; p->flags = 0;
+            p->n = n < MAX_POPUP_ITEMS ? n : MAX_POPUP_ITEMS;
+            p->hover = 0; p->scroll = 0; p->filter[0] = 0; p->justOpened = false;
+            float mw = r.width;
+            for (int i = 0; i < p->n; i++) { snprintf(p->items[i], sizeof p->items[i], "%s", items[i]); mw = fmaxf(mw, ui_text_w(F_REG, 13.5f, items[i]) + 40); }
+            float mx = r.x + r.width - mw;
+            if (mx < 4) mx = 4;
+            p->rect = (Rectangle){ mx, r.y + r.height, mw, 10 };
+            if (U.editId) U.editId = 0;
+        }
+    }
+    return false;
 }
 
 /* ---------------------------------------------------------------- dropdown */

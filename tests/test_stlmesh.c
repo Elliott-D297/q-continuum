@@ -11,6 +11,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "stlmesh.h"
+#include "meshexamples.h"
 
 static int init(const char *stl, const char *casePath, double scale)
 {
@@ -75,6 +76,12 @@ int main(int argc, char **argv)
             printf("%.0f %s\n", mesher_estimate_cells(&m, &s), argv[i]);
             stl_free(&s);
         }
+        return 0;
+    }
+    if (argc == 4 && !strcmp(argv[1], "example")) {     /* the meshing tutorial's example case, as its button makes it */
+        char err[300];
+        int k = -1; for (int i = 0; i < MESH_EX__N; i++) if (!strcmp(argv[2], MESH_EXAMPLES[i].word)) k = i;
+        if (k < 0 || !mesh_example_setup(k, argv[3], err, sizeof err)) { fprintf(stderr, "%s\n", k < 0 ? "no such example" : err); return 1; }
         return 0;
     }
     if (argc == 4 && !strcmp(argv[1], "smooth")) return smooth(argv[2], argv[3]);

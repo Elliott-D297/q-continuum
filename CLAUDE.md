@@ -7,7 +7,10 @@ gaps, read `docs/MESH_OVERHAUL_PLAN.md`. It holds the request, the rules, the st
 made and a progress log. Keep its progress log current. The user approves one step at a time.
 
 **Planned next: the workflow review** (OpenFOAM, CalculiX, DEME; learner ease with progressive disclosure). Read
-`docs/WORKFLOW_PLAN.md` before workflow, Setup, Results or program-page work; none of its steps is approved yet.
+`docs/WORKFLOW_PLAN.md` before workflow, Setup, Results or program-page work; all its steps are done (2026-11-14).
+
+**CalculiX part studies** (STL, STEP, SALOME meshes; faces picked in 3-D for fixtures and loads): read `docs/FEA_PLAN.md`
+before touching `page_fea.c`, `femesh.c`, `festudy.c` or `assets/salome/fea_mesh.py`.
 
 - `docs/MESH_AUDIT.md`: what the mesh system has, what works, what is broken.
 - `docs/FEATURE_GAPS.md`: gaps ranked for the learner and the expert, with effort.

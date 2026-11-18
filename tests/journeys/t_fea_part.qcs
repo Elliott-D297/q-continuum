@@ -1,0 +1,47 @@
+# Part studies in CalculiX (docs/FEA_PLAN.md): a STEP part (the flange) from New case > CalculiX > A part from a file:
+# meshed in SALOME, shown in 3-D on Setup; faces clicked onto a fixture and a force; run; the deformed part on Results.
+shell cp "$QC_TESTS/tools/flange_mm.step" $SB/flange.step
+action go.new
+wait-until page New case
+click new-prog:calculix
+wait 5
+click label:A part from a file
+wait 5
+click np-part-path
+type $SB/flange.step
+wait 5
+click clone-go
+wait-until page Setup timeout 10
+wait-until widget fea-view timeout 180
+wait 30
+screenshot $OUT/fea_setup.png
+assert text Nothing holds the part
+click fea-addfix
+wait 10
+clickat fea-view 0.5 0.83
+wait 10
+assert text 1 face,
+click fea-pick#0
+wait 5
+click fea-addforce
+wait 10
+clickat fea-view 0.5 0.26
+wait 10
+click fea-val#0
+key A ctrl
+enter 1000
+wait 10
+assert log study.ini value = 1000
+assert text Ready: 1000 N in all
+screenshot $OUT/fea_ready.png
+click fea-run
+wait-until page Run timeout 10
+wait-until job finished timeout 300
+wait 30
+click nav:results
+wait-until page Results
+wait 60
+assert text The part
+assert text Max 
+assert text Largest von Mises stress
+screenshot $OUT/fea_results.png

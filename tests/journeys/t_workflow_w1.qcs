@@ -33,6 +33,7 @@ assert widget wf-next
 click nav:overview
 wait 10
 click wf-next
+wait-until job running timeout 60
 wait-until job finished timeout 120
 wait 30
 # the Run page's column folds the steps done into one line

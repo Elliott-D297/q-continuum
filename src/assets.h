@@ -43,4 +43,6 @@ extern const unsigned char asset_deme_view_template_py[];   extern const unsigne
 extern const unsigned char asset_chrono_CMakeLists_txt[];   extern const unsigned int asset_chrono_CMakeLists_txt_len;  /* the Chrono starter */
 extern const unsigned char asset_pendulum_cpp[];             extern const unsigned int asset_pendulum_cpp_len;
 extern const unsigned char asset_params_pendulum_ini[];      extern const unsigned int asset_params_pendulum_ini_len;
+extern const unsigned char asset_body_cpp[];                 extern const unsigned int asset_body_cpp_len;              /* Chrono blank project */
+extern const unsigned char asset_pour_template_cpp[];        extern const unsigned int asset_pour_template_cpp_len;     /* DEME blank project */
 #endif

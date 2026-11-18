@@ -278,7 +278,15 @@ void page_prog_run(Rectangle r);
 void page_prog_results(Rectangle r);
 void page_foam_results(Rectangle r);
 bool app_starter_info(const char *casePath, char *title, int tcap, char *learn, int lcap, char *expect, int ecap);   /* W8 */
-float app_starter_callout(const char *casePath, float x, float y, float w);                        /* page_results.c: an OpenFOAM case's results (workflow plan W5) */
+float app_starter_callout(const char *casePath, float x, float y, float w);
+/* page_fea.c: a part study in CalculiX (docs/FEA_PLAN.md) */
+bool  fea_is_study(const char *proj);
+void  fea_setup_page(Rectangle r);
+float fea_results_panel(float x, float y, float w);
+bool  fea_prepare_run(const char *proj, char *err, int cap);
+bool  fea_new_project(const char *file, double scale, const char *dst, char *err, int cap);
+void  fea_mesh_start(const char *proj);
+void  fea_forget(void);                        /* page_results.c: an OpenFOAM case's results (workflow plan W5) */
 bool study_can_refine(Case *c);                             /* page_studies.c: a mesh refinement study is possible */
 void study_new_mesh(void);                                  /* ... the New study dialog with it chosen */
 bool setup_report_info(Case *c, const char *name, char *desc, int dcap, char *unit, int ucap);
@@ -339,6 +347,7 @@ bool  stlmesh_example_open(int k);                           /* page_stlmesh.c: 
 void  stlmesh_choose(void);                                  /* page_stlmesh.c: the file dialog, for the open case */
 void  salome_choose(void);                                   /* page_salome.c: the mesh file dialog, for the open case */
 void  blank_modal(bool *close);                              /* page_cases.c: New blank case */
+void  blank_open(int prog);                                   /* page_cases.c: open it for OpenFOAM, CalculiX, Chrono or DEME */
 bool  app_practice_case(void);                                /* page_cases.c: the tour's cavity case, copied and opened */
 void  app_duplicate_case(const char *src);                   /* app.c: a copy of the case's setup and mesh, without results; opened */
 int   stlmesh_mesh_current(Case *c);                         /* page_stlmesh.c: the mesh is from these settings: 1, 0, -1 unknown */

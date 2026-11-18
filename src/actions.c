@@ -59,7 +59,7 @@ static const char *b_away(void) { return !A.cs ? "No case is open" : A.cs->s.pro
 static void a_pv(void) { app_open_paraview(); }
 static void a_pvc(void) { A.modal = MD_PV_CLAUDE; A.mText2[0] = 0; }
 static void a_rescan(void) { app_rescan_cases(true); if (A.cs) case_rescan(A.cs); }
-static void a_blank(void) { A.modal = MD_BLANK; }
+static void a_blank(void) { blank_open(A.page == PG_NEW ? A.newProg : 0); }
 static const char *b_dup(void) { return !A.cs ? "No case is open" : A.cs->s.prog ? "Only OpenFOAM cases" : NULL; }
 static void a_dup(void) { if (A.cs) { char p[PL_PATH]; pl_strlcpy(p, A.cs->s.path, sizeof p); app_duplicate_case(p); } }
 static void a_folder(void) { if (A.cs) launch_folder(&A.env, A.cs->s.path); }

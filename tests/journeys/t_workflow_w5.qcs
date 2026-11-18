@@ -17,6 +17,7 @@ assert text No results yet
 click nav:run
 wait-until page Run
 click run-go
+wait-until job running timeout 60
 wait-until job finished timeout 180
 wait 60
 click nav:results

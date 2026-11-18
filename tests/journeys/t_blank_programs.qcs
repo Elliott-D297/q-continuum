@@ -1,0 +1,65 @@
+# Blank case for the other programs (user request, 2026-11-15): New case > Chrono, DEME or CalculiX > Blank case makes a
+# project of your own from an STL/OBJ part or a block, as OpenFOAM's blank case does.
+budget p95 80 max 600
+shell cp "$QC_TESTS/tools/NACA_Airfoil.STL" $SB/wing.stl
+action go.new
+wait-until page New case
+note Chrono: a block dropped onto the ground
+click new-prog:chrono
+wait 5
+assert text Blank case
+screenshot $OUT/new_chrono.png
+click starter-blank:chrono
+wait 3
+assert modal blank
+assert text New blank Chrono project
+click blank-start#1
+wait 2
+assert text Length (x)
+screenshot $OUT/blank_chrono_block.png
+click blank-create
+wait 10
+assert file $SB/home/chrono/body/params.ini
+assert file $SB/home/chrono/body/src/body.cpp
+assert log $SB/home/chrono/body/CMakeLists.txt add_executable(body
+assert log $SB/home/chrono/body/params.ini box_z = 0.02
+note DEME: grains poured onto an STL part (millimetres)
+action go.new
+wait-until page New case
+click new-prog:deme
+wait 5
+click starter-blank:deme
+wait 3
+assert modal blank
+click blank-path
+type $SB/wing.stl
+wait 2
+assert text The file's unit
+screenshot $OUT/blank_deme_part.png
+click blank-create
+wait 10
+assert file $SB/home/deme/pour/geometry/part.obj
+assert file $SB/home/deme/pour/src/qc_deme.hpp
+assert log $SB/home/deme/pour/params.ini mesh = geometry/part.obj
+click nav:setup
+wait 5
+assert text The part
+screenshot $OUT/blank_deme_setup.png
+note the shortcut opens the program's own blank case on New case
+action go.new
+wait-until page New case
+click new-prog:calculix
+wait 5
+action case.blank
+wait 3
+assert text New blank CalculiX project
+note CalculiX: a block, meshed in SALOME, shown on Setup
+click blank-start#2
+wait 2
+click blank-create
+wait-until page Setup timeout 10
+assert file $SB/home/calculix/part/block.stl
+assert file $SB/home/calculix/part/study.ini
+wait-until widget fea-view timeout 240
+wait 20
+screenshot $OUT/blank_fea_block.png

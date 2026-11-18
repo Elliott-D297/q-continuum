@@ -75,6 +75,7 @@ static void sync(void)
         prog_inputs(prog(), A.cs->s.path, &P.inputs);
         P.sel = 0;
         for (int i = 0; i < P.inputs.n; i++) if (!strcmp(P.inputs.names[i], keep)) P.sel = i;
+        if (prog() == PROG_CALCULIX && fea_is_study(A.cs->s.path)) for (int i = 0; i < P.inputs.n; i++) if (!strcmp(P.inputs.names[i], "study.inp")) P.sel = i;
         P.inputsAt = now;
     }
     if (now - P.ckAt > 2 || strcmp(P.ckFor, input())) {
@@ -111,6 +112,10 @@ bool prog_start_run(const char *path, const char *in, int procs, bool quiet)
     bool here = A.cs && !strcmp(A.cs->s.path, path);
     if (here && prog_setup_dirty() && !prog_setup_save()) return false;
     ProgStep st[4]; char err[400];
+    if (pg == PROG_CALCULIX && fea_is_study(path)) {            /* a part study: study.inp written from Setup first */
+        if (!fea_prepare_run(path, err, sizeof err)) { ui_toast(TOAST_ERR, "Not started: %s", err); return false; }
+        in = "study.inp";
+    }
     int n = prog_run_steps(pg, path, in, procs, here && P.rebuild, st, 4, err, sizeof err);
     if (n <= 0) { ui_toast(TOAST_ERR, "%s", err); return false; }
     char title[96]; snprintf(title, sizeof title, "%s %s", prog_info(pg)->name, in);
@@ -574,6 +579,7 @@ void page_prog_setup(Rectangle r)
 {
     if (!A.cs) return;
     sync();
+    if (prog() == PROG_CALCULIX && fea_is_study(A.cs->s.path)) { fea_setup_page(r); return; }   /* a part study (FEA_PLAN) */
     Case *c = A.cs;
     if (strcmp(P.setupFor, "") == 0 || P.setupFiles.n == 0 || strcmp(P.ckFor, input())) {}
     static char setupInput[160];
@@ -1557,6 +1563,7 @@ void page_prog_results(Rectangle r)
         ui_scroll_end(sc, y - top + 100);
         return;
     }
+    if (prog() == PROG_CALCULIX) y += fea_results_panel(x, y, w);     /* a part study: the deformed part in 3-D (FEA_PLAN F3) */
     if (prog() == PROG_CALCULIX) y += ccx_results_panel(c, x, y, w);   /* the answer, in the app (C2) */
     /* the particle viewer first */
     char pd[PL_PATH], pre[128];

@@ -689,6 +689,25 @@ static float knob_picker(const Case *c, int i, float x, float y, float w)
     return y;
 }
 
+/* Results' "Is the mesh fine enough?" (workflow plan W5): the New study dialog with the mesh refinement chosen, 0.7, 1 and 1.4
+   times the cells along each edge (a refinement ratio of about 1.4, enough between meshes to tell the change from noise) */
+static bool preferRefine;
+bool study_can_refine(Case *c)
+{
+    if (!c || c->s.prog || c->s.nRegions > 0) return false;
+    FDFile *bm = case_dict(c, "system/blockMeshDict");
+    double cur = 0; long cells = 0; char why[160] = "";
+    char mi[PL_PATH]; pl_join(mi, sizeof mi, c->s.path, "mesher/mesher.ini");
+    return bm && !pl_is_file(mi) && blocks_base_size(bm, blocks_scale(bm), 0, false, &cur, &cells, why, sizeof why) && cur > 0;
+}
+void study_new_mesh(void)
+{
+    if (!study_can_refine(A.cs)) return;
+    preferRefine = true;
+    N.forCase[0] = 0;                                        /* set up afresh for the case */
+    A.modal = MD_STUDY_NEW;
+}
+
 void study_new_modal(bool *close)
 {
     Case *c = A.cs;
@@ -703,6 +722,15 @@ void study_new_modal(bool *close)
         pl_strlcpy(N.tmpl[0], "{}", sizeof N.tmpl[0]); pl_strlcpy(N.tmpl[1], "{}", sizeof N.tmpl[1]);
         build_knobs(c);
         if (N.nk) use_knob(c, 0, 0);
+        if (preferRefine)
+            for (int k = 0; k < N.nk; k++) if (N.k[k].kind == KN_REFINE) {
+                use_knob(c, 0, k);
+                pl_strlcpy(N.values[0], "0.7, 1, 1.4", sizeof N.values[0]);
+                pl_fmt_ui(N.name, sizeof N.name, "%s mesh independence", c->s.name);
+                N.autoName = false;
+                break;
+            }
+        preferRefine = false;
     }
     char sub[400]; pl_fmt_ui(sub, sizeof sub, "Copies of %s (setup and mesh, no results) next to it, one per value, queued to run and "
                             "compared on the Studies page.", c->s.name);

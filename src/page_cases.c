@@ -4,9 +4,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/wait.h>
+#include <unistd.h>
 #include "app.h"
 #include "plume.h"
 #include "program.h"
+#include "progblank.h"
 
 static void fmt_int(char *out, size_t cap, long v)
 {
@@ -253,20 +256,38 @@ void page_cases(Rectangle r)
 }
 
 /* ============================================================================ new case */
-typedef struct { const char *suffix[3]; const char *title; const char *desc; } Starter;
+/* W8 (workflow plan): each starter says what it teaches and the answer to expect; the case made from it keeps both in
+   .qc-starter (Overview and Results show them) */
+typedef struct { const char *suffix[3]; const char *title; const char *desc; const char *learn; const char *expect; } Starter;
 static const Starter STARTERS[] = {
     { { "incompressible/icoFoam/cavity/cavity", "incompressibleFluid/cavity", NULL }, "Lid-driven cavity",
-      "A moving lid drives a laminar vortex in a square box. The classic first case." },
+      "A moving lid drives a laminar vortex in a square box. The classic first case.",
+      "how a moving wall drives a flow, a transient laminar solver (PISO) and how the Courant number sets the time step",
+      "Re = U L / nu = 1 x 0.1 / 0.01 = 10: one vortex, a little towards the moving lid, steady after about 0.3 s. For Re 100 set nu to 0.001 "
+      "(Physics): the vortex centre then sits at about (0.62, 0.74) of the box, as Ghia, Ghia and Shin (1982) measured." },
     { { "incompressible/simpleFoam/pitzDaily", "incompressibleFluid/pitzDailySteady", NULL }, "Backward-facing step",
-      "Steady turbulent flow over a step, solved with the k-epsilon model." },
+      "Steady turbulent flow over a step, solved with the k-epsilon model.",
+      "steady RANS (k-epsilon) with wall functions, and judging convergence by the residuals and the numbers settling",
+      "A recirculation zone behind the 25.4 mm step; the flow reattaches roughly 6 to 7 step heights downstream (Pitz and Daily's experiment, "
+      "1983: about 7; k-epsilon reattaches a little early). simpleFoam converges in about 300 iterations." },
     { { "heatTransfer/buoyantSimpleFoam/buoyantCavity", "fluid/buoyantCavity", NULL }, "Heated cavity",
-      "Natural convection in a tall cavity between a hot and a cold wall." },
+      "Natural convection in a tall cavity between a hot and a cold wall.",
+      "natural convection: buoyancy, the Rayleigh number and heat through walls",
+      "A thin rising layer on the hot wall, a falling one on the cold wall and a stratified core; the tutorial's validation data (Betts and "
+      "Bokhari's measurements) gives the mean temperature across the cavity to compare with." },
     { { "heatTransfer/buoyantSimpleFoam/hotRadiationRoom", "fluid/hotRadiationRoom", NULL }, "Radiating room, P1",
-      "A hot box heats a room by convection and thermal radiation, using the P1 model." },
+      "A hot box heats a room by convection and thermal radiation, using the P1 model.",
+      "thermal radiation (the P1 model) working alongside convection",
+      "The walls facing the box warm by radiation as well as the rising plume; P1 is cheap and smooth but blurs shadows: compare with the fvDOM room." },
     { { "heatTransfer/buoyantSimpleFoam/hotRadiationRoomFvDOM", "fluid/hotRadiationRoomFvDOM", NULL }, "Radiating room, fvDOM",
-      "The same room with discrete-ordinates radiation: one transport equation per ray direction." },
+      "The same room with discrete-ordinates radiation: one transport equation per ray direction.",
+      "discrete-ordinates radiation: one equation per ray direction, sharper than P1 at a higher cost",
+      "The wall temperatures against the P1 room's: fvDOM resolves the shadows behind the box that P1 smears out." },
     { { "multiphase/interFoam/laminar/damBreak/damBreak", "incompressibleVoF/damBreakLaminar/damBreak", NULL }, "Dam break",
-      "A water column collapses under gravity, tracked with the volume-of-fluid method." },
+      "A water column collapses under gravity, tracked with the volume-of-fluid method.",
+      "two-phase flow with a free surface (volume of fluid), alpha.water and the interface Courant number",
+      "The column collapses, the surge runs along the floor, hits the obstacle and splashes over it. alpha.water should stay between 0 and 1 with a "
+      "sharp interface, and the interface Courant number under 1." },
 };
 #define N_STARTERS ((int)(sizeof STARTERS / sizeof STARTERS[0]))
 
@@ -331,8 +352,37 @@ static void do_clone(void)
         pl_strlcpy(open, dst, sizeof open);
         ui_toast(TOAST_OK, "Created %s from %s", A.cloneName, t->rel);
     }
+    /* a starter: what it teaches and the answer to expect, for Overview and Results (W8) */
+    for (int i = 0; i < N_STARTERS; i++)
+        for (int k = 0; k < 3 && STARTERS[i].suffix[k]; k++)
+            if (pl_ends_with(t->rel, STARTERS[i].suffix[k])) {
+                char sp[PL_PATH]; pl_join(sp, sizeof sp, open, ".qc-starter");
+                Str o; str_init(&o);
+                str_catf(&o, "title = %s\nlearn = %s\nexpect = %s\n", STARTERS[i].title, STARTERS[i].learn, STARTERS[i].expect);
+                pl_write_file(sp, o.s, o.len);
+                str_free(&o);
+                i = N_STARTERS; break;
+            }
     app_rescan_cases(true);
     app_open_case(open, PG_OVERVIEW);
+}
+
+/* a case made from a starter: its title, what it teaches and what to expect (false: not one) */
+bool app_starter_info(const char *casePath, char *title, int tcap, char *learn, int lcap, char *expect, int ecap)
+{
+    char p[PL_PATH]; pl_join(p, sizeof p, casePath, ".qc-starter");
+    char *t = pl_read_file(p, NULL);
+    if (!t) return false;
+    title[0] = learn[0] = expect[0] = 0;
+    for (char *l = t; l && *l; ) {
+        char *e = strchr(l, '\n'); if (e) *e = 0;
+        if (!strncmp(l, "title = ", 8)) pl_strlcpy(title, l + 8, (size_t)tcap);
+        else if (!strncmp(l, "learn = ", 8)) pl_strlcpy(learn, l + 8, (size_t)lcap);
+        else if (!strncmp(l, "expect = ", 9)) pl_strlcpy(expect, l + 9, (size_t)ecap);
+        l = e ? e + 1 : NULL;
+    }
+    free(t);
+    return title[0] != 0;
 }
 
 /* the tour's practice case: OpenFOAM's lid-driven cavity copied into the workspace as tour-cavity and opened */
@@ -374,8 +424,11 @@ static void starter_card(Rectangle r, int i, int ti)
     }
     ui_icon(cat_icon(t->cat), r.x + 26, r.y + 28, 18, cc);
     ui_text_clip(F_SEMI, 15, s->title, r.x + 46, r.y + 18, r.width - 64, TH.text);
-    ui_text_wrap(F_REG, 13, s->desc, (Rectangle){ r.x + 18, r.y + 50, r.width - 36, 60 }, 19, TH.text2, true);
+    float dh = ui_text_wrap(F_REG, 13, s->desc, (Rectangle){ r.x + 18, r.y + 50, r.width - 36, 60 }, 19, TH.text2, true);
+    char ln[300]; pl_fmt_ui(ln, sizeof ln, "You'll learn %s.", s->learn);
+    ui_text_wrap(F_REG, 12.5f, ln, (Rectangle){ r.x + 18, r.y + 54 + dh, r.width - 36, r.height - 54 - dh - 42 }, 17, TH.text3, true);
     ui_badge(r.x + 18, r.y + r.height - 34, NULL, t->solver, TH.lcars ? cc : TH.text2, TH.lineSoft);
+    ui_register(id, r, s->title);
     if (hov) ui_cursor(MOUSE_CURSOR_POINTING_HAND);
     if (ui_clicked(r)) select_tutorial(ti);
 }
@@ -384,7 +437,18 @@ static void starter_card(Rectangle r, int i, int ti)
 /* An OpenFOAM case with nothing in it but what makes it one (controlDict, fvSchemes, fvSolution), and the way to its mesh:
    an STL to mesh here, a mesh file to import, a blockMesh box, or nothing yet. Physics > Setup writes the rest. */
 enum { BL_STL, BL_IMPORT, BL_BOX, BL_NONE };
-static struct { bool init; char name[96]; int app, start; char err[300]; } BL;
+static struct { bool init; char name[96]; int app, start; char err[300]; int prog; char block[3][24]; } BL;
+static void prog_blank_modal(bool *close);
+
+/* New case > Blank case for a program (OpenFOAM's own case, or CalculiX, Chrono, DEME projects) */
+void blank_open(int prog)
+{
+    if (prog != PROG_OPENFOAM && prog != PROG_CALCULIX && prog != PROG_CHRONO && prog != PROG_DEME) prog = PROG_OPENFOAM;
+    if (BL.prog != prog) BL.init = false;
+    BL.prog = prog;
+    A.modal = MD_BLANK;
+}
+
 
 static bool write_blank(const char *dir, bool transient, bool box, char *err, size_t cap)
 {
@@ -420,6 +484,7 @@ static bool write_blank(const char *dir, bool transient, bool box, char *err, si
 
 void blank_modal(bool *close)
 {
+    if (BL.prog != PROG_OPENFOAM) { prog_blank_modal(close); return; }
     char ws[PL_PATH]; pl_expand_home(ws, sizeof ws, A.set.workspace);
     if (!BL.init) {                                       /* a free name each time it opens */
         BL.init = true; BL.err[0] = 0;
@@ -580,11 +645,187 @@ void plume_modal(bool *close)
 }
 
 /* ---------------------------------------------------------------- the other programs: starters and examples */
-typedef struct { int kind; int idx; char name[96]; char note[200]; char path[PL_PATH]; } NewItem;   /* kind 0 starter, 1 example, 2 empty */
+typedef struct { int kind; int idx; char name[96]; char note[200]; char path[PL_PATH]; } NewItem;   /* kind 0 starter, 1 example, 2 empty, 3 a part (FEA) */
+
+/* a part from a file, for a CalculiX study (docs/FEA_PLAN.md): the file dialog, the path, its unit */
+static struct { pid_t picker; char out[PL_PATH]; char path[PL_PATH]; int unit; } NP = { .picker = -1 };
+/* which: 0 a part or a SALOME mesh (CalculiX), 1 a SALOME mesh only, 2 an STL or OBJ surface (Chrono, DEME) */
+static void part_pick_start(int which)
+{
+    if (NP.picker > 0) { ui_toast(TOAST_INFO, "The file dialog is already open"); return; }
+    snprintf(NP.out, sizeof NP.out, "/tmp/qc-fea-pick-%d.txt", (int)getpid());
+    unlink(NP.out);
+    char q[PL_PATH + 8]; pl_shell_quote(q, sizeof q, NP.out);
+    char cmd[PL_PATH + 1400];
+    static const char *const TITLE[] = { "Choose a part to simulate (STL, STEP, IGES, or a SALOME mesh)", "Choose a mesh made in SALOME (MED, UNV or a study .hdf)",
+                                         "Choose a part (STL or OBJ)" };
+    static const char *const WIN[] = {
+        "Parts and meshes (*.stl;*.step;*.stp;*.iges;*.igs;*.brep;*.med;*.unv;*.hdf)|*.stl;*.STL;*.step;*.STEP;*.stp;*.STP;*.iges;*.IGES;*.igs;*.IGS;*.brep;*.med;*.unv;*.hdf|All files (*.*)|*.*",
+        "SALOME meshes (*.med;*.unv;*.hdf)|*.med;*.MED;*.unv;*.UNV;*.hdf|All files (*.*)|*.*",
+        "Surfaces (*.stl;*.obj)|*.stl;*.STL;*.obj;*.OBJ|All files (*.*)|*.*" };
+    static const char *const ZEN[] = {
+        "Parts and meshes | *.stl *.STL *.step *.STEP *.stp *.STP *.iges *.IGES *.igs *.IGS *.brep *.med *.unv *.hdf",
+        "SALOME meshes | *.med *.MED *.unv *.UNV *.hdf", "Surfaces | *.stl *.STL *.obj *.OBJ" };
+    if (which < 0 || which > 2) which = 0;
+    const char *testPick = getenv("QC_TEST_PICK");
+    if (testPick && *testPick) { char tq[PL_PATH + 8]; pl_shell_quote(tq, sizeof tq, testPick); if (!pl_fmt(cmd, sizeof cmd, "printf '%%s' %s > %s", tq, q)) return; }
+    else if (A.env.wsl) pl_win_open_dialog_cmd(cmd, sizeof cmd, TITLE[which], WIN[which], q);
+    else snprintf(cmd, sizeof cmd, "{ zenity --file-selection --title='%s' --file-filter='%s' "
+                  "--file-filter='All files | *' 2>/dev/null || kdialog --getopenfilename ~ 2>/dev/null; } > %s; true", TITLE[which], ZEN[which], q);
+    NP.picker = pl_spawn_shell(cmd, "/dev/null");
+    if (NP.picker <= 0) ui_toast(TOAST_ERR, "Could not open a file dialog: type the path instead");
+}
+static void part_pick_poll(void)
+{
+    if (NP.picker <= 0) return;
+    int st;
+    if (waitpid(NP.picker, &st, WNOHANG) != NP.picker) { ui_request_frames(10); return; }
+    NP.picker = -1;
+    char *p = pl_read_file(NP.out, NULL);
+    unlink(NP.out);
+    if (!p) return;
+    pl_trim_inplace(p);
+    if (p[0]) pl_strlcpy(NP.path, p, sizeof NP.path);
+    free(p);
+}
+
+/* a Windows path pasted under WSL (C:\...) made a Linux one */
+static void wsl_path(char *src, size_t cap)
+{
+    pl_trim_inplace(src);
+    if (!A.env.wsl || strlen(src) <= 2 || src[1] != ':') return;
+    char cmd[PL_PATH + 40], q[PL_PATH + 8], out[PL_PATH];
+    pl_shell_quote(q, sizeof q, src);
+    snprintf(cmd, sizeof cmd, "wslpath -u %s", q);
+    if (pl_run_wait(cmd, out, sizeof out) == 0) { pl_trim_inplace(out); pl_strlcpy(src, out, cap); }
+}
+
+/* the blank project of CalculiX, Chrono or DEME: your own part (a file) or a plain block, as OpenFOAM's blank case */
+static void prog_blank_modal(bool *close)
+{
+    const int prog = BL.prog;
+    char ws[PL_PATH]; app_prog_dir(prog, ws, sizeof ws);
+    const bool fea = prog == PROG_CALCULIX, chrono = prog == PROG_CHRONO;
+    if (!BL.init) {
+        BL.init = true; BL.err[0] = 0; BL.start = 0; NP.path[0] = 0;
+        const char *base = fea ? "part" : chrono ? "body" : "pour";
+        for (int k = 1; k < 100; k++) {
+            char p[PL_PATH]; snprintf(BL.name, sizeof BL.name, k == 1 ? "%s" : "%s-%d", base, k);
+            pl_join(p, sizeof p, ws, BL.name);
+            if (!pl_exists(p)) break;
+        }
+        static const char *const DEF[3][3] = { { "100", "20", "10" }, { "100", "50", "20" }, { "100", "100", "200" } };
+        int d = fea ? 0 : chrono ? 1 : 2;
+        for (int i = 0; i < 3; i++) pl_strlcpy(BL.block[i], DEF[d][i], sizeof BL.block[i]);
+    }
+    part_pick_poll();
+    const char *sub = fea ? "A CalculiX part study of your own: the part is meshed in SALOME, then Setup shows it in 3-D to click its faces "
+                            "for fixtures, forces and pressures."
+                    : chrono ? "A Chrono project of your own: the part (or a block) is dropped onto the ground with contact. Its settings are in "
+                               "params.ini, and src/body.cpp is yours to add bodies, joints and motors."
+                             : "A DEME project of your own: grains poured onto your part (or into an open box) settle under gravity. Grain size, "
+                               "box and fill follow the part; change them on Setup.";
+    char title[64]; pl_fmt_ui(title, sizeof title, "New blank %s project", prog_info(prog)->name);
+    Rectangle b = ui_modal_begin(title, sub, 720, 460, close);
+    float x = b.x, y = b.y + 4, w = b.width;
+    ui_text(F_MED, 13, ui_cap("Name"), x, y, TH.text2);
+    ui_input(ui_id("blank-name"), (Rectangle){ x, y + 20, w, 38 }, BL.name, sizeof BL.name, "folder name", INPUT_MONO);
+    char where[PL_PATH + 32]; pl_fmt_ui(where, sizeof where, "in %s", ws);
+    ui_text_clip(F_MONO, 12, where, x, y + 64, w, TH.text3);
+    y += 92;
+    ui_text(F_MED, 13, ui_cap(fea ? "Its geometry" : chrono ? "The body" : "What the grains fall on"), x, y, TH.text2);
+    static const char *FEA[] = { "A part (STL, STEP, IGES)", "A SALOME mesh", "A block" };
+    static const char *CHR[] = { "A part (STL, OBJ)", "A block" };
+    static const char *DEM[] = { "A part (STL, OBJ)", "An empty box" };
+    int nOpt = fea ? 3 : 2;
+    if (BL.start >= nOpt) BL.start = 0;
+    ui_segmented(ui_id("blank-start"), (Rectangle){ x, y + 20, w, 34 }, fea ? FEA : chrono ? CHR : DEM, nOpt, &BL.start);
+    y += 66;
+    const bool block = BL.start == nOpt - 1;
+    const char *say = fea ? (BL.start == 0 ? "STEP and IGES keep their CAD faces for picking; an STL is remeshed first. Quadratic tetrahedra (C3D10)."
+                                           : BL.start == 1 ? "A MED or UNV file, or a saved SALOME study (.hdf): its face groups become the faces you pick."
+                                                           : "A solid block with a corner at the origin, meshed in SALOME like any part: a quick start to learn on.")
+                    : chrono ? (block ? "A block of the size below (mm). Edit params.ini to swap in a part later (geometry/part.obj)."
+                                      : "A closed surface (watertight STL or OBJ): its mass and inertia come from its volume and the density.")
+                             : (block ? "Walls all round, open at the top, of the size below (mm): a bed settles in it."
+                                      : "The part stands on the floor of an open box, fixed; grains about a fortieth of its width fall onto it.");
+    y += ui_text_wrap(F_REG, 13, say, (Rectangle){ x, y, w, 60 }, 19, TH.text3, true) + 12;
+    bool noUnit = false;
+    if (!block) {
+        float bw = ui_button_width(ICON_FOLDER_OPEN, "Choose a file");
+        if (ui_button(ui_id("blank-pick"), (Rectangle){ x, y, bw, 34 }, ICON_FOLDER_OPEN, "Choose a file", BTN_SECONDARY)) part_pick_start(fea ? BL.start : 2);
+        ui_input(ui_id("blank-path"), (Rectangle){ x + bw + 10, y, w - bw - 10, 34 }, NP.path, sizeof NP.path,
+                 A.env.wsl ? "or a path: /mnt/c/Users/you/part.stl" : "or a path to the file", INPUT_LIVE);
+        y += 44;
+        const char *e = strrchr(NP.path, '.');
+        noUnit = !fea || (e && (!strcasecmp(e, ".stl") || !strcasecmp(e, ".brep") || !strcasecmp(e, ".med") || !strcasecmp(e, ".unv") || !strcasecmp(e, ".hdf")));
+        if (noUnit) {
+            static const char *U[] = { "Millimetres", "Metres", "Inches" };
+            ui_text(F_MED, 13, "The file's unit", x, y + 8, TH.text2);
+            ui_select(ui_id("blank-unit"), (Rectangle){ x + 130, y, 200, 34 }, U, 3, &NP.unit);
+            y += 44;
+        }
+    } else {
+        static const char *const L[3] = { "Length (x)", "Width (y)", "Height (z)" };
+        float cw = (w - 20) / 3;
+        for (int i = 0; i < 3; i++) {
+            ui_text(F_MED, 13, L[i], x + i * (cw + 10), y, TH.text2);
+            ui_input(ui_idn(ui_id("blank-size"), i), (Rectangle){ x + i * (cw + 10), y + 20, cw - 36, 34 }, BL.block[i], sizeof BL.block[i], NULL, INPUT_MONO | INPUT_LIVE | INPUT_NUMERIC);
+            ui_text(F_REG, 12.5f, "mm", x + i * (cw + 10) + cw - 30, y + 30, TH.text3);
+        }
+        y += 64;
+    }
+    if (BL.err[0]) ui_text_wrap(F_REG, 13, BL.err, (Rectangle){ x, y, w, 40 }, 19, TH.err, true);
+    float cw = ui_button_width(ICON_FOLDER_PLUS, "Create project");
+    ui_disable(!block && !NP.path[0]);
+    bool go = ui_button(ui_id("blank-create"), (Rectangle){ b.x + b.width - cw, b.y + b.height - 44, cw, 40 }, ICON_FOLDER_PLUS, "Create project", BTN_PRIMARY);
+    ui_disable(false);
+    if (!go) return;
+    BL.err[0] = 0;
+    pl_trim_inplace(BL.name);
+    char dst[PL_PATH]; pl_join(dst, sizeof dst, ws, BL.name);
+    if (!BL.name[0] || strchr(BL.name, '/') || strchr(BL.name, ' ') || BL.name[0] == '.') { snprintf(BL.err, sizeof BL.err, "Use a folder name without spaces or '/'."); return; }
+    if (pl_exists(dst)) { pl_fmt_ui(BL.err, sizeof BL.err, "%s already exists: pick another name.", BL.name); return; }
+    double size[3] = { 0 };
+    for (int i = 0; block && i < 3; i++) {
+        size[i] = atof(BL.block[i]);
+        if (!(size[i] > 0)) { snprintf(BL.err, sizeof BL.err, "Give the block a length, width and height above zero."); return; }
+    }
+    char src[PL_PATH] = "";
+    if (!block) {
+        pl_strlcpy(src, NP.path, sizeof src); wsl_path(src, sizeof src);
+        if (!pl_is_file(src)) { pl_fmt_ui(BL.err, sizeof BL.err, "%s is not a file.", src); return; }
+    }
+    if (!pl_mkdirs(ws)) { pl_fmt_ui(BL.err, sizeof BL.err, "Could not create the folder %s.", ws); return; }
+    double unitM = NP.unit == 1 ? 1 : NP.unit == 2 ? 0.0254 : 0.001;    /* the file's unit in metres */
+    bool ok;
+    if (fea) {
+        if (block) {
+            char bp[PL_PATH]; pl_join(bp, sizeof bp, dst, "block.stl");
+            ok = pl_mkdirs(dst) && block_stl(bp, size, BL.err, sizeof BL.err) && fea_new_project(bp, 1, dst, BL.err, sizeof BL.err);
+        } else ok = fea_new_project(src, noUnit ? unitM * 1000 : 1, dst, BL.err, sizeof BL.err);
+    } else {
+        double m[3] = { size[0] / 1000, size[1] / 1000, size[2] / 1000 };
+        ok = chrono ? chrono_write_blank(dst, block ? NULL : src, unitM, block ? m : NULL, BL.err, sizeof BL.err)
+                    : deme_write_blank(dst, block ? NULL : src, unitM, block ? m : NULL, BL.err, sizeof BL.err);
+    }
+    if (!ok) { if (!BL.err[0]) snprintf(BL.err, sizeof BL.err, "Could not make the project."); return; }
+    BL.init = false; NP.path[0] = 0;
+    *close = true;
+    pl_stat_cache_clear();
+    app_rescan_cases(true);
+    app_open_case(dst, fea ? PG_SETUP : PG_OVERVIEW);
+    if (fea) fea_mesh_start(dst);
+    ui_toast(TOAST_OK, "Made the blank %s project %s", prog_info(prog)->name, pl_basename(dst));
+}
 
 static int new_items(int prog, NewItem *out, int max)
 {
     int n = 0;
+    if (prog == PROG_CALCULIX && n < max) {
+        out[n] = (NewItem){ 3, 0, "A part from a file", "STL, STEP, IGES or a mesh made in SALOME: hold it, load it, see the stress (like SolidWorks Simulation).", "" };
+        n++;
+    }
     for (int i = 0; i < PROG_N_TEMPLATES && n < max; i++) {
         if (PROG_TEMPLATES[i].prog != prog) continue;
         out[n] = (NewItem){ 0, i, "", "", "" };
@@ -653,6 +894,32 @@ static void new_name_for(const char *base)
     A.cloneErr[0] = 0;
 }
 
+/* the Blank case banner at the top of New case: the way in for a part of your own (OpenFOAM, CalculiX, Chrono, DEME) */
+static float blank_banner(float x, float y, float w, int prog)
+{
+    static const char *const SAY[] = {
+        [PROG_OPENFOAM] = "Your own geometry: an empty case, then mesh an STL, import a mesh or start from a box. Ctrl+Shift+N",
+        [PROG_CALCULIX] = "Your own part: an STL, STEP or IGES file or a SALOME mesh, or a block; click faces to hold and load it. Ctrl+Shift+N",
+        [PROG_CHRONO]   = "Your own part (STL or OBJ) or a block, dropped onto the ground with contact: a driver to build on. Ctrl+Shift+N",
+        [PROG_DEME]     = "Your own part (STL or OBJ) with grains poured onto it, or an empty box to fill. Ctrl+Shift+N" };
+    Rectangle br = { x, y, w, 64 };
+    char rid[48]; pl_fmt_ui(rid, sizeof rid, prog == PROG_OPENFOAM ? "starter-blank" : "starter-blank:%s", prog_info(prog)->key);
+    UiId id = ui_id(rid);
+    bool hov = ui_hovered(br);
+    float h = ui_anim(id, hov ? 1.f : 0.f, 7.f);
+    Color cc = prog == PROG_OPENFOAM ? TH.accent : prog_color(prog);
+    Rectangle rr = br;
+    if (TH.lcars) { lc_panel(rr, cc, h * 0.6f, false); rr.x += 16; rr.width -= 16; }
+    else { ui_rect(rr, 12, TH.surface); ui_rect_lines(rr, 12, 1, ui_mix(TH.lineSoft, TH.line, h)); }
+    ui_icon(ICON_FOLDER_PLUS, rr.x + 26, rr.y + 32, 20, cc);
+    ui_text(F_SEMI, 15, "Blank case", rr.x + 50, rr.y + 12, TH.text);
+    ui_text_clip(F_REG, 13, SAY[prog], rr.x + 50, rr.y + 36, rr.width - 70, TH.text2);
+    ui_register(id, br, "Blank case");
+    if (hov) ui_cursor(MOUSE_CURSOR_POINTING_HAND);
+    if (ui_clicked(br)) blank_open(prog);
+    return 64 + 22;
+}
+
 static float new_program_section(float x, float y, float w, int prog)
 {
     NewItem it[96]; int n = new_items(prog, it, 96);
@@ -662,6 +929,7 @@ static float new_program_section(float x, float y, float w, int prog)
         callout((Rectangle){ x, y, w, ch }, TOAST_WARN, ICON_TRIANGLE_ALERT, NULL, why);
         y += ch + 16;
     }
+    if (prog == PROG_CALCULIX || prog == PROG_CHRONO || prog == PROG_DEME) y += blank_banner(x, y, w, prog);
     float lw = w * 0.58f, dx = x + lw + 24, dw = w - lw - 24;
     float top = y, rowH = 64;
     y += section_head(x, y, lw, ui_cap_words("Starters and examples"), prog_info(prog)->what);
@@ -676,7 +944,7 @@ static float new_program_section(float x, float y, float w, int prog)
         y += rowH;
     }
     /* the detail */
-    Rectangle dr = { dx, top, dw, 330 };
+    Rectangle dr = { dx, top, dw, 400 };
     ui_rect(dr, 12, TH.surface);
     ui_rect_lines(dr, 12, 1, TH.lineSoft);
     if (A.newSel < 0 || A.newSel >= n) {
@@ -686,8 +954,65 @@ static float new_program_section(float x, float y, float w, int prog)
     } else {
         const NewItem *s = &it[A.newSel];
         float yy = dr.y + 22, xx = dr.x + 24, ww = dr.width - 48;
+        if (s->kind == 3) {                                  /* a part from a file: choose it, its unit, the project's name */
+            part_pick_poll();
+            ui_text_clip(F_SEMI, 18, s->name, xx, yy, ww, TH.text); yy += 32;
+            yy += ui_text_wrap(F_REG, 13, "The part is meshed in SALOME (quadratic tetrahedra), then Setup shows it in 3-D: click its faces to hold them "
+                               "or put forces and pressures on them, pick the material, run.", (Rectangle){ xx, yy, ww, 80 }, 19, TH.text2, true) + 10;
+            float bw = ui_button_width(ICON_FOLDER_OPEN, "Choose a file");
+            if (ui_button(ui_id("np-part-pick"), (Rectangle){ xx, yy, bw, 34 }, ICON_FOLDER_OPEN, "Choose a file", BTN_SECONDARY)) part_pick_start(0);
+            yy += 42;
+            char before[PL_PATH]; pl_strlcpy(before, NP.path, sizeof before);
+            ui_input(ui_id("np-part-path"), (Rectangle){ xx, yy, ww, 34 }, NP.path, sizeof NP.path, A.env.wsl ? "or a path: /mnt/c/Users/you/part.step" : "or a path to the file", INPUT_LIVE);
+            if (strcmp(before, NP.path) && NP.path[0]) {           /* a path pasted: the name follows it */
+                char nm[128]; pl_strlcpy(nm, pl_basename(NP.path), sizeof nm); char *dot = strrchr(nm, '.'); if (dot) *dot = 0;
+                new_name_for(nm);
+            }
+            yy += 42;
+            const char *e = strrchr(NP.path, '.');
+            bool noUnit = e && (!strcasecmp(e, ".stl") || !strcasecmp(e, ".brep") || !strcasecmp(e, ".med") || !strcasecmp(e, ".unv") || !strcasecmp(e, ".hdf"));
+            if (noUnit) {
+                static const char *U[] = { "Millimetres", "Metres", "Inches" };
+                ui_text(F_MED, 13, "The file's unit", xx, yy + 8, TH.text2);
+                ui_select(ui_id("np-part-unit"), (Rectangle){ xx + 120, yy, ww - 120, 34 }, U, 3, &NP.unit);
+                yy += 42;
+            }
+            ui_text(F_MED, 13.5f, "Name", xx, yy, TH.text); yy += 22;
+            ui_input(ui_id("clone-name"), (Rectangle){ xx, yy, ww, 34 }, A.cloneName, sizeof A.cloneName, "my-part", INPUT_LIVE);
+            yy += 42;
+            if (A.cloneErr[0]) ui_text_wrap(F_REG, 13, A.cloneErr, (Rectangle){ xx, yy, ww, 60 }, 19, TH.err, true);
+            ui_disable(!NP.path[0]);
+            if (ui_button(ui_id("clone-go"), (Rectangle){ xx, dr.y + dr.height - 60, ww, 38 }, ICON_FOLDER_PLUS, "Create the study and mesh it", BTN_PRIMARY)) {
+                char src[PL_PATH]; pl_strlcpy(src, NP.path, sizeof src); pl_trim_inplace(src);
+                if (A.env.wsl && strlen(src) > 2 && src[1] == ':') { char cmd[PL_PATH + 40], q[PL_PATH + 8], out[PL_PATH]; pl_shell_quote(q, sizeof q, src);
+                    snprintf(cmd, sizeof cmd, "wslpath -u %s", q); if (pl_run_wait(cmd, out, sizeof out) == 0) { pl_trim_inplace(out); pl_strlcpy(src, out, sizeof src); } }
+                pl_trim_inplace(A.cloneName);
+                char ws[PL_PATH]; app_prog_dir(prog, ws, sizeof ws);
+                char dst[PL_PATH]; pl_join(dst, sizeof dst, ws, A.cloneName);
+                char err[300];
+                if (!A.cloneName[0] || strchr(A.cloneName, '/') || strchr(A.cloneName, ' ')) pl_strlcpy(A.cloneErr, "Use a folder name without spaces or '/'.", sizeof A.cloneErr);
+                else if (pl_exists(dst)) pl_fmt_ui(A.cloneErr, sizeof A.cloneErr, "%s already exists. Pick another name.", A.cloneName);
+                else if (!pl_is_file(src)) pl_fmt_ui(A.cloneErr, sizeof A.cloneErr, "%s is not a file.", src);
+                else if (!pl_mkdirs(ws) || !fea_new_project(src, noUnit ? (NP.unit == 1 ? 1000 : NP.unit == 2 ? 25.4 : 1) : 1, dst, err, sizeof err)) pl_strlcpy(A.cloneErr, err, sizeof A.cloneErr);
+                else {
+                    pl_stat_cache_clear();
+                    ui_toast(TOAST_OK, "Created %s from %s", A.cloneName, pl_basename(src));
+                    NP.path[0] = 0;
+                    app_rescan_cases(true);
+                    app_open_case(dst, PG_SETUP);
+                    fea_mesh_start(dst);
+                }
+            }
+            ui_disable(false);
+            goto detail_done;
+        }
         ui_text_clip(F_SEMI, 18, s->name, xx, yy, ww, TH.text); yy += 32;
-        yy += ui_text_wrap(F_REG, 13, s->note, (Rectangle){ xx, yy, ww, 80 }, 19, TH.text2, true) + 12;
+        yy += ui_text_wrap(F_REG, 13, s->note, (Rectangle){ xx, yy, ww, 80 }, 19, TH.text2, true) + 8;
+        if (s->kind == 0 && PROG_TEMPLATES[s->idx].learn) {    /* what the starter teaches (C4) */
+            char ln[400]; pl_fmt_ui(ln, sizeof ln, "You'll learn %s.", PROG_TEMPLATES[s->idx].learn);
+            yy += ui_text_wrap(F_REG, 12.5f, ln, (Rectangle){ xx, yy, ww, 80 }, 18, TH.text3, true) + 8;
+        }
+        yy += 4;
         ui_text(F_MED, 13.5f, "Name", xx, yy, TH.text); yy += 24;
         ui_input(ui_id("clone-name"), (Rectangle){ xx, yy, ww, 36 }, A.cloneName, sizeof A.cloneName, "my-project", INPUT_LIVE);
         yy += 46;
@@ -698,7 +1023,8 @@ static float new_program_section(float x, float y, float w, int prog)
         if (ui_button(ui_id("clone-go"), (Rectangle){ xx, dr.y + dr.height - 60, ww, 38 }, ICON_FOLDER_PLUS, "Create project", BTN_PRIMARY))
             new_program_case(prog, s);
     }
-    return fmaxf(y, top + 350);
+    detail_done:;
+    return fmaxf(y, top + 420);
 }
 
 void page_new(Rectangle r)
@@ -755,28 +1081,12 @@ void page_new(Rectangle r)
         for (int k = 0; k < 3 && STARTERS[i].suffix[k] && f < 0; k++) f = tutorials_find(&A.tut, STARTERS[i].suffix[k]);
         if (f >= 0) { idx[ns] = f; st[ns] = i; ns++; }
     }
-    {   /* a blank case: the way in for a part of your own */
-        Rectangle br = { x, y, w, 64 };
-        UiId id = ui_id("starter-blank");
-        bool hov = ui_hovered(br);
-        float h = ui_anim(id, hov ? 1.f : 0.f, 7.f);
-        Rectangle rr = br;
-        if (TH.lcars) { lc_panel(rr, TH.accent, h * 0.6f, false); rr.x += 16; rr.width -= 16; }
-        else { ui_rect(rr, 12, TH.surface); ui_rect_lines(rr, 12, 1, ui_mix(TH.lineSoft, TH.line, h)); }
-        ui_icon(ICON_FOLDER_PLUS, rr.x + 26, rr.y + 32, 20, TH.accent);
-        ui_text(F_SEMI, 15, "Blank case", rr.x + 50, rr.y + 12, TH.text);
-        ui_text_clip(F_REG, 13, "Your own geometry: an empty case, then mesh an STL, import a mesh or start from a box. Ctrl+Shift+N",
-                     rr.x + 50, rr.y + 36, rr.width - 70, TH.text2);
-        ui_register(id, br, "Blank case");
-        if (hov) ui_cursor(MOUSE_CURSOR_POINTING_HAND);
-        if (ui_clicked(br)) A.modal = MD_BLANK;
-        y += 64 + 22;
-    }
+    y += blank_banner(x, y, w, PROG_OPENFOAM);
     if (ns) {
         y += section_head(x, y, w, "Good places to start", "One case for each kind of physics this app is set up for.");
         float gap = 16;
         int cols = w > 1100 ? 3 : 2;
-        float cw = (w - gap * (cols - 1)) / cols, chh = 150;
+        float cw = (w - gap * (cols - 1)) / cols, chh = 184;
         for (int i = 0; i < ns; i++) {
             // NOLINTNEXTLINE(bugprone-integer-division): row and column indices
             Rectangle cr = { x + (float)(i % cols) * (cw + gap), y + (float)(i / cols) * (chh + gap), cw, chh };   /* column, row */
@@ -902,4 +1212,20 @@ void page_new(Rectangle r)
     }
     y = listTop + listH + 30;
     ui_scroll_end(sc, y - top + 20);
+}
+
+/* a case or project made from a starter: "<title>: what it teaches" with what to expect, until "Got it" (writes
+   .qc-starter-seen); returns the height used (W8, C4) */
+float app_starter_callout(const char *casePath, float x, float y, float w)
+{
+    char st[96], ln[400], ex[700];
+    char hide[PL_PATH]; pl_join(hide, sizeof hide, casePath, ".qc-starter-seen");
+    if (!app_starter_info(casePath, st, sizeof st, ln, sizeof ln, ex, sizeof ex) || pl_is_file(hide)) return 0;
+    char t[160], d[1200]; pl_fmt_ui(t, sizeof t, "%s: what it teaches", st);
+    pl_fmt_ui(d, sizeof d, "You'll learn %s. What to expect: %s", ln, ex);
+    float bw = ui_button_width(NULL, "Got it"), cw = w - bw - 16;
+    float ch = callout_height(cw, t, d);
+    callout((Rectangle){ x, y, cw, ch }, TOAST_INFO, ICON_BOOK_OPEN, t, d);
+    if (ui_button(ui_id("ov-starter-seen"), (Rectangle){ x + w - bw, y + (ch - 32) / 2, bw, 32 }, NULL, "Got it", BTN_GHOST)) pl_touch(hide);
+    return ch + 20;
 }

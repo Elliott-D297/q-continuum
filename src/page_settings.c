@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "app.h"
+#include "intro.h"
 #include "tour.h"
 #include "actions.h"
 #include "palette.h"
@@ -47,10 +48,12 @@ void page_settings(Rectangle r)
     y += page_header(x, y, w, "Settings", "Where OpenFOAM lives, where your cases go, and how results open in ParaView.");
 
     /* ---------------- Help: the tour first, for someone new */
-    y += section_head(x, y, w, "Help", "New to Q-Continuum? The tour walks through every page and how to work it.");
+    y += section_head(x, y, w, "Help", "New to Q-Continuum? The tour walks through every page and how to work it; the meshing tutorial shows how to mesh a part and what makes a good mesh.");
     {
         float bx = x, bw = ui_button_width(ICON_BOOK_OPEN, "Take the tour");
         if (ui_button(ui_id("set-tour"), (Rectangle){ bx, y, bw, 36 }, ICON_BOOK_OPEN, "Take the tour", BTN_PRIMARY)) tour_start();
+        bx += bw + 10; bw = ui_button_width(ICON_BOX, "Meshing tutorial");
+        if (ui_button(ui_id("set-meshtour"), (Rectangle){ bx, y, bw, 36 }, ICON_BOX, "Meshing tutorial", BTN_SECONDARY)) tour_start_mesh();
         bx += bw + 10; bw = ui_button_width(ICON_KEYBOARD, "Keyboard shortcuts");
         if (ui_button(ui_id("set-keys"), (Rectangle){ bx, y, bw, 36 }, ICON_KEYBOARD, "Keyboard shortcuts", BTN_SECONDARY)) A.modal = MD_SHORTCUTS;
         bx += bw + 10; bw = ui_button_width(ICON_SPARKLES, "What's new");
@@ -225,7 +228,8 @@ void page_settings(Rectangle r)
     /* one grid of every theme, each tile with its own Q (logo.c); tile ids are "theme#<THEME_*>" */
     static const char *const THEME_NAME[THEME__N] = { "LCARS", "Classic dark", "Classic light", "Stardew", "Pokémon", "JARVIS",
                                                       "Severance", "Alien", "Pip-Boy", "NERV", "Portal", "Dark Souls", "Factorio",
-                                                      "Windows 95", "Star Citizen", "Half-Life" };
+                                                      "Windows 95", "Star Citizen", "Half-Life", "Rebel Alliance",
+                                                      "Galactic Empire" };
     {
         const float tw = 128, th = 92, gap = 8;
         float cw = w - fminf(300, w * 0.38f);
@@ -233,7 +237,7 @@ void page_settings(Rectangle r)
         int rows = (THEME__N + cols - 1) / cols;
         cr = prop_row(x, &y, w, "Themes", "The classic styles are plain; the rest are homages: a starship console, two game menus, Stark's "
                       "HUD, Lumon's terminal, MU/TH/UR on a real-looking tube, a Pip-Boy, NERV, Aperture, Lordran, a factory floor, "
-                      "Windows 95 and a mobiGlas. The window and desktop icon change with it.", rows * (th + gap) - gap);
+                      "Windows 95, a mobiGlas, Black Mesa, the Rebel Alliance and the Galactic Empire. The window and desktop icon change with it.", rows * (th + gap) - gap);
         UiId tid = ui_id("theme");
         for (int t = 0; t < THEME__N; t++) {
             Rectangle tr = { cr.x + (t % cols) * (tw + gap), cr.y + floorf((float)t / cols) * (th + gap), tw, th };
@@ -246,6 +250,9 @@ void page_settings(Rectangle r)
             ui_text_clip(F_MED, 12.5f, THEME_NAME[t], tr.x + fmaxf(6, (tw - nw) / 2), tr.y + th - 26, tw - 12, sel ? TH.text : TH.text2);
         }
     }
+    cr = prop_row(x, &y, w, "Start-up animation", "Each theme has its own, a few seconds long; any key or click skips it.", 34);
+    if (ui_switch(ui_id("intro"), cr.x, cr.y + 6, &A.set.intro)) settings_save(&A.set);
+    if (ui_button(ui_id("intro-play"), (Rectangle){ cr.x + 64, cr.y, 130, 34 }, ICON_PLAY, "Play it now", BTN_SECONDARY)) intro_start();
     static const char *const SOUND_HINT[SOUND__N] = {
         "Console beeps on keys, a chirp trill when a run completes and the red-alert klaxon when one fails.",
         "Wooden taps on keys, a marimba sparkle when a run completes and the town bell when one fails.",
@@ -256,7 +263,9 @@ void page_settings(Rectangle r)
         "Aperture's clean dings, and a polite alarm.", "A stone tap, a bonfire's bell when a run completes, the death toll when one fails.",
         "Mechanical clunks, research completed, and the biters alarm.", "A click, the chord when a run completes, the critical stop when one fails.",
         "Soft MFD blips on keys, the quantum drive spooling up when a run completes, the shields-down warning when one fails.",
-        "HL2 buttons and the Garry's Mod click on keys, the GMod ding when a run completes, the Black Mesa klaxon when one fails." };
+        "HL2 buttons and the Garry's Mod click on keys, the GMod ding when a run completes, the Black Mesa klaxon when one fails.",
+        "Astromech chirps on keys, a brass fanfare when a run completes, the base's evacuation alarm when one fails.",
+        "Hard console clicks, a minor-key march when a run completes, the battle station's klaxon when one fails." };
     int pk = app_sound_pack();
     char hint[400];
     if (pk >= 0) snprintf(hint, sizeof hint, "%s Your own files in ~/.config/q-continuum/sounds%s replace them.", SOUND_HINT[pk],
@@ -304,7 +313,7 @@ void page_settings(Rectangle r)
 
     y += section_head(x, y, w, "About", NULL);
     y += ui_text_wrap(F_REG, 13, "Q-Continuum " QC_VERSION ", a desktop front-end for setting up, running and monitoring OpenFOAM cases. "
-                      "Typeset in IBM Plex, Antonio, Pixelify Sans, Silkscreen, Rajdhani, VT323, Share Tech Mono, Cinzel, Titillium Web, Oranienbaum and Electrolize (SIL Open Font License) with Lucide icons (ISC). The Stardew, Pokémon, JARVIS, Severance, Alien, Pip-Boy, NERV, Portal, Dark Souls, Factorio, Windows 95, Star Citizen and Half-Life themes are fan homages, not affiliated with ConcernedApe, Nintendo / The Pokémon Company, Marvel, Apple TV+, 20th Century Studios, Bethesda, Khara, Valve, FromSoftware, Wube Software, Microsoft or Cloud Imperium Games. "
+                      "Typeset in IBM Plex, Antonio, Pixelify Sans, Silkscreen, Rajdhani, VT323, Share Tech Mono, Cinzel, Titillium Web, Oranienbaum and Electrolize (SIL Open Font License) with Lucide icons (ISC). The Stardew, Pokémon, JARVIS, Severance, Alien, Pip-Boy, NERV, Portal, Dark Souls, Factorio, Windows 95, Star Citizen, Half-Life, Rebel Alliance and Galactic Empire themes are fan homages, not affiliated with ConcernedApe, Nintendo / The Pokémon Company, Marvel, Apple TV+, 20th Century Studios, Bethesda, Khara, Valve, FromSoftware, Wube Software, Microsoft, Cloud Imperium Games or Lucasfilm. "
                       "Not affiliated with or endorsed by OpenCFD Ltd or the OpenFOAM Foundation. OPENFOAM is a registered trademark of OpenCFD Ltd.",
                       (Rectangle){ x, y, fminf(w, 720), 200 }, 20, TH.text3, true) + 30;
     ui_scroll_end(sc, y - top);
@@ -930,6 +939,10 @@ void draw_modals(void)
               "Cd, Cl, Cm and L/D live and plots them." },
             { "Turn about an axis", "The 3-D views (STL mesher, Mesh > View) have Turn about: Free, or X, Y or Z only; 90 degree "
               "turn buttons, arrow keys for 15 degree steps, and a Fit button." },
+            { "Start-up animations", "Each theme opens with its own few seconds: streamlines and a mesh for the classic styles, the "
+              "console powering up, a battle wipe, a bonfire, a quantum jump... Any key skips it; Settings > Appearance turns it off." },
+            { "Star Wars themes", "Rebel Alliance (an X-wing targeting computer, squadrons, a medal when a run converges) and Galactic "
+              "Empire (Imperial consoles, the battle station charging on the Run page): Settings > Themes." },
             { "Half-Life theme", "Black Mesa gunmetal and lambda orange, bevelled steel panels, HL2 and Garry's Mod sounds, an HEV "
               "suit on the Run page (health from the residuals, suit power from the Courant headroom) and a resonance cascade when a run fails." },
             { "STL to mesh", "Mesh > STL import: pick any STL, then mesh it with snappyHexMesh or send it to SALOME with STAR-CCM+-style "

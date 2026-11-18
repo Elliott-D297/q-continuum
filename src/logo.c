@@ -276,6 +276,37 @@ void logo_draw(int theme, float x, float y, float s)
         DrawLineEx(a, b, s * 0.07f, o);
         break;
     }
+    case THEME_REBEL: {                                  /* worn olive steel, an orange ring, the tail opened into a starfighter's X */
+        Color o = hexc(0xFF7A1A);
+        rrect(r, s * 0.10f, hexc(0x1E2219));
+        DrawRectangleGradientV((int)x, (int)y, (int)s, (int)(s * 0.5f), alpha(WHITE, 0.08f), alpha(WHITE, 0));
+        rrect_lines(r, s * 0.10f, fmaxf(1, s * 0.02f), hexc(0x6A6E52));
+        float ro = s * 0.28f;
+        DrawRing(c, ro - s * 0.07f, ro, 0, 360, 48, o);
+        DrawCircleV(c, s * 0.05f, alpha(o, 0.8f));
+        Vector2 a = { c.x + ro * 0.55f, c.y + ro * 0.55f };
+        DrawLineEx(a, (Vector2){ x + s * 0.94f, y + s * 0.78f }, s * 0.055f, o);   /* the S-foils, open */
+        DrawLineEx(a, (Vector2){ x + s * 0.78f, y + s * 0.94f }, s * 0.055f, o);
+        DrawCircleV((Vector2){ x + s * 0.94f, y + s * 0.78f }, s * 0.03f, hexc(0xFFC93C));
+        DrawCircleV((Vector2){ x + s * 0.78f, y + s * 0.94f }, s * 0.03f, hexc(0xFFC93C));
+        break;
+    }
+    case THEME_EMPIRE: {                                 /* polished black, a gunmetal ring with six spokes round a hub, the tail in Imperial red */
+        Color steel = hexc(0xA4ADB7), red = hexc(0xE8212E);
+        DrawRectangleRec(r, hexc(0x07080A));
+        DrawRectangleLinesEx(r, fmaxf(1, s * 0.02f), hexc(0x4A525C));
+        DrawRectangleRec((Rectangle){ x, y, s * 0.30f, fmaxf(1, s * 0.035f) }, red);
+        float ro = s * 0.29f;
+        DrawRing(c, ro - s * 0.055f, ro, 0, 360, 48, steel);
+        DrawRing(c, s * 0.06f, s * 0.10f, 0, 360, 32, steel);
+        for (int k = 0; k < 6; k++) {
+            float an = (k * 60.0f + 30.0f) * DEG2RAD;
+            DrawLineEx((Vector2){ c.x + cosf(an) * s * 0.10f, c.y + sinf(an) * s * 0.10f },
+                       (Vector2){ c.x + cosf(an) * (ro - s * 0.05f), c.y + sinf(an) * (ro - s * 0.05f) }, s * 0.035f, steel);
+        }
+        DrawLineEx((Vector2){ c.x + ro * 0.72f, c.y + ro * 0.72f }, (Vector2){ x + s * 0.91f, y + s * 0.89f }, s * 0.075f, red);
+        break;
+    }
     default: logo_draw(THEME_DARK, x, y, s); break;
     }
 }

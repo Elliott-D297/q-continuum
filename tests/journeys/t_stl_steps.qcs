@@ -45,7 +45,8 @@ click wf-next
 wait-until job running timeout 20
 note 2: on Run while the mesh is made: the bar keeps its boundaries
 wait 2
-assert text 1 in, 1 out, 4 walls
+# the Run page's narrow column folds the steps done into one line (workflow plan W1)
+assert text Done: STL, Boundaries
 screenshot $OUT/20_run_while_meshing.png
 wait-until job finished timeout 300
 wait 5
@@ -57,19 +58,19 @@ wait 5
 screenshot $OUT/21_run_meshed.png
 assert file simulation.ini
 assert file 0/U
-assert text simpleFoam, k-omega SST
+assert text Done: STL, Boundaries, Mesh, Physics
 assert text Run simulation
 screenshot $OUT/22_run_written.png
 note 3: the controlDict edited elsewhere: the setup takes it, and the case files stay done
 shell foamDictionary system/controlDict -entry endTime -set 40 > /dev/null && foamDictionary system/controlDict -entry writeInterval -set 20 > /dev/null
 wait-until log simulation.ini iterations = 40 timeout 10
-assert text simpleFoam, k-omega SST
+assert text Done: STL, Boundaries, Mesh, Physics
 assert text Run simulation
 click wf-next
 wait-until job running timeout 30
 wait-until job finished timeout 300
 wait 5
-assert text Results to 40
+assert text All done: STL, Boundaries, Mesh, Physics, Run
 shell rm -f .qc-no-remesh; [ log.snappyHexMesh -ot log.checkMesh ] && touch .qc-no-remesh
 assert file .qc-no-remesh
 assert text Open in ParaView
@@ -121,4 +122,4 @@ assert log simulation.ini speed = 3
 click nav:run
 wait-until page Run
 wait-until log 0/U refValue        uniform -3 timeout 10
-assert text simpleFoam, k-epsilon
+assert text Done: STL, Boundaries, Mesh, Physics

@@ -76,7 +76,7 @@ screenshot $OUT/04_robust_run.png
 click nav:numerics
 wait-until page Numerics
 wait 5
-assert text Robust numerics, from Physics > Setup
+assert text First-order upwind, firmly relaxed SIMPLE
 screenshot $OUT/05_numerics_banner.png
 note writing the setup again: 0/U is the setup's own once more
 click nav:physics

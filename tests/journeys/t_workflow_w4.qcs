@@ -1,0 +1,36 @@
+# Workflow plan step W4 (docs/WORKFLOW_PLAN.md, 2026-11-14): one home per setting. A case Physics > Setup owns (the duct example,
+# from the STL mesher) shows its solver and run length on the Run page as a read-out from Setup (with a Change button and
+# "Edit here" for the fields); Numerics offers Setup's preset (Robust / Balanced / Accurate) itself, the schemes behind Every scheme.
+shell $QC_TESTS/../build/test_stlmesh example duct $SB/ws/w4-duct > $OUT/example.log 2>&1
+open $SB/ws/w4-duct
+wait 10
+click nav:physics
+wait 10
+click su-write
+wait 30
+click nav:run
+wait-until page Run
+wait 10
+assert text From Physics > Setup
+assert widget run-change
+assert not widget dict:system/controlDict:endTime
+screenshot $OUT/w4_run.png
+click run-edit-here
+wait 5
+assert text End time
+click nav:numerics
+wait-until page Numerics
+wait 10
+assert text Numerics preset
+assert widget num-preset#1
+assert not widget num-tabs#0
+click num-preset#0
+wait 10
+assert text First-order upwind
+shell grep -q 'numerics = robust' $SB/ws/w4-duct/simulation.ini && touch $OUT/robust
+assert file $OUT/robust
+assert text Setup changed: write again
+click num-every
+wait 5
+assert widget num-tabs#0
+screenshot $OUT/w4_numerics.png

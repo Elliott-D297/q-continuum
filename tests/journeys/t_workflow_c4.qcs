@@ -1,0 +1,76 @@
+# Workflow plan step C4 (docs/WORKFLOW_PLAN.md, 2026-11-14): CalculiX model view and teaching. The plate-with-a-hole starter says
+# what it teaches; Setup shows its mesh with the held nodes before running; after the run Results compares the largest
+# von Mises stress with Kt x 50 MPa (Heywood 3.03: about 152 MPa). Its mesh switched to plain C3D8 (one brick through a thin
+# plate): the shear-locking note, and "Use C3D8I" puts it back. The natural-frequency starter: Results gives the lowest
+# frequency against the cantilever's 83.5 Hz, not the mode shapes' meaningless sizes.
+action go.new
+wait-until page New case
+click new-prog:calculix
+wait 5
+click label:Plate with a hole
+wait 5
+assert text You'll learn stress concentration
+click clone-name
+key A ctrl
+type c4plate
+click clone-go
+wait-until page Overview timeout 10
+wait 10
+assert text Plate with a hole: what it teaches
+screenshot $OUT/c4_overview.png
+click nav:setup
+wait-until page Setup
+wait 20
+assert text The mesh
+wheel -6
+wait 10
+assert text held in
+screenshot $OUT/c4_model.png
+click nav:run
+wait-until page Run
+click run-go
+wait-until job finished timeout 180
+wait 20
+click nav:results
+wait-until page Results
+wait 30
+assert text Compare with: the largest von Mises stress should be about 151.5 MPa
+screenshot $OUT/c4_results.png
+shell sed -i 's/TYPE=C3D8I,/TYPE=C3D8,/' plate_mesh.inp
+wait 10
+click nav:setup
+wait-until page Setup
+wait 360
+wheel -12
+wait 10
+assert text Plain C3D8 bricks, 1 through the thickness
+screenshot $OUT/c4_locking.png
+click ccx-c3d8i
+wait 20
+assert log plate_mesh.inp TYPE=C3D8I
+assert not text Plain C3D8 bricks, 1 through
+action go.new
+wait-until page New case
+click new-prog:calculix
+wait 5
+click label:Beam natural frequencies
+wait 5
+click clone-name
+key A ctrl
+type c4modes
+click clone-go
+wait-until page Overview timeout 10
+click nav:run
+wait-until page Run
+click np-dec
+click np-dec
+click np-dec
+click run-go
+wait-until job finished timeout 180
+wait 20
+click nav:results
+wait-until page Results
+wait 30
+assert text Lowest natural frequency 83.4
+assert text Compare with: the first natural frequency should be about 83.54 Hz
+screenshot $OUT/c4_modes.png

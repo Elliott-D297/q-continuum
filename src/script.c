@@ -206,6 +206,7 @@ static void next(void) { S.at++; S.phase = 0; S.waitFrames = 0; S.scrollTries = 
 static void act(void) { if (S.firstAction < 0) S.firstAction = now_s(); }
 
 /* bring a target on screen and return its centre; false while still working (or after a failure: S.at moved on) */
+static Rectangle gLastWhole;                            /* the last target's rectangle (clickat) */
 static bool target_ready(const char *t, Vector2 *at)
 {
     Rectangle vis, whole, view; bool dis;
@@ -221,6 +222,9 @@ static bool target_ready(const char *t, Vector2 *at)
         if (S.scrollTries % 6 == 1) {
             float vy = view.height > 0 ? view.y + view.height / 2 : ui_height() * ui_scale() / 2;
             float vx = view.width > 0 ? view.x + view.width / 2 : ui_width() * ui_scale() / 2;
+            /* in the target's own column: the view's middle may be over a list that scrolls by itself (New case's tutorials) */
+            float tx = whole.x + whole.width / 2;
+            if (view.width <= 0 || (tx > view.x && tx < view.x + view.width)) vx = tx;
             inp_queue_move(0, vx, vy);
             inp_queue_wheel(0, whole.y > vy ? -3.0f : 3.0f);
         }
@@ -234,6 +238,7 @@ static bool target_ready(const char *t, Vector2 *at)
         return false;
     }
     *at = (Vector2){ whole.x + whole.width / 2, whole.y + whole.height / 2 };
+    gLastWhole = whole;
     if (!strncmp(t, "text:", 5)) *at = (Vector2){ vis.x + fminf(vis.width / 2, 12), vis.y + vis.height / 2 };
     return true;
 }
@@ -364,6 +369,17 @@ void script_tick(int frame)
             if (cmd[0] == 'd') { inp_queue_button(2, true); inp_queue_button(3, false); }
             S.clicks += cmd[0] == 'd' ? 2 : 1;
             say("%s %s", cmd, arg);
+            next(); S.waitFrames = 2; return;
+        }
+        if (!strcmp(cmd, "clickat")) {                   /* "clickat <target> fx fy": at a fraction of its width and height */
+            char tg[128] = ""; float fx = 0.5f, fy = 0.5f;
+            sscanf(arg, "%127s %f %f", tg, &fx, &fy);
+            Vector2 p;
+            if (!target_ready(tg, &p)) return;
+            act();
+            inp_click(gLastWhole.x + fx * gLastWhole.width, gLastWhole.y + fy * gLastWhole.height);
+            S.clicks++;
+            say("clickat %s", arg);
             next(); S.waitFrames = 2; return;
         }
         if (!strcmp(cmd, "choose")) {

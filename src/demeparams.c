@@ -2,6 +2,7 @@
  * save; the progress parser reads only what the log gained since its last look. */
 #define _GNU_SOURCE
 #include <math.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -369,4 +370,82 @@ bool deme_frame_load(DemeFrame *f, const char *csv)
     free(t);
     if (!f->n) { f->rmin = 0; for (int k = 0; k < 3; k++) f->lo[k] = f->hi[k] = 0; }
     return f->n > 0;
+}
+
+/* ---------------------------------------------------------------- the driver's results against theory (workflow plan D2) */
+static const char *TextFormatNoRaylib(const char *fmt, ...)
+{
+    static char b[4][200]; static int k; char *o = b[k = (k + 1) % 4];
+    va_list ap; va_start(ap, fmt); vsnprintf(o, 200, fmt, ap); va_end(ap);
+    return o;
+}
+static double pnum(const DemeParams *d, const char *k, double def) { return d ? deme_param_num(d, k, def) : def; }
+static const char *phi_word(double phi, int *level)
+{
+    if (phi > 0.66) { *level = 2; return "above random close packing (0.64): the softened grains overlap too much; a stiffer modulus or a smaller time step"; }
+    if (phi >= 0.55) { *level = 1; return "a random packing, as poured spheres give: random loose packing is about 0.55 to 0.60, random close 0.64"; }
+    *level = 2; return "looser than random loose packing (0.55): side walls loosen a small bed, and friction holds an open structure";
+}
+int deme_result_context(const DemeParams *d, const char *name, double v, long nParticles, char *out, int cap)
+{
+    out[0] = 0;
+    int level = 0;
+    double g = pnum(d, "gravity", 9.81), rho = pnum(d, "density", 2500);
+    double rmin = pnum(d, "radius_min", 0), rmax = pnum(d, "radius_max", rmin);
+    double dmean = rmin + rmax;                                   /* the mean diameter of radii spread evenly */
+    if (!strcmp(name, "mean_flow_rate") && d && pnum(d, "outlet_radius", 0) > 0 && dmean > 0) {
+        /* Beverloo: W = C rho_b sqrt(g) (D0 - k d)^2.5, C 0.58, k 1.5, rho_b about 0.6 rho */
+        double D0 = 2 * pnum(d, "outlet_radius", 0), eff = D0 - 1.5 * dmean;
+        if (eff <= 0) { snprintf(out, (size_t)cap, "The orifice is under 1.5 grain diameters across: Beverloo's correlation doesn't apply (it jams)."); return 2; }
+        double W = 0.58 * 0.6 * rho * sqrt(g) * pow(eff, 2.5), r = v / W;
+        level = r > 0.6 && r < 1.5 ? 1 : 2;
+        snprintf(out, (size_t)cap, "Beverloo's correlation W = 0.58 rho_b sqrt(g) (D0 - 1.5 d)^2.5 gives %.3g kg/s for this orifice (%.3g grain diameters): "
+                 "the run is %.0f %% of it%s.", W, D0 / dmean, r * 100,
+                 level == 1 ? ", within its usual scatter" : D0 / dmean < 6 ? "; Beverloo needs an orifice over about six grains across" : "; check the run reached a steady flow");
+        return level;
+    }
+    if (!strcmp(name, "discharged_fraction")) {
+        if (v >= 0.95) { snprintf(out, (size_t)cap, "Practically all of it drained."); return 1; }
+        double D0 = 2 * pnum(d, "outlet_radius", 0);
+        snprintf(out, (size_t)cap, "%.0f %% drained: run longer (sim_time)%s.", v * 100,
+                 dmean > 0 && D0 > 0 && D0 / dmean < 5 ? ", or the orifice arches (under about five grains across it jams)" : "");
+        return 2;
+    }
+    if (!strcmp(name, "froude")) {
+        /* the drum's regime from its Froude number (Mellmann 2001) */
+        const char *rg = v < 1e-4 ? "slipping or slumping" : v < 1e-2 ? "rolling: a flat surface at the angle of repose" : v < 0.1 ? "cascading: a curved, S-shaped surface"
+                       : v < 1 ? "cataracting: grains thrown off the surface" : "centrifuging: the grains ride the wall round";
+        snprintf(out, (size_t)cap, "Froude number omega^2 R / g = %.3g: %s.", v, rg);
+        return 1;
+    }
+    if (!strcmp(name, "solid_fraction")) {
+        double box = pnum(d, "box_width", 0);
+        snprintf(out, (size_t)cap, "Packing fraction %.3g: %s%s.", v, phi_word(v, &level), box > 0 && dmean > 0 && box / dmean < 30 ? TextFormatNoRaylib("; the box is %.0f grain diameters across", box / dmean) : "");
+        return level;
+    }
+    if (!strcmp(name, "bed_top") && d && nParticles > 0 && rmax > 0) {
+        double box = pnum(d, "box_width", 0);
+        if (box > 0 && v > 0) {
+            double r3 = rmax > rmin ? (pow(rmax, 4) - pow(rmin, 4)) / (4 * (rmax - rmin)) : rmin * rmin * rmin;
+            double phi = nParticles * 4.0 / 3.0 * M_PI * r3 / (box * box * v);
+            snprintf(out, (size_t)cap, "From the bed's height: a packing fraction of about %.2f, %s.", phi, phi_word(phi, &level));
+            return level;
+        }
+    }
+    if (!strcmp(name, "k_eff_estimate")) {
+        double ks = pnum(d, "conductivity", 0);
+        snprintf(out, (size_t)cap, "Through the contacts only (no gas between the grains): beds in vacuum conduct about 0.001 to 0.01 W/(m K), in air about 0.1 to 0.3%s.",
+                 ks > 0 ? TextFormatNoRaylib("; %.3g of the solid's own %.3g W/(m K)", v / ks, ks) : "");
+        return 1;
+    }
+    if (!strcmp(name, "energy_balance_error")) {
+        level = fabs(v) < 1e-3 ? 1 : 2;
+        snprintf(out, (size_t)cap, level == 1 ? "The heat put in and the heat stored agree: the bookkeeping is consistent." : "The heat in and the heat stored disagree: a smaller thermal speed-up or time step.");
+        return level;
+    }
+    if (!strcmp(name, "penetration")) {
+        double rp = pnum(d, "projectile_radius", 0);
+        if (rp > 0) { snprintf(out, (size_t)cap, "%.2g projectile diameters deep.", v / (2 * rp)); return 1; }
+    }
+    return 0;
 }

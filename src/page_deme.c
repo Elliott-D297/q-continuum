@@ -7,6 +7,7 @@
 #include <glob.h>
 #include <signal.h>
 #include <sys/wait.h>
+#include <ctype.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -348,6 +349,26 @@ static int setup_checks(Check *ck, char texts[][200], double *fixDt)
     return n;
 }
 
+/* workflow plan D1: the numerical choices, behind Advanced, each with what it changes and what stays valid (the material,
+   the box and the times are the physical setup, shown first) */
+static const struct { const char *key, *what; } NUMERICAL[] = {
+    { "dt", "The step the contacts are integrated with. A step past the Rayleigh limit makes contacts blow up (the check below); smaller is slower, not more right." },
+    { "youngs_modulus", "Softer than the real grains so the time step can be bigger. The bulk flow, packing and repose come out right; contacts last longer and overlap more." },
+    { "youngs_modulus_real", "Only corrects conduction through the softened contacts (contact radius scaled by (E_DEM / E_real)^1/3). 0 turns the correction off." },
+    { "thermal_speedup", "Heat flows this many times faster than it really would, so a slow conduction fits in a short run. Valid once the bed has stopped moving: physical time = simulated time × this." },
+    { "fps", "How many frames of particles are written per simulated second: the viewer's and ParaView's frames. More is bigger output, not a different answer." },
+    { "max_velocity", "The fastest a grain may go: DEME sizes its contact search by it. Too low and fast grains miss contacts; too high and the search is slower." },
+    { "max_particles", "A cap on how many grains are made (GPU memory). The fill stops there." },
+    { "size_bins", "How many radii between the smallest and largest: the size distribution's steps." },
+    { "profile_layers", "Horizontal slices the temperature profile is written in: output only." },
+};
+static const char *numerical_what(const char *key)
+{
+    for (size_t i = 0; i < sizeof NUMERICAL / sizeof NUMERICAL[0]; i++) if (!strcmp(NUMERICAL[i].key, key)) return NUMERICAL[i].what;
+    return NULL;
+}
+static bool advancedOpen;
+
 static float setup_section(float x, float y, float w)
 {
     y += section_head_r(x, y, w, "Setup", "params.ini: the driver reads it when it starts, so a change takes effect on the next run, no rebuild. "
@@ -358,6 +379,7 @@ static float setup_section(float x, float y, float w)
     float rowY = y;
     for (int i = 0; i < D.params.n && i < MAX_FIELDS; i++) {
         DemeParam *p = &D.params.p[i];
+        if (numerical_what(p->key)) continue;                 /* under Advanced (D1) */
         if (!sec || strcmp(sec, p->section)) {
             if (col) { rowY += 64; col = 0; }
             if (sec) rowY += 6;
@@ -402,6 +424,46 @@ static float setup_section(float x, float y, float w)
     }
     if (col) rowY += 64;
     y = rowY + 8;
+    /* the numerical choices (D1): a switch, a line saying what they amount to, then each with what it changes */
+    int nNum = 0;
+    for (int i = 0; i < D.params.n && i < MAX_FIELDS; i++) if (numerical_what(D.params.p[i].key)) nNum++;
+    if (nNum) {
+        ui_divider(x, y, w); y += 14;
+        ui_switch(ui_id("dm-advanced"), x, y + 2, &advancedOpen);
+        ui_register(ui_id("dm-advanced"), (Rectangle){ x, y, 44, 26 }, "Advanced");
+        char lab[96]; pl_fmt_ui(lab, sizeof lab, "Advanced: the numerical choices (%d)", nNum);
+        ui_text(F_MED, 13.5f, lab, x + 52, y + 3, TH.text);
+        y += 28;
+        /* what they amount to, in one line */
+        char sum[400] = "";
+        double dt = deme_param_num(&D.params, "dt", 0), E = deme_param_num(&D.params, "youngs_modulus", 0), Er = deme_param_num(&D.params, "youngs_modulus_real", 0);
+        double sp = deme_param_num(&D.params, "thermal_speedup", 0);
+        if (dt > 0) snprintf(sum + strlen(sum), sizeof sum - strlen(sum), "time step %.3g s", dt);
+        if (E > 0 && Er > E) snprintf(sum + strlen(sum), sizeof sum - strlen(sum), "%sgrains %.3g times softer than real", sum[0] ? "; " : "", Er / E);
+        else if (E > 0) snprintf(sum + strlen(sum), sizeof sum - strlen(sum), "%sstiffness %.3g Pa (DEM, usually softened)", sum[0] ? "; " : "", E);
+        if (sp > 1) snprintf(sum + strlen(sum), sizeof sum - strlen(sum), "%sheat %.3g times faster than real", sum[0] ? "; " : "", sp);
+        char line[500]; pl_fmt_ui(line, sizeof line, "They make the run feasible on a GPU; they don't describe the grains.%s%s", sum[0] ? " Now: " : "", sum);
+        y += ui_text_wrap(F_REG, 12.5f, line, (Rectangle){ x + 52, y, w - 52, 60 }, 18, TH.text3, true) + 10;
+        if (advancedOpen)
+            for (int i = 0; i < D.params.n && i < MAX_FIELDS; i++) {
+                DemeParam *p = &D.params.p[i];
+                const char *what = numerical_what(p->key);
+                if (!what) continue;
+                float fw = fminf(260, w * 0.32f);
+                ui_text_clip(F_MED, 12.5f, p->label, x, y, fw - ui_text_w(F_REG, 12, p->unit) - 10, TH.text2);
+                if (p->unit[0]) ui_text(F_REG, 12, p->unit, x + fw - ui_text_w(F_REG, 12, p->unit), y + 1, TH.text3);
+                ui_tooltip((Rectangle){ x, y, fw, 18 }, p->help[0] ? p->help : p->label);
+                if (ui_input(ui_idn(ui_id("dm-param"), i), (Rectangle){ x, y + 20, fw, 34 }, D.edit[i], sizeof D.edit[i], p->key, INPUT_MONO)) {
+                    pl_trim_inplace(D.edit[i]);
+                    if (D.edit[i][0]) { deme_param_set(&D.params, p->key, D.edit[i]); params_changed(); }
+                    else pl_strlcpy(D.edit[i], p->value, sizeof D.edit[i]);
+                }
+                ui_register(ui_idn(ui_id("dm-param"), i), (Rectangle){ x, y + 20, fw, 34 }, p->key);
+                float th = ui_text_wrap(F_REG, 12.5f, what, (Rectangle){ x + fw + 20, y + 18, w - fw - 20, 80 }, 18, TH.text3, true);
+                y += fmaxf(64, 22 + th + 8);
+            }
+        y += 6;
+    }
     /* what the values mean */
     Check ck[8]; char texts[8][200]; double fixDt = 0;
     int nc = setup_checks(ck, texts, &fixDt);
@@ -446,7 +508,15 @@ float deme_run_panel(const char *proj, const char *logPath, float x, float y, fl
         y += 24;
     }
     if (p->nRes) {
-        float rh = 30 + 22 * (float)p->nRes;
+        /* each result with what theory says of it (D2), under its value */
+        if (A.cs) sync_params(A.cs->s.path);                /* the project's values: the orifice, the box, the conductivity */
+        char ctx[DEME_RESULTS][400]; int lvl[DEME_RESULTS]; float chh[DEME_RESULTS];
+        float rh = 30;
+        for (int i = 0; i < p->nRes; i++) {
+            lvl[i] = deme_result_context(D.hasParams ? &D.params : NULL, p->resName[i], atof(p->resVal[i]), p->n, ctx[i], sizeof ctx[i]);
+            chh[i] = lvl[i] ? ui_text_wrap(F_REG, 12, ctx[i], (Rectangle){ 0, 0, w - 52, 200 }, 17, TH.text3, false) + 4 : 0;
+            rh += 22 + chh[i];
+        }
         Rectangle rr = { x, y, w, rh };
         ui_rect(rr, 8, TH.surface2);
         ui_text(F_SEMI, 13, ui_cap("Results from the driver"), rr.x + 14, rr.y + 10, head_color());
@@ -455,6 +525,11 @@ float deme_run_panel(const char *proj, const char *logPath, float x, float y, fl
             ui_text_clip(F_REG, 12.5f, p->resName[i], rr.x + 14, ry, rr.width * 0.5f, TH.text2);
             ui_text_clip(F_MONO_MED, 12.5f, p->resVal[i], rr.x + rr.width * 0.5f, ry, rr.width * 0.5f - 10, TH.text);
             ry += 22;
+            if (lvl[i]) {
+                ui_icon(lvl[i] == 1 ? ICON_CIRCLE_CHECK : ICON_INFO, rr.x + 22, ry + 7, 12, lvl[i] == 1 ? TH.ok : TH.warn);
+                ui_text_wrap(F_REG, 12, ctx[i], (Rectangle){ rr.x + 34, ry, rr.width - 48, 200 }, 17, TH.text3, true);
+                ry += chh[i];
+            }
         }
         y += rh + 10;
     }
@@ -501,6 +576,21 @@ static void frames_list(const char *dir, const char *prefix, bool running)
         if (D.vPrefix[0] ? (pl_starts_with(n, D.vPrefix) && n[strlen(D.vPrefix)] == '.') : pl_ends_with(n, ".csv")) names_add(&D.vFiles, n);
     }
     names_free(&l);
+    /* numbered CSVs (particles_0030.csv) are the frames; the driver's tables beside them (temperature_history.csv) are not, and
+       sorted last they made "Newest frame" empty (W0, 2026-11-14) */
+    if (!D.vPrefix[0]) {
+        bool numbered = false;
+        for (int i = 0; i < D.vFiles.n && !numbered; i++) { size_t k = strlen(D.vFiles.names[i]); numbered = k > 4 && isdigit((unsigned char)D.vFiles.names[i][k - 5]); }
+        if (numbered) {
+            int m = 0;
+            for (int i = 0; i < D.vFiles.n; i++) {
+                size_t k = strlen(D.vFiles.names[i]);
+                if (k > 4 && isdigit((unsigned char)D.vFiles.names[i][k - 5])) D.vFiles.names[m++] = D.vFiles.names[i];
+                else free(D.vFiles.names[i]);
+            }
+            D.vFiles.n = m;
+        }
+    }
     if (D.vFiles.n > 1) qsort(D.vFiles.names, (size_t)D.vFiles.n, sizeof D.vFiles.names[0], D.vPrefix[0] ? frame_cmp_num : frame_cmp);
     if (D.vFollow || D.vIdx < 0 || D.vIdx >= D.vFiles.n) D.vIdx = D.vFiles.n - 1;
 }

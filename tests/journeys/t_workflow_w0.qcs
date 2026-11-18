@@ -1,0 +1,76 @@
+# Workflow plan step W0 (docs/WORKFLOW_PLAN.md, 2026-11-14): the quick fixes the workflow review found.
+# An STL case before meshing: the Patches card shows the mesher's boundaries (not blockMesh's background), the missing
+# initial conditions say where they come from, Boundary conditions points to the Mesh page, Mesh > View says there is no
+# mesh yet. A CalculiX beam under the Galactic Empire theme: the header's run button is a whole phrase, and after the run
+# the chart says a linear step has nothing to plot. A DEME project whose output folder has tables beside the frames: the
+# viewer shows the last numbered frame, and a driver log that reached its end time reads as finished.
+shell $QC_TESTS/../build/test_stlmesh example duct $SB/ws/w0-duct > $OUT/example.log 2>&1
+open $SB/ws/w0-duct
+wait 20
+assert text The STL mesher's boundaries
+assert text No initial conditions yet
+assert not text background
+click nav:boundary conditions
+wait 10
+assert text No mesh yet, so there are no patches
+assert widget bc-go-mesh
+click bc-go-mesh
+wait-until page Mesh
+click mesh-tabs#3
+wait 10
+assert text No mesh yet: make one on the STL mesher tab
+screenshot $OUT/duct_view.png
+# CalculiX
+theme 17
+action go.new
+wait-until page New case
+click new-prog:calculix
+wait 5
+click label:Cantilever beam
+wait 5
+click clone-name
+key A ctrl
+type w0beam
+click clone-go
+wait-until page Overview timeout 10
+wait 10
+assert text Commence primary ignition
+assert not text primary ignition on
+screenshot $OUT/empire_header.png
+click nav:run
+wait-until page Run
+click run-go
+wait-until job finished timeout 120
+wait 30
+assert text Solved in one go
+screenshot $OUT/ccx_run.png
+theme 0
+# DEME: frames and the driver's tables in one folder, a log that ran to its end outside the app
+action go.new
+wait-until page New case
+click new-prog:deme
+wait 5
+click label:Settle a bed
+wait 5
+click clone-name
+key A ctrl
+type w0bed
+click clone-go
+wait-until page Overview timeout 10
+shell mkdir -p $SB/home/deme/w0bed/run/output && cd $SB/home/deme/w0bed/run/output && printf 'X,Y,Z,r\n0,0,0,0.002\n0.004,0,0,0.002\n' > particles_0001.csv && printf 'X,Y,Z,r\n0,0,0.001,0.002\n0.004,0,0.001,0.002\n' > particles_0002.csv && printf 't_sim,t_phys,T_mean\n0,0,300\n1,10,310\n' > temperature_history.csv
+shell printf 'QC t=0.5 end=1 frame=1/2 ke=1e-6 vmax=0.01 n=2\nQC t=1 end=1 frame=2/2 ke=1e-7 vmax=0.001 n=2\nQC result solid_fraction=0.6\n' > $SB/home/deme/w0bed/log.deme.settle
+open $SB/home/deme/w0bed
+wait 30
+click nav:results
+wait-until page Results
+# the results list refreshes every 5 s
+wait-until text run/output timeout 10
+wait 20
+assert text Particles
+assert not text No particles in this frame
+screenshot $OUT/deme_results.png
+click nav:run
+wait-until page Run
+wait 20
+assert text Last run finished
+screenshot $OUT/deme_run.png

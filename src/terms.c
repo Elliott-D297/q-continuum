@@ -3,39 +3,43 @@
 #include <string.h>
 #include "app.h"
 
-static const char *const TERMS[T__N][15] = {
-    /*  LCARS / classic / Stardew / Pokemon / JARVIS / Severance / Alien / Pip-Boy / NERV / Portal / Dark Souls / Factorio / Windows 95 / Star Citizen / Half-Life */
+static const char *const TERMS[T__N][17] = {
+    /*  LCARS / classic / Stardew / Pokemon / JARVIS / Severance / Alien / Pip-Boy / NERV / Portal / Dark Souls / Factorio / Windows 95 / Star Citizen / Half-Life / Rebel / Empire */
     [T_SWEEP]     = { "Sensor sweep", "Pre-run check", "Morning field check", "Pokédex scan", "Running diagnostics",
                       "Refinement check", "System diagnostic", "V.A.T.S. scan", "MAGI deliberation", "Test protocol review",
-                      "Inspect the path ahead", "Production check", "ScanDisk", "Pre-flight check", "HEV suit diagnostics" },
+                      "Inspect the path ahead", "Production check", "ScanDisk", "Pre-flight check", "HEV suit diagnostics", "Astromech diagnostic", "Security sweep" },
     [T_ALERT]     = { "Red alert", "Divergence warning", "Storm warning", "Your run is low on HP", "Critical failure",
                       "Macrodata breach", "Special Order 937", "Radiation critical", "Pattern blue", "Test failure imminent",
-                      "You died", "Biters attacking", "General protection fault", "Hull integrity critical", "Resonance cascade" },
+                      "You died", "Biters attacking", "General protection fault", "Hull integrity critical", "Resonance cascade", "It's a trap!", "Code red: the station is under attack" },
     [T_WATCH]     = { "Yellow alert", "Divergence watch", "Clouds gathering", "Your run looks hurt", "Anomaly detected",
                       "The numbers feel scary", "Anomaly detected", "Rads rising", "Pattern orange", "Unusual test behaviour",
-                      "Something stirs in the dark", "Pollution spreading", "Not responding", "Shields failing", "Anomalous materials" },
+                      "Something stirs in the dark", "Pollution spreading", "Not responding", "Shields failing", "Anomalous materials", "I have a bad feeling about this", "A disturbance in the Force" },
     [T_PALETTE]   = { "Computer", "Command palette", "Journal", "PC", "JARVIS",
-                      "Lumon terminal", "MU/TH/UR", "Pip-Boy", "MAGI", "Facility AI", "Messages", "Console", "Run...", "mobiGlas", "Developer console" },
+                      "Lumon terminal", "MU/TH/UR", "Pip-Boy", "MAGI", "Facility AI", "Messages", "Console", "Run...", "mobiGlas", "Developer console", "Astromech", "Imperial terminal" },
     [T_REVIEW]    = { "Make it so", "Review changes", "Shipping bin", "Save the game?", "Awaiting your approval",
                       "Review with management", "Confirm order", "Vault-Tec release form", "MAGI vote", "Sign the release form",
-                      "Review the covenant", "Blueprint preview", "Are you sure?", "Review the contract", "Administrator's approval" },
+                      "Review the covenant", "Blueprint preview", "Are you sure?", "Review the contract", "Administrator's approval", "Mission briefing", "Imperial inspection" },
     [T_REVIEW_GO] = { "Make it so", "Save changes", "Ship it", "Save", "Approve",
                       "Submit to the board", "Execute", "Accept", "Approve (3 of 3)", "Proceed to testing", "Rest at the bonfire",
-                      "Build", "OK", "Accept contract", "Quicksave" },
+                      "Build", "OK", "Accept contract", "Quicksave", "Stay on target", "Execute" },
     [T_EXPLAIN]   = { "Diagnostic", "What went wrong", "The Wizard's reading", "Professor's note", "JARVIS analysis",
                       "Wellness session", "MU/TH/UR analysis", "Diagnosis", "MAGI analysis", "Test results",
-                      "A message from another world", "Alert details", "Details", "Ship diagnostics", "HEV damage report" },
+                      "A message from another world", "Alert details", "Details", "Ship diagnostics", "HEV damage report", "Droid readout", "Interrogation report" },
     [T_RUN_GO]    = { "Engage", "Run", "Get to work on", "Go,", "Initiate",
                       "Begin refinement", "Initiate", "Engage", "Launch", "Commence testing", "Link the fire", "Start production",
-                      "Start", "Quantum jump", "Push the sample into" },
+                      "Start", "Quantum jump", "Push the sample into", "Launch", "Commence primary ignition on" },
+    /* the run button on its own (the header): T_RUN_GO is followed by the input's name and may not stand alone ("Go,") */
+    [T_RUN_BTN]   = { "Engage", "Run", "Get to work", "Go!", "Initiate",
+                      "Begin refinement", "Initiate", "Engage", "Launch", "Commence testing", "Link the fire", "Start production",
+                      "Start", "Quantum jump", "Start the experiment", "Launch", "Commence primary ignition" },
     [T_ASK]       = { "Ask Claude", "Ask Claude", "Ask Claude", "Ask Claude", "Ask Claude",
-                      "Ask Claude", "Ask Claude", "Ask Claude", "Ask Claude", "Ask Claude", "Ask Claude", "Ask Claude", "Ask Claude", "Ask Claude", "Ask Claude" },
+                      "Ask Claude", "Ask Claude", "Ask Claude", "Ask Claude", "Ask Claude", "Ask Claude", "Ask Claude", "Ask Claude", "Ask Claude", "Ask Claude", "Ask Claude", "Ask Claude" },
     [T_LOG]       = { "Captain's log", "Run records", "Farm diary", "Trainer's journal", "Flight log",
                       "Refinement records", "Mother's log", "Holotapes", "Operation records", "Test records", "Bonfire journal",
-                      "Production statistics", "Event Viewer", "Contract history", "Black Mesa research logs" },
+                      "Production statistics", "Event Viewer", "Contract history", "Black Mesa research logs", "Mission logs", "Imperial records" },
     [T_AWAY]      = { "Away mission", "Prepare for the cluster", "Pack for the mines", "Trade to another Trainer", "Remote deployment",
                       "Send to the outie", "Ship to orbit", "Leave the vault", "Deploy to Matsushiro", "Off-site testing",
-                      "Journey to another land", "Launch a rocket", "Map network drive", "Jump to another system", "Teleport to Xen" },
+                      "Journey to another land", "Launch a rocket", "Map network drive", "Jump to another system", "Teleport to Xen", "Send to a hidden base", "Deploy to the fleet" },
 };
 
 static int col_of(int theme)
@@ -45,7 +49,7 @@ static int col_of(int theme)
     case THEME_STARDEW: return 2;
     case THEME_POKEMON: return 3;
     case THEME_JARVIS: return 4;
-    default: return theme >= THEME_SEVERANCE && theme <= THEME_HALFLIFE ? 5 + (theme - THEME_SEVERANCE) : 1;
+    default: return theme >= THEME_SEVERANCE && theme <= THEME_EMPIRE ? 5 + (theme - THEME_SEVERANCE) : 1;
     }
 }
 

@@ -14,6 +14,8 @@
 #include <strings.h>
 #include <glob.h>
 #include "stlmesh.h"
+#include "meshopts.h"
+#include <unistd.h>
 #include "assets.h"
 
 const char *const BT_NAME[BT__N] = { "Wall", "Patch", "Inlet", "Outlet", "Symmetry" };
@@ -904,6 +906,7 @@ int mesher_mesh_current(const char *casePath, const MeshCfg *m)
     if (!old) return -1;
     Str b; str_init(&b);
     cfg_text(m, &b, true);
+    mo_sig_text(casePath, &b);
     int same = !strcmp(old, b.s);
     str_free(&b); free(old);
     return same;
@@ -1231,9 +1234,24 @@ static bool write_binary_region(const Stl *s, int r, const char *path)
 #define OURS "// Written by Q-Continuum's STL mesher (Mesh > STL mesher): it rewrites this file on every Generate.\n"
 #define HEADER(cls, obj) "FoamFile\n{\n    version     2.0;\n    format      ascii;\n    class       " cls ";\n    object      " obj ";\n}\n"
 
+/* the Advanced panel's values (meshopts.h), applied by put_dict while mesher_prepare runs; a preview (mesher_preview)
+   keeps the texts instead of writing anything */
+static const MeshOverrides *g_ov;
+static MeshPreview *g_dry;
+
 /* our dictionary over theirs: the first time, theirs is kept as <file>.orig */
 static bool put_dict(const char *casePath, const char *rel, const char *text, char *err, int cap)
 {
+    if (g_dry) {
+        if (g_dry->n < MESH_PREVIEW_MAX) {
+            pl_strlcpy(g_dry->rel[g_dry->n], rel, sizeof g_dry->rel[0]);
+            g_dry->text[g_dry->n++] = strdup(text);
+        }
+        return true;
+    }
+    Str t; str_init(&t); str_cat(&t, text);
+    if (g_ov && !mo_apply(g_ov, rel, &t, err, cap)) { str_free(&t); return false; }
+    text = t.s;
     char p[PL_PATH]; pl_join(p, sizeof p, casePath, rel);
     char *old = pl_read_head(p, 400);
     if (old && !strstr(old, "Q-Continuum's STL mesher")) {
@@ -1242,7 +1260,9 @@ static bool put_dict(const char *casePath, const char *rel, const char *text, ch
     }
     free(old);
     char d[PL_PATH]; pl_dirname(d, sizeof d, p); pl_mkdirs(d);
-    if (!pl_write_file(p, text, strlen(text))) { snprintf(err, (size_t)cap, "Could not write %s", rel); return false; }
+    bool ok = pl_write_file(p, text, strlen(text));
+    str_free(&t);
+    if (!ok) { snprintf(err, (size_t)cap, "Could not write %s", rel); return false; }
     return true;
 }
 static void put_if_missing(const char *casePath, const char *rel, const char *text)
@@ -1409,7 +1429,7 @@ static bool write_foamy2d(const char *casePath, const MeshCfg *m, const Stl *s, 
         str_catf(&b, "endsolid %s\n", s->reg[r].name);
     }
     char p[PL_PATH]; pl_join(p, sizeof p, casePath, "constant/triSurface/part2d.stl");
-    bool ok = pl_write_file(p, b.s, b.len);
+    bool ok = g_dry || pl_write_file(p, b.s, b.len);
     if (m->domain == DOMAIN_EXTERNAL) {                   /* the tunnel, closed: its front and back beyond the part */
         double lo[3], hi[3]; mesher_domain(m, s, lo, hi);
         /* thick, as the tutorials' boxes: a slab a thousandth as thick as it is wide defeats its inside/outside test (19 grid
@@ -1444,7 +1464,7 @@ static bool write_foamy2d(const char *casePath, const MeshCfg *m, const Stl *s, 
             if (any) str_catf(&b, "endsolid %s\n", NAMES[nm]);
         }
         pl_join(p, sizeof p, casePath, "constant/triSurface/tunnel2d.stl");
-        ok = ok && pl_write_file(p, b.s, b.len);
+        ok = ok && (g_dry || pl_write_file(p, b.s, b.len));
     }
     if (!ok) { snprintf(err, (size_t)cap, "Could not write the 2-D surfaces in constant/triSurface"); str_free(&b); return false; }
     /* feature edges in the plane */
@@ -1516,18 +1536,18 @@ static bool write_foamy(const char *casePath, const MeshCfg *m, const Stl *s, ch
     if (m->twoD) return write_foamy2d(casePath, m, s, err, cap);
     Str b; str_init(&b);
     char p[PL_PATH];
-    if (m->domain == DOMAIN_EXTERNAL) {                   /* the tunnel apart: its fluid is inside it, the part's outside */
+    if (m->domain == DOMAIN_EXTERNAL && !g_dry) {         /* the tunnel apart: its fluid is inside it, the part's outside */
         tunnel_surface(m, s, &b);
         pl_join(p, sizeof p, casePath, "constant/triSurface/foamytunnel.stl");
         if (!pl_write_file(p, b.s, b.len)) { snprintf(err, (size_t)cap, "Could not write constant/triSurface/foamytunnel.stl"); str_free(&b); return false; }
         b.len = 0; b.s[0] = 0;
     }
     pl_join(p, sizeof p, casePath, "constant/triSurface/geometry.stl");
-    char *part = pl_read_file(p, NULL);
+    char *part = g_dry ? strdup("") : pl_read_file(p, NULL);
     if (!part) { snprintf(err, (size_t)cap, "Could not read constant/triSurface/geometry.stl"); str_free(&b); return false; }
     str_cat(&b, part); free(part);
     pl_join(p, sizeof p, casePath, "constant/triSurface/foamy.stl");
-    if (!pl_write_file(p, b.s, b.len)) { snprintf(err, (size_t)cap, "Could not write constant/triSurface/foamy.stl"); str_free(&b); return false; }
+    if (!g_dry && !pl_write_file(p, b.s, b.len)) { snprintf(err, (size_t)cap, "Could not write constant/triSurface/foamy.stl"); str_free(&b); return false; }
     double loc[3]; location_in_mesh(m, s, loc);
     /* a surface of one region gives its patch the surface's name, not the region's: name it as its region then */
     int nMeshed = 0, only = 0; for (int r = 0; r < s->nRegions; r++) if (mesher_region_meshed(m, s, r)) { nMeshed++; only = r; }
@@ -1600,13 +1620,13 @@ static bool write_cfmesh(const char *casePath, const MeshCfg *m, const Stl *s, c
 {
     /* the surface: the part's regions (as geometry.stl), and in a wind tunnel the box round it first */
     Str b; str_init(&b);
-    if (m->domain == DOMAIN_EXTERNAL) tunnel_surface(m, s, &b);
+    if (m->domain == DOMAIN_EXTERNAL && !g_dry) tunnel_surface(m, s, &b);
     char p[PL_PATH]; pl_join(p, sizeof p, casePath, "constant/triSurface/geometry.stl");
-    char *part = pl_read_file(p, NULL);
+    char *part = g_dry ? strdup("") : pl_read_file(p, NULL);
     if (!part) { snprintf(err, (size_t)cap, "Could not read constant/triSurface/geometry.stl"); str_free(&b); return false; }
     str_cat(&b, part); free(part);
     pl_join(p, sizeof p, casePath, "constant/triSurface/cfmesh.stl");
-    if (!pl_write_file(p, b.s, b.len)) { snprintf(err, (size_t)cap, "Could not write constant/triSurface/cfmesh.stl"); str_free(&b); return false; }
+    if (!g_dry && !pl_write_file(p, b.s, b.len)) { snprintf(err, (size_t)cap, "Could not write constant/triSurface/cfmesh.stl"); str_free(&b); return false; }
     /* sizes: the base size (larger far off in a tunnel, the base kept round the body), the surface cells, the smallest */
     int K = mesher_far_levels(m, s);
     double base = m->base, bg = base * pow(2, K), hs = mesher_surface_cell(m), hmin = base / pow(2, level_of(m->minPct));
@@ -1830,6 +1850,8 @@ void mesher_type_script(const MeshCfg *m, const Stl *s, Str *out)
                      "&& foamDictionary constant/polyMesh/boundary -entry entry0/$p/inGroups -remove > /dev/null 2>&1; echo \"patch $p: empty\"; done\n");
 }
 
+static bool write_mesher_dicts(const char *casePath, const MeshCfg *m, Stl *s, char *err, int cap);
+
 bool mesher_prepare(const char *casePath, const MeshCfg *m, Stl *s, char *err, int cap)
 {
     MeshCfg resolved = *m;                                  /* automatic even layers settled for this part */
@@ -1867,7 +1889,7 @@ bool mesher_prepare(const char *casePath, const MeshCfg *m, Stl *s, char *err, i
     mesher_take_names(&mm, s);
     if (!mesher_save(casePath, &mm)) { snprintf(err, (size_t)cap, "Could not write mesher/mesher.ini"); return false; }
     {   /* what this mesh is made from: Mesh is out of date once that changes (mesher_mesh_current) */
-        Str g; str_init(&g); cfg_text(&mm, &g, true);
+        Str g; str_init(&g); cfg_text(&mm, &g, true); mo_sig_text(casePath, &g);
         char sp[PL_PATH]; sig_path(casePath, sp, sizeof sp);
         pl_write_file(sp, g.s, g.len);
         str_free(&g);
@@ -1885,6 +1907,16 @@ bool mesher_prepare(const char *casePath, const MeshCfg *m, Stl *s, char *err, i
         "\nddtSchemes { default steadyState; }\ngradSchemes { default Gauss linear; }\ndivSchemes { default none; }\n"
         "laplacianSchemes { default Gauss linear corrected; }\ninterpolationSchemes { default linear; }\nsnGradSchemes { default corrected; }\n");
     put_if_missing(casePath, "system/fvSolution", HEADER("dictionary", "fvSolution") "\nsolvers {}\nSIMPLE {}\n");
+    MeshOverrides ov; mo_init(&ov); mo_load(casePath, &ov);
+    g_ov = &ov;
+    bool ok = write_mesher_dicts(casePath, m, s, err, cap);
+    g_ov = NULL;
+    mo_free(&ov);
+    return ok;
+}
+
+static bool write_mesher_dicts(const char *casePath, const MeshCfg *m, Stl *s, char *err, int cap)
+{
     if (m->mesher == MESHER_SNAPPY) return write_snappy(casePath, m, s, err, cap);
     if (m->mesher == MESHER_FOAMY) return write_foamy(casePath, m, s, err, cap);
     if (mesher_is_cfmesh(m->mesher)) {
@@ -1892,6 +1924,32 @@ bool mesher_prepare(const char *casePath, const MeshCfg *m, Stl *s, char *err, i
         return write_cfmesh(casePath, m, s, err, cap);
     }
     return true;
+}
+
+bool mesher_preview(const MeshCfg *m0, Stl *s, MeshPreview *out)
+{
+    memset(out, 0, sizeof *out);
+    if (!s->nTri || m0->base <= 0) return false;
+    MeshCfg m = *m0;
+    mesher_resolve_even(&m, s);
+    mesher_apply_names(&m, s);
+    char err[256];
+    g_dry = out;
+    bool ok = write_mesher_dicts("/nonexistent", &m, s, err, sizeof err);
+    g_dry = NULL;
+    return ok;
+}
+
+void mesher_preview_free(MeshPreview *p)
+{
+    for (int i = 0; i < p->n; i++) free(p->text[i]);
+    memset(p, 0, sizeof *p);
+}
+
+const char *mesher_preview_text(const MeshPreview *p, const char *rel)
+{
+    for (int i = 0; i < p->n; i++) if (!strcmp(p->rel[i], rel)) return p->text[i];
+    return NULL;
 }
 
 /* ============================================================================ 2-D: the profile, and a smooth one made of it

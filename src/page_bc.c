@@ -715,6 +715,10 @@ static void inspector(Rectangle r)
     free(fd);
 }
 
+/* W3: the Every field switch, and whether the page shows the boundaries by role (a case the setup owns, the switch off) */
+static bool everyField;
+bool bc_by_role(Case *c) { return !everyField && setup_owns(c) && c->fields.n > 0 && c->nPatches > 0; }
+
 /* ============================================================================ page */
 void page_bc(Rectangle r)
 {
@@ -730,8 +734,14 @@ void page_bc(Rectangle r)
     char sub[300];
     snprintf(sub, sizeof sub, "One row per patch, one column per field in %s/. Click a cell to change how that field behaves on that patch, "
              "or a patch name to see and change every field on it.", c->fieldDir);
+    {   /* W3: a case the setup owns opens by boundary (the switch below); the subtitle says what is shown */
+        extern bool bc_by_role(Case *c);
+        if (bc_by_role(c)) snprintf(sub, sizeof sub, "Each boundary by what it is (an inlet, an outlet, a wall ...) with its values. Every field shows "
+                                    "each field's condition on each patch as OpenFOAM has it in %s/.", c->fieldDir);
+    }
     y += page_header(x, y, w, "Boundary conditions", sub);
     y += region_bar(x, y, w);
+    y += case_steps(c, x, y, w);                             /* where the case is, Mesh to Run (workflow plan W1) */
     y += region_generated_note(x, y, w);
     if (pl_starts_with(c->fieldDir, "0.orig")) {
         const char *msg = "This case keeps its initial fields in 0.orig. Runs copy them to 0, so edits here are the ones that count.";
@@ -740,16 +750,26 @@ void page_bc(Rectangle r)
         y += ch + 18;
     }
     if (c->fields.n == 0 || c->nPatches == 0) {
-        const char *msg = c->fields.n == 0 ? "No field files were found in the initial-conditions folder." : "No patches were found. Generate the mesh first.";
+        /* W0 (2026-11-14): before the mesh this was a dead end; say why and where the next step is */
+        const char *msg = !c->s.meshed ? "No mesh yet, so there are no patches to set conditions on. Generate the mesh first; Physics > Setup "
+                                         "then writes one file per field, each boundary set from the role you gave it (inlet, outlet, wall)."
+                        : c->fields.n == 0 ? "No field files were found in the initial-conditions folder." : "No patches were found. Generate the mesh first.";
         float ch = callout_height(w, NULL, msg);
-        callout((Rectangle){ x, y, w, ch }, TOAST_WARN, ICON_TRIANGLE_ALERT, NULL, msg);
+        callout((Rectangle){ x, y, w, ch }, !c->s.meshed ? TOAST_INFO : TOAST_WARN, !c->s.meshed ? ICON_INFO : ICON_TRIANGLE_ALERT, NULL, msg);
         y += ch;
+        if (!c->s.meshed) {
+            y += 18;
+            float bw = ui_button_width(ICON_GRID_3X3, "Go to Mesh");
+            if (ui_button(ui_id("bc-go-mesh"), (Rectangle){ x, y, bw, 40 }, ICON_GRID_3X3, "Go to Mesh", c->s.nRegions == 0 ? BTN_SECONDARY : BTN_PRIMARY)) app_go(PG_MESH);
+            y += 52;
+        }
         if (setup_can_write_fields(c)) {                  /* a mesh with patches and no fields (an import): write them */
             y += 18;
             const char *lab = "Write boundary condition files";
             float bw = ui_button_width(ICON_PLUS, lab);
             ui_disable(A.cj->active);
-            if (ui_button(ui_id("bc-write-fields"), (Rectangle){ x, y, bw, 40 }, ICON_PLUS, lab, BTN_PRIMARY)) setup_write_fields(c);
+            if (ui_button(ui_id("bc-write-fields"), (Rectangle){ x, y, bw, 40 }, ICON_PLUS, lab,   /* the steps bar's Next is the primary (W1) */
+                          c->s.nRegions == 0 ? BTN_SECONDARY : BTN_PRIMARY)) setup_write_fields(c);
             ui_disable(false);
             char t[200]; snprintf(t, sizeof t, "One file per field in 0/ for the %d patch%s of the mesh, each patch's role guessed from its "
                                   "name (wall, inlet, outlet ...). Physics > Setup changes the flow and the models.", c->nPatches, c->nPatches == 1 ? "" : "es");
@@ -758,6 +778,35 @@ void page_bc(Rectangle r)
         }
         ui_scroll_end(sc, y - top + 40);
         return;
+    }
+
+    /* workflow plan W3 (2026-11-14): a case the setup owns shows its boundaries by what they are (inlet, outlet, wall) with their
+       values, in the setup's words; the patch-by-field table, each field's condition as OpenFOAM has it, is behind Every field.
+       A hand-made case the setup could read is offered that view. */
+    bool owned = setup_owns(c);
+    if (owned) {
+        ui_switch(ui_id("bc-every"), x, y + 4, &everyField);
+        ui_text(F_MED, 13.5f, "Every field", x + 52, y + 5, TH.text);
+        ui_text_clip(F_REG, 12.5f, everyField ? "each field's condition on each patch, as OpenFOAM has it" : "off: each boundary by what it is, with its values",
+                     x + 52 + ui_text_w(F_MED, 13.5f, "Every field") + 12, y + 6, w - 200, TH.text3);
+        ui_register(ui_id("bc-every"), (Rectangle){ x, y, 44, 26 }, "Every field");
+        y += 40;
+        if (!everyField) {
+            if (A.bcField != -1) A.bcField = -1;              /* no drawer: the cards are the editor */
+            y += setup_boundaries_view(c, x, y, w);
+            ui_scroll_end(sc, y - top + 40);
+            return;
+        }
+    } else if (setup_can_adopt(c)) {
+        const char *t = "See these as inlets, outlets and walls";
+        const char *d = "Physics > Setup can read this case and show each boundary by what it is, with its values in plain units. The table below "
+                        "stays one switch away, and writing case files changes only what you change.";
+        float bw = ui_button_width(ICON_SLIDERS_HORIZONTAL, "Read it into Setup"), cw = w - bw - 16;
+        float ch = fmaxf(callout_height(cw, t, d), 48);
+        callout((Rectangle){ x, y, cw, ch }, TOAST_INFO, ICON_LAYERS, t, d);
+        if (ui_button(ui_id("bc-adopt"), (Rectangle){ x + w - bw, y + (ch - 36) / 2, bw, 36 }, ICON_SLIDERS_HORIZONTAL, "Read it into Setup", BTN_SECONDARY))
+            setup_adopt(c);
+        y += ch + 18;
     }
 
     /* columns (paged when there are many fields) */

@@ -9,6 +9,7 @@
 #include <string.h>
 #include "app.h"
 #include "actions.h"
+#include "intro.h"
 #include "palette.h"
 #include "undo.h"
 #include "safety.h"
@@ -58,7 +59,7 @@ static const char *b_away(void) { return !A.cs ? "No case is open" : A.cs->s.pro
 static void a_pv(void) { app_open_paraview(); }
 static void a_pvc(void) { A.modal = MD_PV_CLAUDE; A.mText2[0] = 0; }
 static void a_rescan(void) { app_rescan_cases(true); if (A.cs) case_rescan(A.cs); }
-static void a_blank(void) { A.modal = MD_BLANK; }
+static void a_blank(void) { blank_open(A.page == PG_NEW ? A.newProg : 0); }
 static const char *b_dup(void) { return !A.cs ? "No case is open" : A.cs->s.prog ? "Only OpenFOAM cases" : NULL; }
 static void a_dup(void) { if (A.cs) { char p[PL_PATH]; pl_strlcpy(p, A.cs->s.path, sizeof p); app_duplicate_case(p); } }
 static void a_folder(void) { if (A.cs) launch_folder(&A.env, A.cs->s.path); }
@@ -74,6 +75,9 @@ static void a_keys(void) { A.modal = MD_SHORTCUTS; }
 static void a_computer(void) { palette_open(); }
 static void a_news(void) { A.modal = MD_WHATS_NEW; }
 static void a_tour(void) { tour_start(); }
+static void a_mesh_tour(void) { tour_start_mesh(); }
+static void a_intro(void) { intro_start(); }
+static void a_tour_full(void) { tour_start_first(); }
 /* F11: the window over the whole screen and back. Real full screen (_NET_WM_STATE_FULLSCREEN), which WSLg hands on to
    Windows: no caption, taskbar covered. Borderless windowed was not enough there, because WSLg drew its own title bar over it.
    The window takes the monitor's size first so XWayland has no mode to change (or scale), and gets its old size back after */
@@ -151,6 +155,12 @@ static const Action ACTIONS[] = {
       "This list", NULL, a_keys, true },
     { "help.tour",      "Take the tour",          NULL,            0,             0,              "set-tour",     NULL,
       "A walk through every page: what it is for and how to work it", NULL, a_tour, false },
+    { "help.meshtour",  "Meshing tutorial",       NULL,            0,             0,              "set-meshtour", NULL,
+      "How to mesh a part and what makes a good mesh, with three example parts to mesh", NULL, a_mesh_tour, false },
+    { "help.tourfull",  "Take the tour and the meshing tutorial", NULL, 0,         0,              NULL,           NULL,
+      "The tour as on the first start, the meshing tutorial straight after it", NULL, a_tour_full, false },
+    { "view.intro",     "Play the start-up animation", NULL,       0,             0,              "intro-play",   NULL,
+      "The theme's start-up animation again (Settings > Appearance turns it off)", NULL, a_intro, false },
     { "help.whatsnew",  "What's new",             NULL,            0,             0,              NULL,           NULL,
       "What changed in this update", NULL, a_news, false },
     { "go.cases",       "Cases",                  "Ctrl+0",        KEY_ZERO,      M_CTRL,         "nav:cases",    NULL, "Your cases and the tutorials", NULL, g_cases, false },

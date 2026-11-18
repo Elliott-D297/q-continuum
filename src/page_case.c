@@ -7,6 +7,7 @@
 #include <string.h>
 #include "app.h"
 #include "xsection.h"
+#include "stlmesh.h"
 
 static void fmt_count(char *o, size_t cap, long v)
 {
@@ -176,6 +177,8 @@ void page_overview(Rectangle r)
     stat_tile((Rectangle){ x + 3 * (tw + gap), y, tw, th }, ICON_LAYERS, "Initial conditions", v, sub);
     y += th + 34;
 
+    y += case_steps(c, x, y, w) + 6;                         /* where the case is and the next thing to do (workflow plan W1) */
+    y += app_starter_callout(c->s.path, x, y, w);              /* a starter: what it teaches, what to expect (W8) */
     /* checklist + patches */
     float lw = w * 0.6f, rx2 = x + lw + 32, rw = w - lw - 32;
     float ly = y;
@@ -223,8 +226,24 @@ void page_overview(Rectangle r)
     } else if (c->s.hasZeroOrig)
         ly += check_row(x, ly, lw, TOAST_INFO, "Initial fields live in 0.orig",
                         "They are copied to 0 when you run, so edit them here and the run starts from your values.", NULL, NULL, NULL);
-    else if (!c->s.hasZero)
-        ly += check_row(x, ly, lw, TOAST_ERR, "No initial conditions", "The case has neither a 0 nor a 0.orig folder.", NULL, NULL, NULL);
+    else if (!c->s.hasZero) {
+        /* W0 (2026-11-14): with the way to fix it. Physics > Setup writes 0/ once there is a mesh (or now, for a mesh it can own) */
+        char mi[PL_PATH]; pl_join(mi, sizeof mi, c->s.path, "mesher/mesher.ini");
+        bool canWrite = setup_can_write_fields(c), mesher = pl_is_file(mi);
+        if (canWrite) {
+            ly += check_row(x, ly, lw, TOAST_ERR, "No initial conditions", "The case has no 0 folder yet. Write one file per field, each "
+                            "patch set from its name (wall, inlet, outlet); Physics > Setup changes the flow and models.", "Write them", ICON_PLUS, &pr);
+            if (pr) setup_write_fields(c);
+        } else if (!c->s.meshed && (mesher || mt)) {
+            ly += check_row(x, ly, lw, TOAST_WARN, "No initial conditions yet", "They come after the mesh: Physics > Setup writes them "
+                            "from the flow you describe.", NULL, NULL, NULL);
+        } else if (c->s.nRegions == 0 && !c->s.prog) {
+            ly += check_row(x, ly, lw, TOAST_ERR, "No initial conditions", "The case has neither a 0 nor a 0.orig folder. Physics > Setup "
+                            "writes them from the flow you describe.", "Physics > Setup", ICON_SLIDERS_HORIZONTAL, &pr);
+            if (pr) { A.physicsTab = 2; app_go(PG_PHYSICS); }
+        } else
+            ly += check_row(x, ly, lw, TOAST_ERR, "No initial conditions", "The case has neither a 0 nor a 0.orig folder.", NULL, NULL, NULL);
+    }
     int dirty = case_dirty_count(c);
     if (dirty) {
         char t[96]; snprintf(t, sizeof t, "%d edited file%s not written to disk yet.", dirty, dirty == 1 ? "" : "s");
@@ -252,9 +271,42 @@ void page_overview(Rectangle r)
     /* patches */
     float ry = y;
     char pd[200];
-    if (c->patchSource == 1) snprintf(pd, sizeof pd, "From the mesh (%s).", case_rpath(c, "constant/polyMesh/boundary"));
+    /* an STL mesher case before meshing: its boundaries are the mesher's, not the background box's (W0, 2026-11-14: the card
+       listed blockMesh's "background") */
+    static MeshCfg mc; static char mcPath[PL_PATH]; static time_t mcTime;
+    bool stlCase = false;
+    if (!c->s.meshed) {
+        char mi[PL_PATH]; pl_join(mi, sizeof mi, c->s.path, "mesher/mesher.ini");
+        time_t mt2 = pl_mtime(mi);
+        if (mt2 > 0) {
+            if (strcmp(mcPath, c->s.path) || mt2 != mcTime) {
+                memset(&mc, 0, sizeof mc);
+                if (!mesher_load(c->s.path, &mc)) mc.nNames = 0;
+                pl_strlcpy(mcPath, c->s.path, sizeof mcPath); mcTime = mt2;
+            }
+            stlCase = mc.nNames > 0;
+        }
+    }
+    if (stlCase) snprintf(pd, sizeof pd, "The STL mesher's boundaries. They become patches when the mesh is generated.");
+    else if (c->patchSource == 1) snprintf(pd, sizeof pd, "From the mesh (%s).", case_rpath(c, "constant/polyMesh/boundary"));
     else snprintf(pd, sizeof pd, c->patchSource == 2 ? "From blockMeshDict. Generate the mesh to see face counts." : "From the field files.");
     ry += section_head(rx2, ry, rw, "Patches", pd);
+    if (stlCase) {
+        int n = mc.nNames < 12 ? mc.nNames : 12;
+        Rectangle pb = { rx2, ry, rw, n * 40 + 12 };
+        ui_rect(pb, 12, TH.surface);
+        ui_rect_lines(pb, 12, 1, TH.lineSoft);
+        for (int i = 0; i < n; i++) {
+            float yy = pb.y + 6 + i * 40;
+            ui_text_clip(F_MONO_MED, 13, mc.names[i], pb.x + 16, yy + 11, rw * 0.5f, TH.text);
+            int t = mc.types[i] >= 0 && mc.types[i] < BT__N ? mc.types[i] : BT_WALL;
+            ui_badge(pb.x + rw * 0.52f, yy + 9, NULL, BT_NAME[t], TH.text2, TH.lineSoft);
+            if (i < n - 1) ui_divider(pb.x + 12, yy + 39, rw - 24);
+        }
+        if (mc.nNames > 12) ui_text(F_REG, 12.5f, "More on the Mesh page", rx2, pb.y + pb.height + 8, TH.text3);
+        ry += pb.height + 30;
+        goto patches_done;
+    }
     Rectangle pr2 = { rx2, ry, rw, c->nPatches ? fminf(c->nPatches, 12) * 40 + 12 : c->s.meshed ? 46 : 88 };
     ui_rect(pr2, 12, TH.surface);
     ui_rect_lines(pr2, 12, 1, TH.lineSoft);
@@ -277,6 +329,7 @@ void page_overview(Rectangle r)
         }
     }
     ry += pr2.height + 30;
+patches_done:
     if (A.set.meshView && c->s.meshed && c->s.nRegions == 0 && xs_is_2d(c->s.path)) {   /* a 2-D case: what it looks like */
         ry += section_head(rx2, ry, rw, "Cross section", "Click it to open it larger on the Mesh page.");
         xsection_panel((Rectangle){ rx2, ry, rw, 340 }, c, true);
@@ -551,11 +604,18 @@ void page_mesh(Rectangle r)
     }
     if (A.meshTab == 1) snprintf(sub, sizeof sub, "Import a mesh made in SALOME (UNV, MED, or the saved study) or Gmsh, or build one with a SALOME script.");
     if (A.meshTab == 3) snprintf(sub, sizeof sub, "Mesh any STL or STEP part: snappyHexMesh here, or SALOME's tetrahedra, polyhedra and body-fitted hexahedra.");
+    /* View and Quality are about the mesh on disk, whatever made it (W0, 2026-11-14: they kept the blockMesh line) */
+    if ((A.meshTab == 2 || A.meshTab == 4) && !c->s.meshed)
+        snprintf(sub, sizeof sub, "No mesh yet: make one on the %s tab first.", mt && !strcmp(mt, "blockMesh") ? "Dictionaries" : "STL mesher");
+    else if (A.meshTab == 2) snprintf(sub, sizeof sub, "The mesh in constant/polyMesh: a cross section through it, or its surface in 3-D.");
+    else if (A.meshTab == 4) snprintf(sub, sizeof sub, "How good the mesh in constant/polyMesh is: checkMesh's numbers, what each one means and what to do when one fails.");
     float bw = ui_button_width(ICON_PLAY, "Generate mesh"), bw2 = ui_button_width(ICON_CIRCLE_CHECK, "Check mesh");
     y += page_header(x, y, w - bw - bw2 - 30, "Mesh", sub);
-    if (A.meshTab == 3 || A.meshTab == 1) y += stl_workflow(c, x, y, w);   /* STL mesher, SALOME (an imported mesh) */
+    y += case_steps(c, x, y, w);                           /* where the case is, on every tab (workflow plan W1) */
     ui_disable(A.cj->active || !mt);
-    if (A.meshTab == 0 && ui_button(ui_id("mesh-gen"), (Rectangle){ x + w - bw, top + 32, bw, 36 }, ICON_PLAY, "Generate mesh", BTN_PRIMARY)) app_generate_mesh();
+    /* secondary when the steps bar is there: its Next is the page's one primary action (workflow plan W1) */
+    bool barShown = !c->s.prog && c->s.nRegions == 0;
+    if (A.meshTab == 0 && ui_button(ui_id("mesh-gen"), (Rectangle){ x + w - bw, top + 32, bw, 36 }, ICON_PLAY, "Generate mesh", barShown ? BTN_SECONDARY : BTN_PRIMARY)) app_generate_mesh();
     ui_disable(A.cj->active || !c->s.meshed);
     if (ui_button(ui_id("mesh-check"), (Rectangle){ x + w - bw - bw2 - 10, top + 32, bw2, 36 }, ICON_CIRCLE_CHECK, "Check mesh", BTN_SECONDARY))
         app_start_tool("checkMesh", "checkMesh", "checkMesh", "checkMesh", "log.checkMesh");
@@ -594,12 +654,50 @@ void page_mesh(Rectangle r)
         A.meshTab = pl_is_file(st) ? 3 : pl_is_file(q) || pl_is_file(im) ? 1 : 0;
     }
     /* shown in this order; A.meshTab keeps its numbers (0 dictionaries, 1 SALOME, 2 view, 3 STL mesher) */
-    static const char *mtabs[] = { "Dictionaries", "STL mesher", "SALOME script", "View", "Quality" };
-    static const int TAB_OF[5] = { 0, 3, 1, 2, 4 };
-    int shown = 0;
-    for (int k = 0; k < 5; k++) if (TAB_OF[k] == A.meshTab) shown = k;
+    /* W7 (workflow plan): the case's own way of making its mesh, View and Quality as tabs; the other ways to make a mesh as links
+       beside them ("Other ways to make the mesh: STL mesher, SALOME script"), each becoming the first tab when chosen. The old
+       tab ids (mesh-tabs#0 Dictionaries, #1 STL mesher, #2 SALOME script, #3 View, #4 Quality) stay on the same things */
+    static const char *const SRC_NAME[3] = { "Dictionaries", "STL mesher", "SALOME script" };
+    static const int SRC_TAB[3] = { 0, 3, 1 };              /* A.meshTab of each source */
+    static char srcCase[PL_PATH]; static int src = -1;
+    if (strcmp(srcCase, c->s.path)) {                       /* a case's own source: as A.meshTab's default picked it */
+        pl_strlcpy(srcCase, c->s.path, sizeof srcCase);
+        char q[PL_PATH], st[PL_PATH], im[PL_PATH]; pl_join(q, sizeof q, c->s.path, "salome/mesh.py"); pl_join(st, sizeof st, c->s.path, "mesher/mesher.ini");
+        pl_join(im, sizeof im, c->s.path, "salome/imported.txt");
+        src = pl_is_file(st) ? 1 : pl_is_file(q) || pl_is_file(im) ? 2 : 0;
+    }
+    for (int k = 0; k < 3; k++) if (A.meshTab == SRC_TAB[k]) src = k;   /* a source chosen: the first tab */
+    const char *tabs3[3] = { SRC_NAME[src], "View", "Quality" };
+    static const int OLD_ID[3][3] = { { 0, 3, 4 }, { 1, 3, 4 }, { 2, 3, 4 } };
+    int shown = A.meshTab == 2 ? 1 : A.meshTab == 4 ? 2 : 0;
     float tth;
-    if (ui_tabs(ui_id("mesh-tabs"), x, y, mtabs, 5, &shown, &tth)) A.meshTab = TAB_OF[shown];
+    if (ui_tabs(ui_id("mesh-tab"), x, y, tabs3, 3, &shown, &tth)) A.meshTab = shown == 0 ? SRC_TAB[src] : shown == 1 ? 2 : 4;
+    for (int k = 0; k < 3; k++) {                           /* the old ids on the same tabs, for scripts and the tours */
+        const UiWidget *wd = ui_widget_find(ui_idn(ui_id("mesh-tab"), k));
+        if (wd) {                                           /* registered in screen pixels: back to the page's units */
+            float sc = ui_scale();
+            Rectangle lr = { wd->r.x / sc, wd->r.y / sc, wd->r.width / sc, wd->r.height / sc };
+            ui_register(ui_idn(ui_id("mesh-tabs"), OLD_ID[src][k]), lr, tabs3[k]);
+        }
+    }
+    {   /* the other ways, as links on the right of the tab row */
+        float lx = x + w;
+        for (int k = 2; k >= 0; k--) {
+            if (k == src) continue;
+            float lw = ui_text_w(F_MED, 13, SRC_NAME[k]) + 16;
+            lx -= lw;
+            Rectangle lr = { lx, y + 4, lw, 28 };
+            bool hov = ui_hovered(lr);
+            if (hov) ui_cursor(MOUSE_CURSOR_POINTING_HAND);
+            ui_text(F_MED, 13, SRC_NAME[k], lx + 8, y + 10, hov ? TH.accent : TH.text2);
+            ui_register(ui_idn(ui_id("mesh-tabs"), k == 0 ? 0 : k == 1 ? 1 : 2), lr, SRC_NAME[k]);
+            if (ui_clicked(lr)) A.meshTab = SRC_TAB[k];
+            lx -= 4;
+        }
+        const char *ow = "Other ways to make the mesh:";
+        lx -= ui_text_w(F_REG, 12.5f, ow) + 6;
+        if (lx > x + 360) ui_text(F_REG, 12.5f, ow, lx, y + 11, TH.text3);
+    }
     ui_divider(x, y + tth, w);
     y += tth + 22;
     if (A.meshTab == 2) {                                  /* the mesh: 3-D surface; a 2-D case also its cross section */

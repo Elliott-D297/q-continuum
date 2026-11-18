@@ -9,6 +9,7 @@
 #include <sys/wait.h>
 #include <unistd.h>
 #include "app.h"
+#include "intro.h"
 #include "salometool.h"
 #include "undo.h"
 #include "actions.h"
@@ -27,7 +28,7 @@ static const char *PAGE_TITLES[PG_COUNT] = { "Cases", "New case", "Overview", "M
                                              "Studies" };
 
 /* the open case's pages: OpenFOAM's, or the other programs' (Setup and Results instead of Mesh ... Numerics) */
-static const Page FOAM_PAGES[] = { PG_OVERVIEW, PG_MESH, PG_BC, PG_PHYSICS, PG_NUMERICS, PG_RUN, PG_FILES, PG_HISTORY };
+static const Page FOAM_PAGES[] = { PG_OVERVIEW, PG_MESH, PG_BC, PG_PHYSICS, PG_NUMERICS, PG_RUN, PG_RESULTS, PG_FILES, PG_HISTORY };
 static const Page PROG_PAGES[] = { PG_OVERVIEW, PG_SETUP, PG_RUN, PG_RESULTS, PG_FILES, PG_HISTORY };
 /* a preCICE coupled run: Setup is its coupling (data, meshes, scheme, XML), Results its participants */
 static const Page CPL_PAGES[] = { PG_OVERVIEW, PG_SETUP, PG_RESULTS, PG_RUN, PG_FILES, PG_HISTORY };
@@ -245,7 +246,7 @@ bool app_can_start(void)
 /* the theme's set of cues; -1 for the classic themes, which are silent */
 int app_sound_pack(void)
 {
-    if (A.set.theme >= THEME_SEVERANCE && A.set.theme <= THEME_HALFLIFE) return SOUND_SEVERANCE + (A.set.theme - THEME_SEVERANCE);
+    if (A.set.theme >= THEME_SEVERANCE && A.set.theme <= THEME_EMPIRE) return SOUND_SEVERANCE + (A.set.theme - THEME_SEVERANCE);
     return A.set.theme == THEME_LCARS ? SOUND_LCARS : A.set.theme == THEME_STARDEW ? SOUND_STARDEW
          : A.set.theme == THEME_POKEMON ? SOUND_POKEMON : A.set.theme == THEME_JARVIS ? SOUND_JARVIS : -1;
 }
@@ -293,7 +294,7 @@ void app_go(Page p)
     if (p >= PG_OVERVIEW && p <= PG_HISTORY && !A.cs) p = PG_CASES;
     /* the other programs have Setup and Results where OpenFOAM has Mesh ... Numerics */
     if (A.cs && A.cs->s.prog && (p == PG_MESH || p == PG_BC || p == PG_PHYSICS || p == PG_NUMERICS)) p = PG_SETUP;
-    if (A.cs && !A.cs->s.prog && (p == PG_SETUP || p == PG_RESULTS)) p = PG_OVERVIEW;
+    if (A.cs && !A.cs->s.prog && p == PG_SETUP) p = PG_OVERVIEW;
     A.page = p;
 }
 
@@ -836,13 +837,18 @@ static void draw_logo(float x, float y, float s) { logo_draw(ui_theme_id(), x, y
 typedef struct { const char *text; const char *icon; int kind; } Badge;     /* kind: TOAST_* */
 static Badge nav_badge(Page p)
 {
-    static double at = -10; static char path[PL_PATH]; static int bcMiss;
+    static double at = -10; static char path[PL_PATH]; static int bcMiss, setupState;   /* setupState: 0 fine, 1 not written, 2 changed since */
     Badge b = { NULL, NULL, TOAST_INFO };
     if (!A.cs) return b;
     Case *c = A.cs;
     if (ui_time() - at > 0.5 || strcmp(path, c->s.path)) {       /* the BC count walks every field: twice a second */
         at = ui_time(); pl_strlcpy(path, c->s.path, sizeof path);
         char m[8]; bcMiss = c->s.meshed && c->nPatches > 0 ? bc_missing_report(c, m, sizeof m) : 0;
+        /* Physics > Setup's settings against the case files they write (as the steps bar says it, workflow plan W1) */
+        char sim[PL_PATH], u[PL_PATH];
+        pl_join(sim, sizeof sim, c->s.path, "simulation.ini"); pl_join(u, sizeof u, c->s.path, "0/U");
+        time_t ts = pl_mtime(sim), tu = pl_mtime(u);
+        setupState = !ts || c->s.prog || c->s.nRegions > 0 ? 0 : !tu ? (c->s.meshed ? 1 : 0) : ts > tu ? 2 : 0;
     }
     bool running = A.cj->active && !strcmp(A.cj->casePath, c->s.path);
     static char t[32];
@@ -853,6 +859,11 @@ static Badge nav_badge(Page p)
         break;
     case PG_BC:
         if (bcMiss > 0) { snprintf(t, sizeof t, "%d missing", bcMiss); b = (Badge){ t, ICON_CIRCLE_X, TOAST_ERR }; }
+        else if (c->s.meshed && !c->s.prog && c->s.nRegions == 0 && c->fields.n == 0) b = (Badge){ "No fields", ICON_TRIANGLE_ALERT, TOAST_WARN };
+        break;
+    case PG_PHYSICS:
+        if (setupState == 1) b = (Badge){ "Not written", ICON_TRIANGLE_ALERT, TOAST_WARN };
+        else if (setupState == 2) b = (Badge){ "Write again", ICON_TRIANGLE_ALERT, TOAST_WARN };
         break;
     case PG_RUN:
         if (running) b = (Badge){ "Running", ICON_ACTIVITY, TOAST_INFO };
@@ -1058,8 +1069,8 @@ static void draw_topbar(Rectangle r)
         int dirty0 = case_dirty_count(A.cs) + (prog_setup_dirty() ? 1 : 0);
         char lab0[48]; snprintf(lab0, sizeof lab0, dirty0 ? "Save %d" : "Saved", dirty0);
         float full = mine0 ? ui_button_width(ICON_SQUARE, "Stop") + (app_can_pause() && !A.cj->pausing ? ui_button_width(ICON_PAUSE, "Pause") + 10 : 0)
-                           : ui_button_width(ICON_PLAY, app_resumable(NULL) ? "Resume" : A.cs->s.prog ? term(T_RUN_GO) : "Run case");
-        full += 10 + ui_button_width(ICON_EXTERNAL_LINK, "ParaView") + 10 + (A.cs->s.prog ? 0 : ui_button_width(ICON_SPARKLES, "ParaView + Claude") + 10)
+                           : ui_button_width(ICON_PLAY, app_resumable(NULL) ? "Resume" : A.cs->s.prog ? term(T_RUN_BTN) : "Run case");
+        full += 10 + ui_button_width(ICON_EXTERNAL_LINK, "ParaView") + 10 + (A.cs->s.prog ? 0 : 34)
               + ui_button_width(ICON_SAVE, lab0) + 6 + 2 * 36 + 8 + ui_button_width(ICON_TRASH_2, "Clean");
         compact = full + crumbW + 24 > r.width - 2 * PAGE_PAD;
     }
@@ -1084,7 +1095,7 @@ static void draw_topbar(Rectangle r)
             }
         } else {
             bool paused = app_resumable(NULL);
-            const char *rl = paused ? "Resume" : A.cs->s.prog ? term(T_RUN_GO) : "Run case";
+            const char *rl = paused ? "Resume" : A.cs->s.prog ? term(T_RUN_BTN) : "Run case";
             float w = ui_button_width(ICON_PLAY, rl);
             rx -= w;
             ui_disable(app_jobs_active() >= MAX_JOBS);
@@ -1102,11 +1113,12 @@ static void draw_topbar(Rectangle r)
         if (ui_button(ui_id("top-pv"), (Rectangle){ rx, cy - 17, w, 34 }, ICON_EXTERNAL_LINK, TOP_LABEL("ParaView"), TOP_STYLE(BTN_SECONDARY))) app_open_paraview();
         ui_tooltip((Rectangle){ rx, cy - 17, w, 34 }, compact ? TextFormat("ParaView: %s", paraview_description(&A.env, &A.set)) : paraview_description(&A.env, &A.set));
         rx -= 10;
-        if (!A.cs->s.prog) {
-            w = TOP_W(ICON_SPARKLES, "ParaView + Claude");
-            rx -= w;
-            if (ui_button(ui_id("top-pvc"), (Rectangle){ rx, cy - 17, w, 34 }, ICON_SPARKLES, TOP_LABEL("ParaView + Claude"), TOP_STYLE(BTN_SECONDARY))) { A.modal = MD_PV_CLAUDE; A.mText2[0] = 0; }
-            ui_tooltip((Rectangle){ rx, cy - 17, w, 34 }, compact ? "ParaView + Claude: Claude Code builds a ParaView view for this case" : "Claude Code builds a ParaView view for this case");
+        if (!A.cs->s.prog) {                                 /* W7: ParaView + Claude in a menu beside ParaView, not a button of its own */
+            static const char *const PVM[] = { "ParaView + Claude: a view built by Claude Code" };
+            int pk = -1;
+            rx += 6; rx -= 30;
+            if (ui_menu_button(ui_id("top-pv-more"), (Rectangle){ rx, cy - 17, 30, 34 }, ICON_CHEVRON_DOWN, NULL, BTN_ICON, PVM, 1, &pk) && pk == 0) { A.modal = MD_PV_CLAUDE; A.mText2[0] = 0; }
+            ui_tooltip((Rectangle){ rx, cy - 17, 30, 34 }, "More ways to look at the results: ParaView + Claude");
             rx -= 10;
         }
         int dirty = case_dirty_count(A.cs) + (prog_setup_dirty() ? 1 : 0);
@@ -1132,6 +1144,10 @@ static void draw_topbar(Rectangle r)
             rx -= 2;
         }
         rx -= 8;
+        /* W7: Clean (it deletes) kept apart from Undo / Redo by a gap and a rule */
+        rx -= 10;
+        DrawRectangleRec((Rectangle){ rx + 4, cy - 12, 1, 24 }, TH.lineSoft);
+        rx -= 10;
         w = TOP_W(ICON_TRASH_2, "Clean");
         rx -= w;
         ui_disable(mine);
@@ -1273,7 +1289,7 @@ static void lcars_header(float W)
             }
         } else {
             bool paused = app_resumable(NULL);
-            const char *rl = paused ? "Resume" : A.cs->s.prog ? term(T_RUN_GO) : "Run case";
+            const char *rl = paused ? "Resume" : A.cs->s.prog ? term(T_RUN_BTN) : "Run case";
             float w = ui_button_width(NULL, rl);
             rx -= w;
             ui_disable(app_jobs_active() >= MAX_JOBS);
@@ -1291,11 +1307,12 @@ static void lcars_header(float W)
         if (ui_button(ui_id("top-pv"), (Rectangle){ rx, byy, w, bh }, NULL, "ParaView", BTN_SECONDARY)) app_open_paraview();
         ui_tooltip((Rectangle){ rx, byy, w, bh }, paraview_description(&A.env, &A.set));
         rx -= 8;
-        if (!A.cs->s.prog) {
-            w = ui_button_width(NULL, "ParaView + Claude");
-            rx -= w;
-            if (ui_button(ui_id("top-pvc"), (Rectangle){ rx, byy, w, bh }, NULL, "ParaView + Claude", BTN_SECONDARY)) { A.modal = MD_PV_CLAUDE; A.mText2[0] = 0; }
-            ui_tooltip((Rectangle){ rx, byy, w, bh }, "Claude Code builds a ParaView view for this case");
+        if (!A.cs->s.prog) {                                 /* W7: ParaView + Claude in a menu beside ParaView */
+            static const char *const PVM[] = { "ParaView + Claude: a view built by Claude Code" };
+            int pk = -1;
+            rx += 4; rx -= bh;
+            if (ui_menu_button(ui_id("top-pv-more"), (Rectangle){ rx, byy, bh, bh }, ICON_CHEVRON_DOWN, NULL, BTN_ICON, PVM, 1, &pk) && pk == 0) { A.modal = MD_PV_CLAUDE; A.mText2[0] = 0; }
+            ui_tooltip((Rectangle){ rx, byy, bh, bh }, "More ways to look at the results: ParaView + Claude");
             rx -= 8;
         }
         int dirty = case_dirty_count(A.cs) + (prog_setup_dirty() ? 1 : 0);
@@ -1359,7 +1376,7 @@ static void lcars_column(float W, float H)
     struct Item foamPages[] = {
         { PG_OVERVIEW, "Overview", TH.lc[1], 38 }, { PG_MESH, "Mesh", TH.lc[5], 38 }, { PG_BC, "Boundaries", TH.lc[2], 38 },
         { PG_PHYSICS, "Physics", TH.lc[7], 38 }, { PG_NUMERICS, "Numerics", TH.lc[1], 38 }, { PG_RUN, "Run", TH.lc[0], 38 },
-        { PG_FILES, "Files", TH.lc[6], 38 }, { PG_HISTORY, "History", TH.lc[3], 38 } };
+        { PG_RESULTS, "Results", TH.lc[5], 38 }, { PG_FILES, "Files", TH.lc[6], 38 }, { PG_HISTORY, "History", TH.lc[3], 38 } };
     struct Item progPages[] = {
         { PG_OVERVIEW, "Overview", TH.lc[1], 38 }, { PG_SETUP, "Setup", TH.lc[7], 38 }, { PG_RUN, "Run", TH.lc[0], 38 },
         { PG_RESULTS, "Results", TH.lc[5], 38 }, { PG_FILES, "Files", TH.lc[6], 38 }, { PG_HISTORY, "History", TH.lc[3], 38 } };
@@ -1619,9 +1636,27 @@ static void frame(void)
                their dictionaries) */
             char what[600];
             bool ownRun = A.cj->active && !strcmp(A.cj->casePath, A.cs->s.path);
+            /* a folder appearing, going or gaining a file (0/ moved back, a field file copied in) changes no file the case
+               has open: the case folder's and the field folder's times say so, and the field list is read again
+               (workflow plan W1: the steps bar and Boundary conditions kept saying "No field files") */
+            /* only the field folders: 0/ or 0.orig/ there or not, and the field folder's own time (a file added or gone). The
+               case folder's time changes with every log and mesh, and a rescan then changed the steps bar under a click */
+            static char dirsCase[PL_PATH]; static time_t dirsMt;
+            char fdp[PL_PATH], z[PL_PATH], zo[PL_PATH];
+            pl_join(fdp, sizeof fdp, A.cs->s.path, A.cs->fieldDir[0] ? A.cs->fieldDir : "0");
+            pl_join(z, sizeof z, A.cs->s.path, "0"); pl_join(zo, sizeof zo, A.cs->s.path, "0.orig");
+            time_t dm = (pl_mtime(fdp) << 2) | (pl_is_dir(z) ? 1 : 0) | (pl_is_dir(zo) ? 2 : 0);
+            bool dirsChanged = !strcmp(dirsCase, A.cs->s.path) && dm != dirsMt;
+            pl_strlcpy(dirsCase, A.cs->s.path, sizeof dirsCase); dirsMt = dm;
             if (case_reload_report(A.cs, what, sizeof what) > 0) {
                 if (!ownRun) ui_toast(TOAST_INFO, "Changed outside Q-Continuum, now shown here: %s", what);
                 case_rescan(A.cs);                           /* the summary (end time, time step, solver) too */
+            } else if (dirsChanged && !A.cj->active) {
+                /* only when the list disagrees with the disk: a step that wrote 0/ has rescanned already, and a second one
+                   moments later moved the page under a click */
+                NameList l = { 0 }; pl_list_dir(fdp, &l, false, true);
+                bool diskHas = l.n > 0; names_free(&l);
+                if ((A.cs->fields.n > 0) != diskHas) case_rescan(A.cs);
             }
             if (case_conflicts(A.cs, NULL) && A.modal == MD_NONE) A.modal = MD_CONFLICT;
             if (A.cj->active) case_rescan(A.cs);
@@ -1633,7 +1668,7 @@ static void frame(void)
     red_alert_tick(now);
     /* LCARS sounds: find out in the background whether a sound device works, before the first key beep needs it */
     if (A.set.sounds && app_sound_pack() >= 0 && !g_ui_no_input && !getenv("QC_TEST_SOUND_LOG")) sound_prepare();
-    actions_keys();                                          /* the registry's shortcuts (actions.c) */
+    if (!intro_hides_app()) actions_keys();                  /* the registry's shortcuts (actions.c); keys skip the intro instead */
     session_note();
     if (A.copyPending) { A.copyPending = false; app_copy_case_to_workspace(); }   /* not mid-draw: it swaps A.cs */
 
@@ -1642,6 +1677,7 @@ static void frame(void)
     ui_crt_begin();                                          /* Alien, Pip-Boy, Severance: through a tube */
     ClearBackground(TH.bg);
     ui_begin_frame();
+    intro_update();                                          /* the start-up animation's clock (intro.c) */
     stlmesh_tick();
     salome_tick();
     stool_tick();                                           /* the SALOME service (salometool.c) */                                          /* the mesh-import file dialog */                                         /* the STL file dialog, whichever page is open */
@@ -1656,6 +1692,7 @@ static void frame(void)
         float by = LC_HH + 6 + LC_NAV + 4 + 14;      /* black under the frame (and its "you are here" marks): scrolled text is clipped clear */
         body = (Rectangle){ LC_M + LC_CW + 4, by, W - (LC_M + LC_CW + 4) - LC_M, H - by - LC_M };
     }
+    if (intro_hides_app()) goto chrome_done;                 /* the start-up animation covers the window */
     if (!TH.glass && !TH.hud && TH.retro != RETRO_HALFLIFE) ui_rect(body, 0, TH.bg);     /* glass, JARVIS, Half-Life: the backdrop shows through */
     switch (A.page) {
     case PG_CASES: page_cases(body); break;
@@ -1671,7 +1708,7 @@ static void frame(void)
     case PG_QUEUE: page_queue(body); break;
     case PG_STUDIES: page_studies(body); break;
     case PG_SETUP: if (coupled_open()) page_cpl_case(body, 1); else page_prog_setup(body); break;
-    case PG_RESULTS: if (coupled_open()) page_cpl_case(body, 2); else page_prog_results(body); break;
+    case PG_RESULTS: if (coupled_open()) page_cpl_case(body, 2); else if (A.cs && A.cs->s.prog) page_prog_results(body); else page_foam_results(body); break;
     case PG_SETTINGS: page_settings(body); break;
     case PG_COUPLING: page_coupling(body); break;
     default: break;
@@ -1690,6 +1727,8 @@ static void frame(void)
     PROF("page+chrome");
     draw_modals();
     tour_draw();
+chrome_done:
+    intro_draw(W, H);
     PROF("modals");
     ui_end_frame();
     rlDrawRenderBatchActive();                               /* the GPU work counts: drawing is part of the frame */
@@ -1761,6 +1800,7 @@ int main(int argc, char **argv)
     int frames = 3, theme = -1, bcF = -1, bcP = -1;
     bool testModal = false, waitJob = false;
     float testScroll = 0;
+    double introAt = -1;
     bool testCont = false;
     const char *testFile = NULL, *testCpl = NULL, *scriptPath = NULL;
     int testTab = 0;
@@ -1795,6 +1835,7 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--continue")) testCont = true;          /* testing: tick "Continue from the latest time" */
         else if (!strcmp(argv[i], "--scroll") && i + 1 < argc) testScroll = (float)atof(argv[++i]);   /* testing: scroll every page */             /* testing: screenshot once the started job has ended */
         else if (!strcmp(argv[i], "--hidden")) hidden = true;
+        else if (!strcmp(argv[i], "--intro") && i + 1 < argc) introAt = atof(argv[++i]);   /* testing: the start-up animation held at t seconds */
         else if (!strcmp(argv[i], "--export-logos") && i + 1 < argc) { exportLogos = argv[++i]; hidden = true; }   /* every theme's icon as a PNG */
         else if (!strcmp(argv[i], "--script") && i + 1 < argc) scriptPath = argv[++i];      /* testing: replay a script */                                     /* testing: no window on the desktop */
         else if (!strcmp(argv[i], "--version")) { printf("Q-Continuum %s\n", QC_VERSION); return 0; }
@@ -1802,7 +1843,7 @@ int main(int argc, char **argv)
             SetTraceLogLevel(LOG_WARNING);
             const char *pk = argv[++i];
             static const char *const PK[] = { "lcars", "stardew", "pokemon", "jarvis", "severance", "alien", "pipboy", "nerv", "portal",
-                                              "souls", "factorio", "win95", "starcitizen", "halflife" };
+                                              "souls", "factorio", "win95", "starcitizen", "halflife", "rebel", "empire" };
             int p = SOUND_LCARS;
             for (int k = 0; k < SOUND__N; k++) if (!strcmp(pk, PK[k])) p = k;
             printf("played %d sounds\n", sound_play_all(p, 0.45f));
@@ -1897,9 +1938,11 @@ int main(int argc, char **argv)
     if (testCpl) { A.cpl = coupling_open(testCpl); A.cplValidateOk = -1; A.cplTab = testTab; A.page = PG_COUPLING; }
 
     if (!script_active() && !g_settings_readonly && !A.set.tourSeen && A.modal == MD_NONE) {
-        tour_start();                                         /* the first start: the tour, and nothing is new yet */
+        tour_start_first();                                   /* the first start: the tour, then the meshing tutorial; nothing is new yet */
         A.set.whatsNewSeen = WHATS_NEW_REV;
     } else if (!script_active() && !g_settings_readonly && A.set.whatsNewSeen < WHATS_NEW_REV && A.modal == MD_NONE) A.modal = MD_WHATS_NEW;
+    if (introAt >= 0) intro_freeze(introAt);
+    else if (A.set.intro && !script_active() && !g_settings_readonly && !hidden) intro_start();   /* the theme's start-up animation */
     int n = 0;
     while (!A.quit) {
         for (int k = 0; k < nInj; k++) if (injF[k] == n) { if (injT[k]) ui_inject_text(injT[k]); else if (injD[k]) ui_inject_drag(injX[k], injY[k], injX2[k], injY2[k]); else ui_inject_click(injX[k], injY[k]); }

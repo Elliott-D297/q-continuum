@@ -1,0 +1,44 @@
+# Workflow plan step W5 (docs/WORKFLOW_PLAN.md, 2026-11-14): an OpenFOAM case's Results page. pitzDaily meshed from the steps
+# bar, given the walls' y+ and the inlet's and outlet's flow rates as function objects, and run 50 iterations (short of
+# converging): Results says it ran its iterations without converging, how far the residuals fell, the flow rates with
+# whether they have settled, the walls' y+ and the mass balance; the bar's sixth step is Results; "Is the mesh fine enough?"
+# opens the New study dialog with the mesh refinement chosen.
+open $SB/ws/pitzDaily
+wait 10
+click wf-next
+wait-until job finished timeout 60
+wait 10
+shell foamDictionary system/controlDict -entry endTime -set 50 > /dev/null && foamDictionary system/controlDict -entry writeInterval -set 25 > /dev/null
+shell foamDictionary system/controlDict -entry functions -set '{ yPlus { type yPlus; libs (fieldFunctionObjects); writeControl writeTime; } inFlow { type surfaceFieldValue; libs (fieldFunctionObjects); regionType patch; name inlet; operation sum; fields (phi); writeFields false; writeControl timeStep; } outFlow { type surfaceFieldValue; libs (fieldFunctionObjects); regionType patch; name outlet; operation sum; fields (phi); writeFields false; writeControl timeStep; } }' > /dev/null
+wait 120
+click nav:results
+wait-until page Results
+assert text No results yet
+click nav:run
+wait-until page Run
+click run-go
+wait-until job running timeout 60
+wait-until job finished timeout 180
+wait 60
+click nav:results
+wait-until page Results
+wait 30
+assert text Ran all 50 iterations without converging
+assert text The residuals never met their targets
+assert text inFlow
+assert text Flow rate (out is +)
+assert text Walls: y+
+assert text Mass balance
+assert text Not converged: check them
+assert text Run longer
+screenshot $OUT/results.png
+wheel -8
+wait 10
+screenshot $OUT/results2.png
+click res-meshstudy
+wait-until modal study-new timeout 5
+assert text Mesh refinement
+assert text mesh independence
+screenshot $OUT/meshstudy.png
+key ESCAPE
+wait 5

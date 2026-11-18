@@ -1,0 +1,46 @@
+# Workflow plan step C3 (docs/WORKFLOW_PLAN.md, 2026-11-14): the CalculiX Run page by analysis type. The beam starter as it
+# comes: linear static, solved in one increment. Then with NLGEOM and a first increment of 0.2: increments of Newton
+# iterations. Then as a *FREQUENCY step: the list of modes, the equal pair of a square section, and the first mode against
+# the cantilever's hand calculation (83.5 Hz).
+# On one thread for the modes: with several, ccx's eigensolver now and then returns a spurious negative eigenvalue.
+action go.new
+wait-until page New case
+click new-prog:calculix
+wait 5
+click label:Cantilever beam
+wait 5
+click clone-name
+key A ctrl
+type c3beam
+click clone-go
+wait-until page Overview timeout 10
+click nav:run
+wait-until page Run
+click run-go
+wait-until job finished timeout 120
+wait 30
+assert text What CalculiX did
+assert text Solved in one increment
+assert text Solver time
+screenshot $OUT/c3_static.png
+shell sed -i 's/^\*STEP$/*STEP, NLGEOM, INC=100/; s/^\*STATIC$/*STATIC\n0.2, 1./' beam.inp
+wait 60
+click run-go
+wait-until job finished timeout 120
+wait 30
+assert text Nonlinear static in increments
+assert text Step time reached 1 in increments from 0.2
+screenshot $OUT/c3_nonlinear.png
+shell sed -i 's/^\*STEP, NLGEOM, INC=100$/*STEP/; /^0.2, 1.$/d; s/^\*STATIC$/*FREQUENCY\n6/; /^\*CLOAD/,+1d; /^\*NODE PRINT/,+1d' beam.inp
+wait 60
+note one thread: with several, the eigensolver can return a spurious negative eigenvalue now and then (seen 1 run in 4)
+click np-dec
+click np-dec
+click np-dec
+click run-go
+wait-until job finished timeout 120
+wait 30
+assert text The modes
+assert text Modes 1 and 2 have the same frequency
+assert text By hand, a cantilever's first bending mode: f1
+screenshot $OUT/c3_modes.png

@@ -1,0 +1,51 @@
+# Workflow plan step W6 (docs/WORKFLOW_PLAN.md, 2026-11-14): sanity checks after a run, shown on Results only when they fail.
+# The cavity read into Setup and run for 0.05 s: under one flow-through (0.1 m at 1 m/s takes 0.1 s). pitzDaily read into
+# Setup, switched to laminar and run 30 iterations: Re far above turbulent, and its numbers still changing.
+open $SB/ws/cavity
+wait 10
+click wf-next
+wait-until job finished timeout 60
+wait 10
+click nav:physics
+wait 10
+click phys-adopt
+wait 20
+shell foamDictionary system/controlDict -entry endTime -set 0.05 > /dev/null && foamDictionary system/controlDict -entry writeInterval -set 5 > /dev/null
+wait 120
+click nav:run
+wait-until page Run
+click run-go
+wait-until job running timeout 60
+wait-until job finished timeout 120
+wait 30
+click nav:results
+wait-until page Results
+wait 30
+assert text The run covers 0.5 flow-throughs
+screenshot $OUT/w6_flowthrough.png
+open $SB/ws/pitzDaily
+wait 10
+click wf-next
+wait-until job finished timeout 60
+wait 10
+click nav:physics
+wait 10
+click phys-adopt
+wait 20
+click su-appr#0
+wait 10
+click su-write
+wait 30
+shell foamDictionary system/controlDict -entry endTime -set 30 > /dev/null && foamDictionary system/controlDict -entry writeInterval -set 10 > /dev/null && foamDictionary system/controlDict -entry functions -set '{ inFlow { type surfaceFieldValue; libs (fieldFunctionObjects); regionType patch; name inlet; operation sum; fields (phi); writeFields false; writeControl timeStep; } }' > /dev/null
+wait 120
+click nav:run
+wait-until page Run
+click run-go
+wait-until job running timeout 60
+wait-until job finished timeout 180
+wait 30
+click nav:results
+wait-until page Results
+wait 30
+assert text A laminar model on a turbulent flow
+screenshot $OUT/w6_laminar.png

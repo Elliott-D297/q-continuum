@@ -1,0 +1,63 @@
+# Workflow plan step W1 (docs/WORKFLOW_PLAN.md, 2026-11-14): one steps bar for every single-region OpenFOAM case, not only
+# those made from an STL. A fresh tutorial (the cavity, no mesh yet) goes from no mesh to results with only the bar's Next
+# button: Generate mesh, then Run simulation, then Open in ParaView. The bar is on Overview, Mesh, Boundary conditions,
+# Physics, Numerics and Run; a step clicked opens its page. Without field files the Boundaries step and the sidebar say so.
+open $SB/ws/cavity
+wait 10
+assert text Not generated yet
+assert text After the mesh
+assert widget wf-next
+screenshot $OUT/cavity_new.png
+click wf-next
+wait-until job finished timeout 60
+wait 20
+assert text cells, 3 patches
+assert text 2 fields on 3 patches
+assert text Not run yet
+click nav:boundary conditions
+wait 10
+assert widget wf-next
+click nav:physics
+wait 10
+assert widget wf-next
+click nav:numerics
+wait 10
+assert widget wf-next
+assert text Schemes and solvers set
+click nav:mesh
+wait 10
+assert widget wf-next
+click nav:run
+wait 10
+assert widget wf-next
+click nav:overview
+wait 10
+click wf-next
+wait-until job running timeout 60
+wait-until job finished timeout 120
+wait 30
+# the Run page's column folds the steps done into one line
+assert text All done: Mesh, Boundaries, Physics, Numerics, Run, Results
+click nav:overview
+wait 10
+assert text Results to 0.5
+screenshot $OUT/cavity_done.png
+# after the run the Next is the Results page, and there ParaView
+click wf-next
+wait-until page Results
+click wf-next
+wait 20
+assert file $LAUNCH
+# a step clicked opens its page
+click wf#1>step
+wait-until page Boundary conditions
+# no field files: the step and the sidebar say so
+shell mv 0 0.away
+wait-until text No field files timeout 10
+assert text No field files
+assert text No fields
+screenshot $OUT/cavity_nofields.png
+shell mv 0.away 0
+# the app looks at the disk every 1.5 s
+wait-until not text No fields timeout 10
+assert text 2 fields on 3 patches

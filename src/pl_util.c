@@ -422,6 +422,20 @@ const NameList *pl_list_dir_cached(const char *dir, bool dirsOnly, bool filesOnl
 /* ======================================================================= processes */
 pid_t pl_spawn_shell(const char *script, const char *logPath) { return pl_spawn_shell_log(script, logPath, false); }
 
+/* The dialog's owner is a shown, invisible TopMost form: a dialog owned by a topmost window is topmost too. With the
+   owner never shown (as before), TopMost did nothing and Windows (which won't let a process started from WSL take the
+   foreground) opened the dialog BEHIND Q-Continuum: the button seemed dead, and further clicks waited on that dialog. */
+bool pl_win_open_dialog_cmd(char *cmd, size_t cap, const char *title, const char *filter, const char *outQuoted)
+{
+    return pl_fmt(cmd, cap,
+                  "p=$(powershell.exe -NoProfile -STA -Command \"Add-Type -AssemblyName System.Windows.Forms; "
+                  "\\$f = New-Object System.Windows.Forms.Form -Property @{TopMost=\\$true; ShowInTaskbar=\\$false; Opacity=0; "
+                  "FormBorderStyle='None'; StartPosition='CenterScreen'; Width=1; Height=1}; \\$f.Show(); \\$f.Activate(); "
+                  "\\$d = New-Object System.Windows.Forms.OpenFileDialog; \\$d.Title = '%s'; \\$d.Filter = '%s'; "
+                  "if (\\$d.ShowDialog(\\$f) -eq 'OK') { \\$d.FileName }; \\$f.Close()\" 2>/dev/null | tr -d '\\r'); "
+                  "[ -n \"$p\" ] && wslpath -u \"$p\" > %s; true", title, filter, outQuoted);
+}
+
 pid_t pl_spawn_shell_log(const char *script, const char *logPath, bool append)
 {
     pid_t pid = fork();

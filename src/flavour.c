@@ -13,6 +13,10 @@
  *   Windows 95  a chunky "copying" progress bar, a paperclip offering help when Co > 1, a blue screen when a tool crashes
  *   Star Citizen a run is a contract somewhere in Stanton, the Run page a quantum drive spooling towards endTime, a failed run
  *               is a 30k disconnect, a finished one pays out in aUEC
+ *   Rebel Alliance  a case is a squadron at a hidden base, the Run page the targeting computer down the trench to endTime,
+ *               a failed run is a trap, a converged one earns the medal
+ *   Galactic Empire a case is a garrison, the Run page the battle station's primary ignition charging, a failed run is a
+ *               lack of convergence (disturbing), a finished one fully armed and operational
  *   Half-Life   a case is a Black Mesa test lab, the Run page the HEV suit's HUD (health from the residuals, suit power from
  *               the Courant headroom), a failed or diverging run is a resonance cascade, a finished one ends the experiment
  *
@@ -56,6 +60,13 @@ const char *flavour_case_tag(const char *path)
         snprintf(b, sizeof b, "%s · test lab %c-%02u", S[h % (sizeof S / sizeof S[0])], 'A' + (char)(h % 6), h % 90 + 10);
         return b;
     }
+    case RETRO_REBEL: {
+        static const char *const SQ[] = { "Red", "Gold", "Blue", "Green", "Rogue", "Gray" };
+        static const char *const B[] = { "Yavin 4", "Hoth", "Dantooine", "Endor", "Sullust", "Dagobah", "Bespin", "Mon Cala" };
+        snprintf(b, sizeof b, "%s %u · %s", SQ[h % (sizeof SQ / sizeof SQ[0])], h % 12 + 1, B[(h >> 4) % (sizeof B / sizeof B[0])]);
+        return b;
+    }
+    case RETRO_EMPIRE: snprintf(b, sizeof b, "Garrison %c-%02u · TK-%04u", 'A' + (char)(h % 8), h % 90 + 10, h % 9000 + 1000); return b;
     default: return NULL;
     }
 }
@@ -71,10 +82,10 @@ void flavour_event(int ev, const char *casePath, const char *detail)
     int r = TH.retro;
     bool show = false;
     switch (ev) {
-    case FEV_FAILED:  show = r == RETRO_HALFLIFE || r == RETRO_ALIEN || r == RETRO_SOULS || r == RETRO_WIN95 || r == RETRO_FACTORIO || r == RETRO_NERV || r == RETRO_STARCITIZEN; break;
+    case FEV_FAILED:  show = r == RETRO_REBEL || r == RETRO_EMPIRE || r == RETRO_HALFLIFE || r == RETRO_ALIEN || r == RETRO_SOULS || r == RETRO_WIN95 || r == RETRO_FACTORIO || r == RETRO_NERV || r == RETRO_STARCITIZEN; break;
     case FEV_DIVERGE: show = r == RETRO_HALFLIFE || r == RETRO_ALIEN || r == RETRO_SOULS || r == RETRO_FACTORIO; break;
     case FEV_COURANT: show = r == RETRO_NERV || r == RETRO_WIN95; break;
-    case FEV_DONE:    show = r == RETRO_HALFLIFE || r == RETRO_PORTAL || r == RETRO_SOULS || r == RETRO_FACTORIO || r == RETRO_STARCITIZEN; break;
+    case FEV_DONE:    show = r == RETRO_REBEL || r == RETRO_EMPIRE || r == RETRO_HALFLIFE || r == RETRO_PORTAL || r == RETRO_SOULS || r == RETRO_FACTORIO || r == RETRO_STARCITIZEN; break;
     case FEV_SWEEP:   show = r == RETRO_SEVERANCE; break;
     default: break;
     }
@@ -310,6 +321,51 @@ void flavour_modal(bool *close)
             center(F_REG, 14, "The sample was not supposed to do that. The log on the Run page says what went wrong.", cx, cy + 42, ui_alpha(TH.text2, a));
         }
         break;
+    case RETRO_REBEL:
+        DrawRectangleRec(all, ui_alpha(BLACK, 0.82f));
+        if (O.ev == FEV_DONE) {                                /* the medal ceremony */
+            float a = fminf(1, t / 0.6f);
+            DrawRectangleRec((Rectangle){ cx - 14, cy - 150, 28, 70 }, ui_alpha((Color){ 40, 90, 170, 255 }, a));
+            DrawRectangleRec((Rectangle){ cx - 4, cy - 150, 8, 70 }, ui_alpha((Color){ 230, 60, 50, 255 }, a));
+            DrawCircleV((Vector2){ cx, cy - 56 }, 34, ui_alpha((Color){ 214, 168, 60, 255 }, a));
+            DrawRing((Vector2){ cx, cy - 56 }, 26, 30, 0, 360, 48, ui_alpha((Color){ 255, 222, 130, 255 }, a));
+            center(F_SEMI, 36, "Great shot! That was one in a million.", cx, cy + 4, ui_alpha(TH.accent, a));
+            const char *tag = flavour_case_tag(O.path);
+            center(F_MED, 16, tag ? tag : who, cx, cy + 52, ui_alpha(TH.text2, a));
+            center(F_REG, 15, "The run converged. The Alliance thanks you.", cx, cy + 82, ui_alpha(TH.text3, a));
+        } else {                                               /* it's a trap */
+            float a = fminf(1, t / 0.6f), p = 0.6f + 0.4f * sinf(t * 6.2832f);
+            DrawRectangleRec((Rectangle){ 0, cy - 70, W, 140 }, ui_alpha(TH.err, 0.16f * a));
+            DrawRectangleRec((Rectangle){ 0, cy - 72, W, 3 }, ui_alpha(TH.err, p * a)); DrawRectangleRec((Rectangle){ 0, cy + 69, W, 3 }, ui_alpha(TH.err, p * a));
+            center(F_SEMI, 58, "IT'S A TRAP!", cx, cy - 40, ui_alpha(TH.err, a));
+            char sub[300]; pl_fmt_ui(sub, sizeof sub, "%s%s%s", who, O.text[0] ? ": " : "", O.text);
+            center(F_REG, 16, sub, cx, cy + 90, ui_alpha(TH.text, a));
+            center(F_REG, 14, "Pull back and regroup: the log on the Run page says what went wrong.", cx, cy + 120, ui_alpha(TH.text3, a));
+        }
+        break;
+    case RETRO_EMPIRE:
+        DrawRectangleRec(all, ui_alpha(BLACK, 0.86f));
+        if (O.ev == FEV_DONE) {                                /* the battle station is complete */
+            float a = fminf(1, t / 0.8f), R = 70;
+            Vector2 c = { cx, cy - 90 };
+            DrawCircleV(c, R, ui_alpha((Color){ 40, 44, 50, 255 }, a));
+            DrawRing(c, R - 2, R, 0, 360, 64, ui_alpha(TH.info, a));
+            DrawRectangleRec((Rectangle){ cx - R, c.y - 1, 2 * R, 2 }, ui_alpha(TH.info, 0.6f * a));
+            DrawRing((Vector2){ cx - R * 0.35f, c.y - R * 0.38f }, R * 0.18f, R * 0.22f, 0, 360, 32, ui_alpha(TH.info, a));
+            DrawCircleV((Vector2){ cx - R * 0.35f, c.y - R * 0.38f }, R * 0.06f, ui_alpha((Color){ 120, 255, 140, 255 }, a * (0.6f + 0.4f * sinf(t * 6.2832f))));
+            center(F_SEMI, 34, "FULLY ARMED AND OPERATIONAL", cx, cy + 4, ui_alpha(TH.text, a));
+            const char *tag = flavour_case_tag(O.path);
+            center(F_MED, 16, tag ? tag : who, cx, cy + 50, ui_alpha(TH.accent, a));
+        } else {                                               /* a lack of convergence */
+            float a = fminf(1, t / 1.0f);
+            DrawRectangleRec((Rectangle){ 0, cy - 64, W, 2 }, ui_alpha(TH.accent, a));
+            DrawRectangleRec((Rectangle){ 0, cy + 62, W, 2 }, ui_alpha(TH.accent, a));
+            center(F_SEMI, 34, "I FIND YOUR LACK OF CONVERGENCE DISTURBING.", cx, cy - 30, ui_alpha(TH.text, a));
+            char sub[300]; pl_fmt_ui(sub, sizeof sub, "%s%s%s", who, O.text[0] ? ": " : "", O.text);
+            center(F_REG, 16, sub, cx, cy + 18, ui_alpha(TH.accent, a));
+            center(F_REG, 14, "The log on the Run page says what went wrong. Do not fail again.", cx, cy + 90, ui_alpha(TH.text3, a));
+        }
+        break;
     default: *close = true; return;
     }
     if (click || inp_key_pressed(KEY_ESCAPE) || t > 12) *close = true;
@@ -524,6 +580,51 @@ float flavour_run(Case *c, LogMon *m, bool running, float x, float y, float w)
         const char *who = running ? "HEV: monitoring vital signs" : frac >= 1 ? "HEV: experiment complete" : "HEV: standing by";
         ui_text(F_REG, 12.5f, who, x + w - ui_text_w(F_REG, 12.5f, who), y + bh + 8, TH.text3);
         h = bh + 32;
+        break;
+    }
+    case RETRO_REBEL: {                                        /* the targeting computer: down the trench to the end time */
+        const char *tag = flavour_case_tag(c->s.path);
+        float bh = 70;
+        Rectangle sc = { x, y, w, bh };
+        DrawRectangleRec(sc, ui_alpha(BLACK, 0.55f));
+        DrawRectangleLinesEx(sc, 1, ui_alpha(TH.accent, 0.5f));
+        Vector2 vp = { x + w / 2, y + bh / 2 };
+        Color g = ui_alpha(TH.accent, 0.55f);
+        DrawLineEx((Vector2){ x, y + bh }, vp, 1, g); DrawLineEx((Vector2){ x + w, y + bh }, vp, 1, g);
+        DrawLineEx((Vector2){ x, y }, vp, 1, ui_alpha(g, 0.4f)); DrawLineEx((Vector2){ x + w, y }, vp, 1, ui_alpha(g, 0.4f));
+        float ph = running ? fmodf(now * 1.2f, 1.0f) : 0;
+        for (int k = 0; k < 6; k++) {                          /* the trench's ribs rushing past */
+            float z = fmodf(k / 6.0f + ph, 1.0f), sc2 = z * z;
+            float hw = w / 2 * sc2, hh = bh / 2 * sc2;
+            DrawRectangleLinesEx((Rectangle){ vp.x - hw, vp.y - hh, 2 * hw, 2 * hh }, 1, ui_alpha(g, z));
+        }
+        float tr = 6 + 26 * (float)frac;                       /* the target grows as the end time nears */
+        DrawRing(vp, tr - 1.5f, tr, 0, 360, 32, frac >= 1 ? TH.ok : TH.warn);
+        DrawLineEx((Vector2){ vp.x - tr - 6, vp.y }, (Vector2){ vp.x - tr + 4, vp.y }, 1.5f, TH.warn);
+        DrawLineEx((Vector2){ vp.x + tr - 4, vp.y }, (Vector2){ vp.x + tr + 6, vp.y }, 1.5f, TH.warn);
+        char st[200]; pl_fmt_ui(st, sizeof st, "%s  ·  %s  ·  target in %.4g s of simulated time", tag ? tag : "",
+                                running ? "Stay on target" : frac >= 1 ? "Target hit" : "Standing by", t1 - tn > 0 ? t1 - tn : 0);
+        ui_text(F_REG, 12.5f, st, x, y + bh + 6, TH.text2);
+        h = bh + 30;
+        break;
+    }
+    case RETRO_EMPIRE: {                                       /* the superlaser: eight beams charge, then converge at the end time */
+        const char *tag = flavour_case_tag(c->s.path);
+        char st[200]; pl_fmt_ui(st, sizeof st, "%s  ·  PRIMARY IGNITION %s  %.0f%%", tag ? tag : "", running ? "CHARGING" : frac >= 1 ? "COMPLETE" : "STANDING BY", frac * 100);
+        ui_text(F_SEMI, 16, st, x, y, TH.text);
+        int nb = 8;
+        float bw = (w - (nb - 1) * 6) / nb;
+        for (int i = 0; i < nb; i++) {
+            Rectangle br = { x + i * (bw + 6), y + 26, bw, 10 };
+            float f = (float)frac * nb - i;
+            DrawRectangleRec(br, ui_alpha(TH.accent, 0.12f));
+            if (f > 0) DrawRectangleRec((Rectangle){ br.x, br.y, br.width * fminf(1, f), br.height }, f >= 1 ? (Color){ 120, 255, 140, 255 } : TH.accent);
+        }
+        if (running) {
+            float p = 0.5f + 0.5f * sinf(now * 3);
+            DrawRectangleRec((Rectangle){ x, y + 42, w * (float)frac, 1 }, ui_alpha((Color){ 120, 255, 140, 255 }, p));
+        }
+        h = 52;
         break;
     }
     case RETRO_ALIEN: {

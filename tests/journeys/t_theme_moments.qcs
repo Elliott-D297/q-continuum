@@ -1,6 +1,7 @@
 # The themes' full-screen moments, raised as a run would raise them, each closed with Esc: Dark Souls' YOU DIED with the
 # respawn from the last bonfire, MU/TH/UR's Special Order 937, the blue screen and the paperclip, NERV's PATTERN BLUE,
-# Portal's cake, Factorio's biters, Severance's waffle party, Star Citizen's 30k and contract payout.
+# Portal's cake, Factorio's biters, Severance's waffle party, Star Citizen's 30k and contract payout, the
+# Rebels' trap and medal, the Empire's lack of convergence and its battle station.
 open $SB/ws/cavity
 click nav:run
 wait-until page Run
@@ -82,6 +83,33 @@ flavour 4
 wait 10
 assert text Experiment complete
 screenshot $OUT/halflife_done.png
+key ESCAPE
+wait 5
+assert not modal any
+theme 16
+flavour 1 icoFoam
+wait 20
+assert text IT'S A TRAP!
+screenshot $OUT/rebel_trap.png
+key ESCAPE
+wait 5
+flavour 4
+wait 10
+assert text one in a million
+screenshot $OUT/rebel_medal.png
+key ESCAPE
+wait 5
+theme 17
+flavour 1 icoFoam
+wait 20
+assert text LACK OF CONVERGENCE
+screenshot $OUT/empire_fail.png
+key ESCAPE
+wait 5
+flavour 4
+wait 10
+assert text FULLY ARMED AND OPERATIONAL
+screenshot $OUT/empire_done.png
 key ESCAPE
 wait 5
 assert not modal any

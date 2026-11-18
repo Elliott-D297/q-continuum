@@ -455,7 +455,11 @@ static bool files_stale(Case *c)
     pl_join(u, sizeof u, c->s.path, "0/U");
     pl_join(faces, sizeof faces, c->s.path, "constant/polyMesh/faces");
     double uMt = mtime_ns(u), simMt = mtime_ns(ini);
-    return !uMt || !simMt || simMt > uMt || mtime_ns(faces) > uMt;
+    /* an adopted case (W2): its mesh was made after its 0/ files (a tutorial's blockMesh), which is no reason to write; a mesh
+       made after it was read into the setup is */
+    char ad[PL_PATH]; pl_join(ad, sizeof ad, c->s.path, ".qc-setup/adopted");
+    double meshRef = fmax(uMt, mtime_ns(ad));
+    return !uMt || !simMt || simMt > uMt || mtime_ns(faces) > meshRef;
 }
 
 /* the mesh's patch types follow the roles chosen here, for the patches not from the STL (an imported mesh's groups, which
@@ -608,6 +612,164 @@ bool setup_after_import(Case *c)
 bool setup_can_write_fields(Case *c)
 {
     return c && c->s.meshed && c->s.nRegions == 0 && !c->s.prog && c->fields.n == 0 && c->nPatches > 0 && c->patchSource == 1;
+}
+
+/* ============================================================================ adoption (workflow plan W2, 2026-11-14)
+ * A case set up by hand (a tutorial, an opened folder) read into the setup: sim_adopt from its files, simulation.ini saved,
+ * the merge bases recorded (sim_adopt_bases), so Physics > Setup shows it in plain terms and the next Write case files
+ * changes only what was changed here. What Setup couldn't name is listed (.qc-setup/adopt-notes.txt) and stays as written. */
+static bool case_adopted(const Case *c)
+{
+    char p[PL_PATH]; pl_join(p, sizeof p, c->s.path, ".qc-setup/adopted");
+    return pl_is_file(p);
+}
+
+bool setup_owns(Case *c)
+{
+    if (!c || c->s.prog || c->s.nRegions > 0) return false;
+    char ini[PL_PATH], msh[PL_PATH];
+    sim_ini_path(c->s.path, ini, sizeof ini);
+    pl_join(msh, sizeof msh, c->s.path, "mesher/mesher.ini");
+    return pl_is_file(ini) || pl_is_file(msh);
+}
+
+bool setup_can_adopt(Case *c)
+{
+    if (!c || c->s.prog || c->s.nRegions > 0 || !c->s.meshed || c->fields.n == 0 || c->patchSource != 1) return false;
+    char ini[PL_PATH], msh[PL_PATH];
+    sim_ini_path(c->s.path, ini, sizeof ini);
+    pl_join(msh, sizeof msh, c->s.path, "mesher/mesher.ini");
+    if (pl_is_file(ini) || pl_is_file(msh) || wf_imported(c)) return false;
+    static const char *const OK[] = { "simpleFoam", "pimpleFoam", "pisoFoam", "icoFoam", NULL };
+    for (int i = 0; OK[i]; i++) if (!strcmp(c->s.app, OK[i])) return true;
+    return false;
+}
+
+const char *setup_adopt_why_not(Case *c)
+{
+    static char b[200];
+    if (!c || c->s.prog || c->s.nRegions > 0) return "Setup writes single-region OpenFOAM cases";
+    if (!c->s.meshed || c->patchSource != 1) return "Generate the mesh first: Setup's boundaries are the mesh's patches";
+    if (c->fields.n == 0) return "The case has no field files to read the boundaries from";
+    snprintf(b, sizeof b, "Setup reads incompressible single-phase cases for now (simpleFoam, pimpleFoam, pisoFoam, icoFoam); this one runs %s",
+             c->s.app[0] ? c->s.app : "no solver");
+    return setup_can_adopt(c) ? NULL : b;
+}
+
+bool setup_adopt(Case *c)
+{
+    if (!setup_can_adopt(c)) { const char *w = setup_adopt_why_not(c); ui_toast(TOAST_ERR, "%s", w ? w : "Setup can't read this case"); return false; }
+    if (case_dirty_count(c) > 0) { ui_toast(TOAST_ERR, "Save or undo your unsaved edits first"); return false; }
+    if (A.cj->active || app_job_running()) { ui_toast(TOAST_ERR, "Wait for the case's job to finish first"); return false; }
+    sync(c);
+    refresh(c);
+    char notes[4000], err[300];
+    if (!sim_adopt(c->s.path, c->fieldDir, &P.s, notes, sizeof notes)) { ui_toast(TOAST_ERR, "%s", notes); return false; }
+    if (A.set.history) hist_commit(c->s.path, "Before Physics > Setup read the case");
+    if (!sim_save(c->s.path, &P.s) || !sim_adopt_bases(c->s.path, &P.s, err, sizeof err)) {
+        ui_toast(TOAST_ERR, "Could not record the setup: %s", err[0] ? err : "simulation.ini");
+        char ini[PL_PATH]; sim_ini_path(c->s.path, ini, sizeof ini); remove(ini);
+        return false;
+    }
+    char np[PL_PATH]; pl_join(np, sizeof np, c->s.path, ".qc-setup/adopt-notes.txt");
+    pl_write_file(np, notes, strlen(notes));
+    /* the case files are what the setup now says: simulation.ini no newer than them (else the bar asks to write again) */
+    char ini[PL_PATH], u[PL_PATH]; sim_ini_path(c->s.path, ini, sizeof ini);
+    pl_join(u, sizeof u, c->s.path, case_rpath(c, "0/U"));
+    if (!pl_is_file(u)) pl_join(u, sizeof u, c->s.path, "0/U");
+    struct stat st;
+    if (!stat(u, &st)) { struct timespec ts[2] = { st.st_mtim, st.st_mtim }; utimensat(AT_FDCWD, ini, ts, 0); }
+    P.cdMt = 0;
+    if (A.set.history) { hist_commit(c->s.path, "Physics > Setup read the case"); history_invalidate(); }
+    P.step = SS_MODELS; P.picking = false;
+    A.physicsTab = 2;
+    int nk = 0; for (const char *q = notes; *q; q++) nk += *q == '\n';
+    ui_toast(TOAST_OK, "Setup read the case: %s, %s, %d boundaries. Writing case files changes only what you change here%s", sim_app(&P.s),
+             TURB_NAME[P.s.turb], P.s.nB, nk ? TextFormat("; %d thing%s it couldn't name stay as written", nk, nk == 1 ? "" : "s") : "");
+    return true;
+}
+
+/* a function object the setup wrote as a report: what it measures and in what (Results, workflow plan W5) */
+bool setup_report_info(Case *c, const char *name, char *desc, int dcap, char *unit, int ucap)
+{
+    if (!setup_owns(c)) return false;
+    sync(c);
+    for (int i = 0; i < P.s.nR; i++) {
+        const SimReport *r = &P.s.r[i];
+        if (strcmp(r->name, name)) continue;
+        sim_report_describe(&P.s, r, desc, dcap);
+        pl_strlcpy(unit, sim_report_unit(&P.s, r), (size_t)ucap);
+        return true;
+    }
+    return false;
+}
+
+/* workflow plan W4: the run's length in flow-throughs (the domain's length along the flow over the inflow speed), and the
+   numerics preset set from the Numerics page */
+bool setup_flow_through(Case *c, double *L, double *U)
+{
+    if (!setup_owns(c)) return false;
+    sync(c);
+    double u = sim_ref_speed(&P.s), lo[3], hi[3];
+    if (!(u > 0) || !mesh_bounds(c->s.path, lo, hi)) return false;
+    double d[3] = { 0, 0, 0 };
+    char mi[PL_PATH]; pl_join(mi, sizeof mi, c->s.path, "mesher/mesher.ini");
+    if (pl_is_file(mi)) stlmesh_flow(c, d);
+    else for (int i = 0; i < P.s.nB; i++) {                 /* the first inlet's velocity, else the start's */
+        const SimBoundary *b = &P.s.b[i];
+        if (b->role == ROLE_INLET && b->inlet == IN_VECTOR) { memcpy(d, b->vec, sizeof d); break; }
+    }
+    double m = sqrt(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+    if (!(m > 0)) { memcpy(d, P.s.U0, sizeof d); m = sqrt(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]); }
+    double len = 0;
+    if (m > 0) for (int k = 0; k < 3; k++) len += fabs(hi[k] - lo[k]) * fabs(d[k]) / m;
+    else for (int k = 0; k < 3; k++) len = fmax(len, hi[k] - lo[k]);
+    if (!(len > 0)) return false;
+    *L = len; *U = u;
+    return true;
+}
+/* W6: the Reynolds number Setup works with, and the length it used (the part, else the mesh's narrowest real side: a
+   channel's height, not a 2-D case's one-cell thickness); 0 unknown. *laminar: the model is laminar */
+double setup_reynolds(Case *c, double *len, bool *laminar)
+{
+    if (!setup_owns(c)) return 0;
+    sync(c);
+    *laminar = P.s.turb == TURB_LAMINAR;
+    double L = P.size;
+    if (!(L > 0)) {
+        double lo[3], hi[3];
+        if (!mesh_bounds(c->s.path, lo, hi)) return 0;
+        double mx = 0; for (int k = 0; k < 3; k++) mx = fmax(mx, hi[k] - lo[k]);
+        L = mx;
+        for (int k = 0; k < 3; k++) if (hi[k] - lo[k] > 0.05 * mx && hi[k] - lo[k] < L) L = hi[k] - lo[k];
+    }
+    double U = sim_ref_speed(&P.s);
+    if (!(L > 0) || !(U > 0) || !(P.s.nu > 0)) return 0;
+    *len = L;
+    return U * L / P.s.nu;
+}
+
+int setup_numerics(Case *c) { if (!setup_owns(c)) return -1; sync(c); return P.s.numerics; }
+void setup_set_numerics(Case *c, int nm)
+{
+    if (!setup_owns(c) || nm < 0 || nm >= NUM__N) return;
+    sync(c);
+    if (P.s.numerics == nm) return;
+    P.s.numerics = nm; save();
+}
+
+/* the notes of an adopted case, cached by the file's time */
+static const char *adopt_notes(const Case *c)
+{
+    static char path[PL_PATH], text[4000]; static time_t at;
+    char np[PL_PATH]; pl_join(np, sizeof np, c->s.path, ".qc-setup/adopt-notes.txt");
+    time_t mt = pl_mtime(np);
+    if (strcmp(path, np) || mt != at) {
+        pl_strlcpy(path, np, sizeof path); at = mt; text[0] = 0;
+        char *t = mt ? pl_read_file(np, NULL) : NULL;
+        if (t) { pl_strlcpy(text, t, sizeof text); free(t); }
+    }
+    return text;
 }
 
 bool setup_write_fields(Case *c)
@@ -768,6 +930,107 @@ static void wf_do(Case *c, int k)
     else app_open_paraview();
 }
 
+/* the bar itself, for either set of steps: n steps with their states, the next one highlighted, its button on the right
+   (*clicked: the step clicked, -1 none; *go: the button pressed) */
+static float steps_bar(int n, const char *const *name, const WfStep *st, int next, const char *nlabel, const char *nicon,
+                       bool nextOff, float x, float y, float w, int *clicked, bool *go)
+{
+    *clicked = -1; *go = false;
+    float y0 = y;
+    bool narrow = w < 640;                                  /* the Run page's column: one step a line */
+    float bw = nlabel ? ui_button_width(nicon, nlabel) : 0;
+    /* each step as wide as its text needs, the room left shared out; short of room (a large UI scale), the lines under
+       the names wrap rather than lose their ends */
+    float sw[8], sx[8], need = 0, avail = w - bw - 16, sh = narrow ? 40 : 54;
+    for (int k = 0; k < n; k++) {
+        sw[k] = 46 + 14 + fmaxf(ui_text_w(F_SEMI, 14, ui_cap(name[k])), ui_text_w(F_REG, 12.5f, st[k].sub));
+        need += sw[k];
+    }
+    /* far short of room (six steps on a small window at a large scale): the names only, each step's line in its tooltip, rather
+       than lines broken in the middle of words */
+    /* short of room: each column shrinks no further than its longest word (a line never breaks inside one); when even that
+       doesn't fit, names only */
+    float minw[8], sumMin = 0;
+    for (int k = 0; k < n; k++) {
+        float longest = ui_text_w(F_SEMI, 14, ui_cap(name[k]));
+        char wbuf[120]; pl_strlcpy(wbuf, st[k].sub, sizeof wbuf);
+        for (char *tok = strtok(wbuf, " "); tok; tok = strtok(NULL, " ")) longest = fmaxf(longest, ui_text_w(F_REG, 12.5f, tok));
+        minw[k] = fminf(sw[k], longest + 52 + 6);
+        sumMin += minw[k];
+    }
+    bool subs = narrow || need <= avail || sumMin <= avail;
+    if (!subs) {
+        need = 0;
+        for (int k = 0; k < n; k++) { sw[k] = 46 + 14 + ui_text_w(F_SEMI, 14, ui_cap(name[k])); need += sw[k]; }
+        sh = 40;
+    }
+    for (int k = 0; k < n; k++) {
+        if (need <= avail) sw[k] += (avail - need) / n;
+        else if (subs && !narrow && need > sumMin) sw[k] = minw[k] + (avail - sumMin) * (sw[k] - minw[k]) / (need - sumMin);
+        else sw[k] = avail * sw[k] / need;
+        sx[k] = k ? sx[k - 1] + sw[k - 1] : x;
+        if (!narrow && subs && need > avail)
+            sh = fmaxf(sh, 34 + ui_text_wrap(F_REG, 12.5f, st[k].sub, (Rectangle){ 0, 0, sw[k] - 6 - 46, 300 }, 16, TH.text3, false));
+    }
+    /* narrow (the Run page's column): the steps done fold into one line, the rest a row each, so the run's own controls stay
+       near the top (W1: the whole bar pushed the Courant check off the column) */
+    int row = 0, nDone = 0;
+    if (narrow) {
+        char done[200] = "";
+        for (int k = 0; k < n; k++) if (st[k].state == WF_DONE) { snprintf(done + strlen(done), sizeof done - strlen(done), "%s%s", nDone ? ", " : "", name[k]); nDone++; }
+        if (nDone) {
+            Rectangle r = { x, y, w, sh - 4 };
+            ui_icon(ICON_CIRCLE_CHECK, r.x + 20, r.y + r.height / 2, 20, TH.ok);
+            char t[240]; pl_fmt_ui(t, sizeof t, nDone == n ? "All done: %s" : "Done: %s", done);
+            ui_text_clip(F_REG, 13, t, r.x + 40, r.y + r.height / 2 - 9, w - 46, TH.text2);
+            ui_tooltip(r, t);
+            row = 1;
+        }
+    }
+    for (int k = 0; k < n; k++) {
+        if (narrow && st[k].state == WF_DONE) continue;
+        Rectangle r = narrow ? (Rectangle){ x, y + row++ * sh, w, sh - 4 } : (Rectangle){ sx[k], y, sw[k] - 6, sh };
+        ui_push_id(ui_idn(ui_id("wf"), k));
+        if (ui_row(ui_id("step"), r, k == next)) *clicked = k;
+        ui_tooltip(r, st[k].sub);
+        Color c0 = st[k].state == WF_DONE ? TH.ok : st[k].state == WF_STALE ? TH.warn : k == next || st[k].state == WF_BUSY ? TH.accent : TH.text3;
+        float cx = r.x + 20, cy = r.y + r.height / 2;
+        if (st[k].state == WF_BUSY) ui_spinner(cx, cy, 8, c0);
+        else if (st[k].state == WF_DONE) ui_icon(ICON_CIRCLE_CHECK, cx, cy, 20, c0);
+        else if (st[k].state == WF_STALE) ui_icon(ICON_TRIANGLE_ALERT, cx, cy, 18, c0);
+        else {
+            ui_rect_lines((Rectangle){ cx - 10, cy - 10, 20, 20 }, 10, 1.5f, c0);
+            char num[4]; snprintf(num, sizeof num, "%d", k + 1);
+            ui_text(F_SEMI, 12, num, cx - ui_text_w(F_SEMI, 12, num) / 2, cy - 8, c0);
+        }
+        float tx = r.x + 40, tw = r.width - 46;
+        if (narrow) {
+            ui_text_clip(F_SEMI, 14, ui_cap(name[k]), tx, cy - 9, 96, k == next ? TH.text : TH.text2);
+            ui_text_clip(F_REG, 12.5f, st[k].sub, tx + 100, cy - 8, tw - 100, st[k].state == WF_STALE ? TH.warn : TH.text3);
+        } else if (!subs) {
+            ui_text_clip(F_SEMI, 14, ui_cap(name[k]), tx, cy - 9, tw, k == next ? TH.text : st[k].state == WF_STALE ? TH.warn : TH.text2);
+        } else {
+            float ty = r.y + 9;
+            ui_text_clip(F_SEMI, 14, ui_cap(name[k]), tx, ty, tw, k == next ? TH.text : TH.text2);
+            Color sc = st[k].state == WF_STALE ? TH.warn : TH.text3;
+            if (sh > 54) ui_text_wrap(F_REG, 12.5f, st[k].sub, (Rectangle){ tx, ty + 20, tw, r.height - 29 }, 16, sc, true);
+            else ui_text_clip(F_REG, 12.5f, st[k].sub, tx, r.y + 29, tw, sc);
+        }
+        if (!narrow && k < n - 1) ui_icon(ICON_CHEVRON_RIGHT, r.x + r.width + 3, cy, 12, TH.text3);
+        ui_pop_id();
+    }
+    y += narrow ? row * sh + 6 : sh + 4;
+    if (nlabel) {
+        Rectangle b = narrow ? (Rectangle){ x, y, w, 38 } : (Rectangle){ x + w - bw, y0 + (sh - 40) / 2, bw, 40 };
+        ui_disable(nextOff);
+        if (ui_button(ui_id("wf-next"), b, nicon, nlabel, BTN_PRIMARY)) *go = true;
+        ui_disable(false);
+        if (narrow) y += 46;
+    }
+    ui_divider(x, y + 8, w);
+    return y + 24 - y0;
+}
+
 float stl_workflow(Case *c, float x, float y, float w)
 {
     if (!c) return 0;
@@ -779,62 +1042,152 @@ float stl_workflow(Case *c, float x, float y, float w)
     wf_status(c, st);
     const char *NAME[WF__N] = { imported ? "Mesh file" : "STL", "Boundaries", "Mesh", "Physics", "Run" };
     const char *nlabel = NULL, *nicon = NULL;
-    int next = wf_next(st, imported, &nlabel, &nicon);
-    float y0 = y;
-    bool narrow = w < 640;                                  /* the Run page's column: one step a line */
-    float bw = nlabel ? ui_button_width(nicon, nlabel) : 0;
-    /* each step as wide as its text needs, the room left shared out; short of room (a large UI scale), the lines under
-       the names wrap rather than lose their ends */
-    float sw[WF__N], sx[WF__N], need = 0, avail = w - bw - 16, sh = narrow ? 40 : 54;
-    for (int k = 0; k < WF__N; k++) {
-        sw[k] = 46 + 14 + fmaxf(ui_text_w(F_SEMI, 14, ui_cap(NAME[k])), ui_text_w(F_REG, 12.5f, st[k].sub));
-        need += sw[k];
+    int next = wf_next(st, imported, &nlabel, &nicon), clicked; bool go;
+    float h = steps_bar(WF__N, NAME, st, next, nlabel, nicon, A.cj->active && next != WF__N && next != WF_BOUNDARIES, x, y, w, &clicked, &go);
+    if (clicked >= 0) wf_open(c, clicked);
+    if (go) wf_do(c, next);
+    return h;
+}
+
+/* ============================================================================ the steps of any other case (workflow plan W1,
+ * 2026-11-14): a tutorial, a blockMesh case, a folder opened from elsewhere. Mesh, Boundaries, Physics, Numerics, Run, each
+ * from what is on disk, the first one not done the next, its button doing it (or opening the page that does). */
+enum { CS_MESH = 0, CS_BOUNDARIES, CS_PHYSICS, CS_NUMERICS, CS_RUN, CS_RESULTS, CS__N };
+
+static const char *case_mesh_tool(const Case *c)
+{
+    char p[PL_PATH];
+    pl_join(p, sizeof p, c->s.path, "system/snappyHexMeshDict");
+    if (pl_is_file(p)) return "snappyHexMesh";
+    pl_join(p, sizeof p, c->s.path, "system/blockMeshDict");
+    if (pl_is_file(p)) return "blockMesh";
+    return NULL;
+}
+
+static void cs_status(Case *c, WfStep st[CS__N])
+{
+    memset(st, 0, sizeof(WfStep) * CS__N);
+    bool here = A.cj->active && !strcmp(A.cj->casePath, c->s.path);
+    bool meshing = here && (!strcmp(A.cj->title, "Mesh") || !strcmp(A.cj->title, "checkMesh"));
+    char faces[PL_PATH]; pl_join(faces, sizeof faces, c->s.path, "constant/polyMesh/faces");
+    double meshMt = mtime_ns(faces);
+    const char *mt = case_mesh_tool(c);
+    /* 1 the mesh */
+    int lc = logset_find(&A.logs, "log.checkMesh");
+    bool failed = lc >= 0 && A.logs.logs[lc].meshFailed && !app_mesh_verdict(c)->boundarySkewOnly;
+    if (meshing) { st[CS_MESH].state = WF_BUSY; pl_fmt_ui(st[CS_MESH].sub, sizeof st[CS_MESH].sub, "%s ...", A.cj->steps[A.cj->cur < A.cj->n ? A.cj->cur : 0].label); }
+    else if (!c->s.meshed) pl_strlcpy(st[CS_MESH].sub, mt ? "Not generated yet" : "No mesh: import or build one", sizeof st[CS_MESH].sub);
+    else if (c->s.meshStale) { st[CS_MESH].state = WF_STALE; pl_fmt_ui(st[CS_MESH].sub, sizeof st[CS_MESH].sub, "%sDict changed: generate again", mt ? mt : "The mesh"); }
+    else if (failed) { st[CS_MESH].state = WF_STALE; pl_strlcpy(st[CS_MESH].sub, "checkMesh: checks failed", sizeof st[CS_MESH].sub); }
+    else {
+        st[CS_MESH].state = WF_DONE;
+        char n[32];
+        if (c->s.nCells >= 1000000) snprintf(n, sizeof n, "%.2f million", c->s.nCells / 1e6); else snprintf(n, sizeof n, "%ld", c->s.nCells);
+        pl_fmt_ui(st[CS_MESH].sub, sizeof st[CS_MESH].sub, "%s cells, %d patches", n, c->nPatches);
     }
-    for (int k = 0; k < WF__N; k++) {
-        sw[k] = need <= avail ? sw[k] + (avail - need) / WF__N : avail * sw[k] / need;
-        sx[k] = k ? sx[k - 1] + sw[k - 1] : x;
-        if (!narrow && need > avail)
-            sh = fmaxf(sh, 34 + ui_text_wrap(F_REG, 12.5f, st[k].sub, (Rectangle){ 0, 0, sw[k] - 6 - 46, 300 }, 16, TH.text3, false));
+    /* 2 the boundaries: a condition for every patch in every field (the sidebar's count, cached there twice a second) */
+    static double bcAt = -10; static char bcPath[PL_PATH]; static int bcMiss;
+    if (ui_time() - bcAt > 0.5 || strcmp(bcPath, c->s.path)) {
+        bcAt = ui_time(); pl_strlcpy(bcPath, c->s.path, sizeof bcPath);
+        char m[8]; bcMiss = c->s.meshed && c->nPatches > 0 && c->fields.n > 0 ? bc_missing_report(c, m, sizeof m) : 0;
     }
-    for (int k = 0; k < WF__N; k++) {
-        Rectangle r = narrow ? (Rectangle){ x, y + k * sh, w, sh - 4 } : (Rectangle){ sx[k], y, sw[k] - 6, sh };
-        ui_push_id(ui_idn(ui_id("wf"), k));
-        if (ui_row(ui_id("step"), r, k == next)) wf_open(c, k);
-        ui_tooltip(r, st[k].sub);
-        Color c0 = st[k].state == WF_DONE ? TH.ok : st[k].state == WF_STALE ? TH.warn : k == next || st[k].state == WF_BUSY ? TH.accent : TH.text3;
-        float cx = r.x + 20, cy = r.y + r.height / 2;
-        if (st[k].state == WF_BUSY) ui_spinner(cx, cy, 8, c0);
-        else if (st[k].state == WF_DONE) ui_icon(ICON_CIRCLE_CHECK, cx, cy, 20, c0);
-        else if (st[k].state == WF_STALE) ui_icon(ICON_TRIANGLE_ALERT, cx, cy, 18, c0);
-        else {
-            ui_rect_lines((Rectangle){ cx - 10, cy - 10, 20, 20 }, 10, 1.5f, c0);
-            char n[4]; snprintf(n, sizeof n, "%d", k + 1);
-            ui_text(F_SEMI, 12, n, cx - ui_text_w(F_SEMI, 12, n) / 2, cy - 8, c0);
-        }
-        float tx = r.x + 40, tw = r.width - 46;
-        if (narrow) {
-            ui_text_clip(F_SEMI, 14, ui_cap(NAME[k]), tx, cy - 9, 96, k == next ? TH.text : TH.text2);
-            ui_text_clip(F_REG, 12.5f, st[k].sub, tx + 100, cy - 8, tw - 100, st[k].state == WF_STALE ? TH.warn : TH.text3);
-        } else {
-            float ty = r.y + 9;
-            ui_text_clip(F_SEMI, 14, ui_cap(NAME[k]), tx, ty, tw, k == next ? TH.text : TH.text2);
-            Color sc = st[k].state == WF_STALE ? TH.warn : TH.text3;
-            if (sh > 54) ui_text_wrap(F_REG, 12.5f, st[k].sub, (Rectangle){ tx, ty + 20, tw, r.height - 29 }, 16, sc, true);
-            else ui_text_clip(F_REG, 12.5f, st[k].sub, tx, r.y + 29, tw, sc);
-        }
-        if (!narrow && k < WF__N - 1) ui_icon(ICON_CHEVRON_RIGHT, r.x + r.width + 3, cy, 12, TH.text3);
-        ui_pop_id();
+    if (!c->s.meshed) pl_strlcpy(st[CS_BOUNDARIES].sub, "After the mesh", sizeof st[CS_BOUNDARIES].sub);
+    else if (c->fields.n == 0) pl_fmt_ui(st[CS_BOUNDARIES].sub, sizeof st[CS_BOUNDARIES].sub, "No field files in %s/", c->fieldDir[0] ? c->fieldDir : "0");
+    else if (bcMiss > 0) { st[CS_BOUNDARIES].state = WF_STALE; pl_fmt_ui(st[CS_BOUNDARIES].sub, sizeof st[CS_BOUNDARIES].sub, "%d patch condition%s missing", bcMiss, bcMiss == 1 ? "" : "s"); }
+    else { st[CS_BOUNDARIES].state = WF_DONE; pl_fmt_ui(st[CS_BOUNDARIES].sub, sizeof st[CS_BOUNDARIES].sub, "%d fields on %d patches", c->fields.n, c->nPatches); }
+    /* 3 the physics: a solver and the property files it reads */
+    bool props = case_dict(c, "constant/transportProperties") || case_dict(c, "constant/thermophysicalProperties") ||
+                 case_dict(c, "constant/physicalProperties") || case_dict(c, "constant/momentumTransport") || case_dict(c, "constant/turbulenceProperties");
+    char ini[PL_PATH], u0[PL_PATH];
+    sim_ini_path(c->s.path, ini, sizeof ini); pl_join(u0, sizeof u0, c->s.path, "0/U");
+    double iniMt = mtime_ns(ini), u0Mt = mtime_ns(u0);
+    if (iniMt && u0Mt && iniMt > u0Mt) { st[CS_PHYSICS].state = WF_STALE; pl_strlcpy(st[CS_PHYSICS].sub, "Setup changed: write again", sizeof st[CS_PHYSICS].sub); }
+    else if (!c->s.app[0]) pl_strlcpy(st[CS_PHYSICS].sub, "No solver set", sizeof st[CS_PHYSICS].sub);
+    else if (!props) pl_fmt_ui(st[CS_PHYSICS].sub, sizeof st[CS_PHYSICS].sub, "%s: no properties in constant/", c->s.app);
+    else { st[CS_PHYSICS].state = WF_DONE; pl_fmt_ui(st[CS_PHYSICS].sub, sizeof st[CS_PHYSICS].sub, "%s", c->s.app); }
+    /* 4 the numerics */
+    bool sch = case_dict(c, "system/fvSchemes") != NULL, sol = case_dict(c, "system/fvSolution") != NULL;
+    if (!sch || !sol) pl_fmt_ui(st[CS_NUMERICS].sub, sizeof st[CS_NUMERICS].sub, "No %s", !sch ? "system/fvSchemes" : "system/fvSolution");
+    else { st[CS_NUMERICS].state = WF_DONE; pl_strlcpy(st[CS_NUMERICS].sub, "Schemes and solvers set", sizeof st[CS_NUMERICS].sub); }
+    /* 5 the run */
+    if (here && !meshing) { st[CS_RUN].state = WF_BUSY; pl_fmt_ui(st[CS_RUN].sub, sizeof st[CS_RUN].sub, "%s ...", A.cj->steps[A.cj->cur < A.cj->n ? A.cj->cur : 0].label); }
+    else if (c->s.status == CS_FAILED) { st[CS_RUN].state = WF_STALE; pl_strlcpy(st[CS_RUN].sub, "Last run failed", sizeof st[CS_RUN].sub); }
+    else if (c->s.nTimes > 0 || c->s.procTimes > 0) {
+        bool proc = c->s.procTimes > 0 && (!c->s.nTimes || atof(c->s.procLatest) > atof(c->s.latest));
+        char lt[PL_PATH], rel[64];
+        snprintf(rel, sizeof rel, proc ? "processor0/%s" : "%s", proc ? c->s.procLatest : c->s.latest);
+        pl_join(lt, sizeof lt, c->s.path, rel);
+        double rMt = mtime_ns(lt);
+        if (rMt && rMt < meshMt) { st[CS_RUN].state = WF_STALE; pl_strlcpy(st[CS_RUN].sub, "Older than the mesh: run again", sizeof st[CS_RUN].sub); }
+        else { st[CS_RUN].state = WF_DONE; pl_fmt_ui(st[CS_RUN].sub, sizeof st[CS_RUN].sub, "Results to %s%s", proc ? c->s.procLatest : c->s.latest, proc ? " (parallel)" : ""); }
     }
-    y += narrow ? WF__N * sh + 6 : sh + 4;
-    if (nlabel) {
-        Rectangle b = narrow ? (Rectangle){ x, y, w, 38 } : (Rectangle){ x + w - bw, y0 + (sh - 40) / 2, bw, 40 };
-        ui_disable(A.cj->active && next != WF__N && next != WF_BOUNDARIES);
-        if (ui_button(ui_id("wf-next"), b, nicon, nlabel, BTN_PRIMARY)) wf_do(c, next);
-        ui_disable(false);
-        if (narrow) y += 46;
+    else pl_strlcpy(st[CS_RUN].sub, "Not run yet", sizeof st[CS_RUN].sub);
+    /* 6 the results (W5): what the run's log says of its answer */
+    int lk = logset_primary(&A.logs, c->s.app);
+    const LogMon *m = lk >= 0 ? &A.logs.logs[lk] : NULL;
+    bool steady = strstr(c->s.app, "simple") || strstr(c->s.app, "Simple");
+    if (st[CS_RUN].state != WF_DONE) pl_strlcpy(st[CS_RESULTS].sub, "After the run", sizeof st[CS_RESULTS].sub);
+    else if (m && m->converged) { st[CS_RESULTS].state = WF_DONE; pl_strlcpy(st[CS_RESULTS].sub, "Converged", sizeof st[CS_RESULTS].sub); }
+    else if (m && m->ended && steady) { st[CS_RESULTS].state = WF_STALE; pl_strlcpy(st[CS_RESULTS].sub, "Not converged: check them", sizeof st[CS_RESULTS].sub); }
+    else { st[CS_RESULTS].state = WF_DONE; pl_strlcpy(st[CS_RESULTS].sub, m && m->ended ? "Finished" : "To look at", sizeof st[CS_RESULTS].sub); }
+}
+
+static void cs_open(Case *c, int k)
+{
+    if (k == CS_MESH) {                                     /* failed checks: Quality; no mesh or an old one: its dictionaries; else View */
+        int lc = logset_find(&A.logs, "log.checkMesh");
+        bool failed = lc >= 0 && A.logs.logs[lc].meshFailed && !app_mesh_verdict(c)->boundarySkewOnly;
+        A.meshTab = !c->s.meshed || c->s.meshStale ? 0 : failed ? 4 : 2;
+        app_go(PG_MESH);
     }
-    ui_divider(x, y + 8, w);
-    return y + 24 - y0;
+    else if (k == CS_BOUNDARIES) app_go(PG_BC);
+    else if (k == CS_PHYSICS) { char ini[PL_PATH]; sim_ini_path(c->s.path, ini, sizeof ini); if (pl_is_file(ini)) A.physicsTab = 2; app_go(PG_PHYSICS); }
+    else if (k == CS_NUMERICS) app_go(PG_NUMERICS);
+    else if (k == CS_RESULTS) app_go(PG_RESULTS);
+    else app_go(PG_RUN);
+}
+
+float case_steps(Case *c, float x, float y, float w)
+{
+    if (!c || c->s.prog || c->s.nRegions > 0) return 0;    /* other programs have their own pages; multi-region keeps its per-region bar */
+    float h = stl_workflow(c, x, y, w);                     /* made from an STL or an imported mesh: that bar */
+    if (h > 0) return h;
+    WfStep st[CS__N];
+    cs_status(c, st);
+    static const char *const NAME[CS__N] = { "Mesh", "Boundaries", "Physics", "Numerics", "Run", "Results" };
+    static const char *const I[CS__N] = { ICON_GRID_3X3, ICON_LAYERS, ICON_SLIDERS_HORIZONTAL, ICON_SLIDERS_HORIZONTAL, ICON_PLAY, ICON_CHART_LINE };
+    int next = CS__N;
+    bool busy = false;
+    for (int k = 0; k < CS__N; k++) {
+        if (st[k].state == WF_BUSY) { busy = true; next = -1; break; }
+        if (st[k].state != WF_DONE) { next = k; break; }
+    }
+    const char *mt = case_mesh_tool(c);
+    const char *nlabel = NULL, *nicon = NULL;
+    if (!busy) {
+        if (next == CS_MESH) { nlabel = st[CS_MESH].state == WF_STALE && c->s.meshed && !c->s.meshStale ? "Mesh quality" : mt ? "Generate mesh" : "Make a mesh"; nicon = I[CS_MESH]; }
+        else if (next == CS_BOUNDARIES) { nlabel = c->fields.n == 0 && setup_can_write_fields(c) ? "Write boundary files" : "Set the boundaries"; nicon = I[next]; }
+        else if (next == CS_PHYSICS) { nlabel = st[CS_PHYSICS].state == WF_STALE ? "Write case files" : "Set the physics"; nicon = st[CS_PHYSICS].state == WF_STALE ? ICON_FILE_TEXT : I[next]; }
+        else if (next == CS_NUMERICS) { nlabel = "Set the numerics"; nicon = I[next]; }
+        else if (next == CS_RUN) { nlabel = "Run simulation"; nicon = ICON_PLAY; }
+        else if (next == CS_RESULTS && A.page == PG_RESULTS) { nlabel = "Run longer"; nicon = ICON_PLAY; }
+        else if (next == CS_RESULTS || A.page != PG_RESULTS) { nlabel = "See the results"; nicon = ICON_CHART_LINE; }
+        else { nlabel = "Open in ParaView"; nicon = ICON_EYE; }
+    }
+    int clicked; bool go;
+    h = steps_bar(CS__N, NAME, st, next, nlabel, nicon, A.cj->active, x, y, w, &clicked, &go);
+    if (clicked >= 0) cs_open(c, clicked);
+    if (go) {
+        if (next == CS_MESH && mt && !(st[CS_MESH].state == WF_STALE && c->s.meshed && !c->s.meshStale)) app_generate_mesh();
+        else if (next == CS_BOUNDARIES && c->fields.n == 0 && setup_can_write_fields(c)) setup_write_fields(c);
+        else if (next == CS_PHYSICS && st[CS_PHYSICS].state == WF_STALE) { sync(c); write_files(c, false); }
+        else if (next == CS_RUN) { A.runPending = true; app_go(PG_RUN); }
+        else if (next == CS_RESULTS && A.page == PG_RESULTS) { A.continueRun = true; app_go(PG_RUN); }
+        else if (next == CS_RESULTS || (next == CS__N && A.page != PG_RESULTS)) app_go(PG_RESULTS);
+        else if (next == CS__N) app_open_paraview();
+        else cs_open(c, next);
+    }
+    return h;
 }
 
 /* ============================================================================ the page (user plan step 2, 2026-10-27)
@@ -1470,8 +1823,13 @@ static float materials_step(float x, float y, float w)
 static float boundaries_step(Case *c, float x, float y, float w)
 {
     float y0 = y;
-    y += note(x, y, w, "Rename them and set what each one is on Mesh > STL mesher, by clicking the part. The wind tunnel's own boundaries and any "
-                       "other patch of the mesh are here too.");
+    char mi[PL_PATH]; pl_join(mi, sizeof mi, c->s.path, "mesher/mesher.ini");
+    if (pl_is_file(mi))
+        y += note(x, y, w, "Rename them and set what each one is on Mesh > STL mesher, by clicking the part. The wind tunnel's own boundaries and any "
+                           "other patch of the mesh are here too.");
+    else
+        y += note(x, y, w, "One per patch of the mesh: say what each one is (an inlet, an outlet, a wall ...) and give its values. They go into 0/ "
+                           "when you write the case files.");
     y += issues_callout(SS_BOUNDARIES, x, y, w);
     if (!P.s.nB) {
         const char *t = "No boundaries yet", *d = "Choose an STL on Mesh > STL mesher (or generate the mesh): its boundaries appear here.";
@@ -1511,6 +1869,14 @@ static float boundaries_step(Case *c, float x, float y, float w)
         y += card.height + 12;
     }
     return y - y0;
+}
+
+/* the boundaries as the Boundary conditions page shows them by default (workflow plan W3): the same cards, for a case the
+   setup owns */
+float setup_boundaries_view(Case *c, float x, float y, float w)
+{
+    sync(c);
+    return boundaries_step(c, x, y, w);
 }
 
 /* ---------------------------------------------------------------------------- 5 Reports: what is measured (plan step 6)
@@ -2422,8 +2788,13 @@ float page_setup(float x, float y, float w)
     char t[200], d[400];
     pl_fmt_ui(t, sizeof t, "%s · %s · %s", sim_app(&P.s), TURB_NAME[P.s.turb], sim_is_vof(&P.s) ? TextFormat("%s and air", LIQ_NAME[P.s.liquid])
               : sim_is_gas(&P.s) ? TextFormat("%s (ideal gas)", GAS_NAME[P.s.gas]) : FLUID_NAME[P.s.fluid]);
-    pl_fmt_ui(d, sizeof d, "%s Write case files puts the setup into 0/, constant/ and system/ (a file that wasn't written here is kept as .orig).",
-              stale ? "Changed since the case files were written." : "The case files match this setup.");
+    bool adopted = case_adopted(c);
+    if (adopted)
+        pl_fmt_ui(d, sizeof d, "%s Read from the case's own files: Write case files changes only what you change here, and everything else stays as "
+                  "the case had it.", stale ? "Changed since the case files were written." : "The case files match this setup.");
+    else
+        pl_fmt_ui(d, sizeof d, "%s Write case files puts the setup into 0/, constant/ and system/ (a file that wasn't written here is kept as .orig).",
+                  stale ? "Changed since the case files were written." : "The case files match this setup.");
     float bw1 = ui_button_width(ICON_FILE_TEXT, "Write case files"), bw2 = ui_button_width(ICON_PLAY, "Write and go to Run");
     bool beside = w >= 980;                                 /* the buttons right of the summary, or under it */
     float cw = beside ? w - bw1 - bw2 - 36 : w;
@@ -2435,6 +2806,27 @@ float page_setup(float x, float y, float w)
     if (ui_button(ui_id("su-write-run"), (Rectangle){ bx + bw1 + 10, by, bw2, 40 }, ICON_PLAY, "Write and go to Run", BTN_SECONDARY)) write_files(c, true);
     ui_disable(false);
     y += beside ? ch + 20 : ch + 12 + 40 + 20;
+    if (adopted) {                                          /* what Setup couldn't name: closed, with a count (layer 1) */
+        const char *n = adopt_notes(c);
+        int nk = 0; for (const char *q = n; *q; q++) nk += *q == '\n';
+        if (nk) {
+            static bool open;
+            char lab[96]; pl_fmt_ui(lab, sizeof lab, "Kept as the case has it (%d)", nk);
+            float lw = ui_button_width(open ? ICON_CHEVRON_DOWN : ICON_CHEVRON_RIGHT, lab);
+            if (ui_button(ui_id("su-adopt-notes"), (Rectangle){ x, y, lw, 32 }, open ? ICON_CHEVRON_DOWN : ICON_CHEVRON_RIGHT, lab, BTN_GHOST)) open = !open;
+            y += 38;
+            if (open) {
+                char line[400]; const char *q = n;
+                while (*q) {
+                    size_t k = strcspn(q, "\n"); snprintf(line, sizeof line, "%.*s", (int)k, q);
+                    ui_icon(ICON_FILE_TEXT, x + 12, y + 9, 13, TH.text3);
+                    y += ui_text_wrap(F_REG, 13, line, (Rectangle){ x + 28, y, w - 28, 200 }, 19, TH.text2, true) + 6;
+                    q += k; if (*q) q++;
+                }
+                y += 10;
+            }
+        }
+    }
     /* a new setup: what is being simulated, first */
     /* a case whose files were written before a template was picked (from the step bar) is on its own choices */
     char u[PL_PATH]; pl_join(u, sizeof u, c->s.path, "0/U");

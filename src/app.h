@@ -131,7 +131,7 @@ typedef struct {
 extern App A;
 
 /* terms.c: a feature's name in the current theme (LCARS, classic, Stardew, Pokémon) */
-typedef enum { T_SWEEP = 0, T_ALERT, T_WATCH, T_PALETTE, T_REVIEW, T_REVIEW_GO, T_EXPLAIN, T_RUN_GO, T_ASK, T_LOG, T_AWAY, T__N } Term;
+typedef enum { T_SWEEP = 0, T_ALERT, T_WATCH, T_PALETTE, T_REVIEW, T_REVIEW_GO, T_EXPLAIN, T_RUN_GO, T_RUN_BTN, T_ASK, T_LOG, T_AWAY, T__N } Term;
 const char *term(Term t);
 const char *term_in(Term t, int theme);
 const char *alert_title(const Alert *a);
@@ -276,6 +276,24 @@ void page_prog_overview(Rectangle r);
 void page_prog_setup(Rectangle r);
 void page_prog_run(Rectangle r);
 void page_prog_results(Rectangle r);
+void page_foam_results(Rectangle r);
+bool app_starter_info(const char *casePath, char *title, int tcap, char *learn, int lcap, char *expect, int ecap);   /* W8 */
+float app_starter_callout(const char *casePath, float x, float y, float w);
+/* page_fea.c: a part study in CalculiX (docs/FEA_PLAN.md) */
+bool  fea_is_study(const char *proj);
+void  fea_setup_page(Rectangle r);
+float fea_results_panel(float x, float y, float w);
+bool  fea_prepare_run(const char *proj, char *err, int cap);
+bool  fea_new_project(const char *file, double scale, const char *dst, char *err, int cap);
+void  fea_mesh_start(const char *proj);
+void  fea_forget(void);                        /* page_results.c: an OpenFOAM case's results (workflow plan W5) */
+bool study_can_refine(Case *c);                             /* page_studies.c: a mesh refinement study is possible */
+void study_new_mesh(void);                                  /* ... the New study dialog with it chosen */
+bool setup_report_info(Case *c, const char *name, char *desc, int dcap, char *unit, int ucap);
+bool setup_flow_through(Case *c, double *L, double *U);   /* W4: the domain's length along the flow and the inflow speed */
+double setup_reynolds(Case *c, double *len, bool *laminar);   /* W6: 0 unknown */
+int  setup_numerics(Case *c);                              /* NUM_* of a case the setup owns, -1 not */
+void setup_set_numerics(Case *c, int nm);
 void prog_clean_modal(bool *close);
 bool prog_start_run(const char *path, const char *input, int procs, bool quiet);   /* a run of the project, as a job */
 bool prog_setup_dirty(void);                    /* the Setup page has edits not written yet */
@@ -324,9 +342,12 @@ void  stlmesh_new_case(void);                                /* page_stlmesh.c: 
                    "&& rm -rf 0/polyMesh && echo 'Q-Continuum: moved the layered points from 0/polyMesh to constant/polyMesh'; fi"
 void  salome_import_new_case(void);                         /* page_salome.c: pick a mesh file (UNV, MED, .msh), make a case for it, import it */
 void  salome_tick(void);                                     /* page_salome.c: follows its file dialog, every frame */
+bool  stlmesh_example_case(int k);                           /* page_stlmesh.c: the meshing tutorial's example k (meshexamples.h) made and opened */
+bool  stlmesh_example_open(int k);                           /* page_stlmesh.c: the open case is that example */
 void  stlmesh_choose(void);                                  /* page_stlmesh.c: the file dialog, for the open case */
 void  salome_choose(void);                                   /* page_salome.c: the mesh file dialog, for the open case */
 void  blank_modal(bool *close);                              /* page_cases.c: New blank case */
+void  blank_open(int prog);                                   /* page_cases.c: open it for OpenFOAM, CalculiX, Chrono or DEME */
 bool  app_practice_case(void);                                /* page_cases.c: the tour's cavity case, copied and opened */
 void  app_duplicate_case(const char *src);                   /* app.c: a copy of the case's setup and mesh, without results; opened */
 int   stlmesh_mesh_current(Case *c);                         /* page_stlmesh.c: the mesh is from these settings: 1, 0, -1 unknown */
@@ -346,6 +367,7 @@ bool  stlmesh_gravity(Case *c, double g[3]);                 /* page_stlmesh.c: 
 int   stlmesh_up_axis(Case *c);                              /* page_stlmesh.c: the STL's up axis (0-2) in its view, -1: no STL */
 void  stlmesh_focus(Case *c, int step);                      /* page_stlmesh.c: open a step of its flow (0 geometry, 2 boundaries, 4 generate) */
 float stl_workflow(Case *c, float x, float y, float w);
+float case_steps(Case *c, float x, float y, float w);      /* every single-region OpenFOAM case: its steps, Mesh to Run (workflow plan W1) */
 bool  setup_refresh_files(Case *c);                         /* page_setup.c: the setup's case files rewritten if out of date (before a run) */      /* page_setup.c: STL > boundaries > mesh > physics > run; returns height (0: not an STL case) */
 void  setup_open_step(int step);                          /* page_setup.c: Setup opened at a step (0 Models ... 6 Solver, 7 Check) */
 bool  setup_robust_offer(Case *c);                        /* page_setup.c: a setup case whose numerics aren't Robust (a diverged run is offered it) */
@@ -353,6 +375,11 @@ bool  setup_go_robust(Case *c);
 bool  setup_expects_convergence(Case *c);                 /* ... a steady setup run that stops on its residuals */                           /* ... Robust written to the case files; the caller starts over */
 bool  setup_after_import(Case *c);                         /* page_setup.c: an imported mesh's 0/ (and setup files) written at once */
 bool  setup_can_write_fields(Case *c);
+bool  setup_can_adopt(Case *c);                             /* a hand-made case Physics > Setup can read (workflow plan W2) */
+const char *setup_adopt_why_not(Case *c);                   /* NULL, or why it can't */
+bool  setup_adopt(Case *c);                                 /* read it into the setup: simulation.ini and the merge bases */
+float setup_boundaries_view(Case *c, float x, float y, float w);   /* each boundary by its role, with its values (W3) */
+bool  setup_owns(Case *c);                                  /* the setup writes this case's files (STL mesher, adopted, or set up there) */
 bool  setup_write_fields(Case *c);                          /* Boundary conditions with no fields: the setup writes them */
 void  stlmesh_tick(void);                                   /* page_stlmesh.c: follows the file dialog, every frame */   /* page_salome.c: returns height */
 struct SimPatch;

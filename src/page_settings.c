@@ -8,6 +8,7 @@
 #include "tour.h"
 #include "actions.h"
 #include "palette.h"
+#include "teach.h"
 #include "sweep.h"
 #include "precheck.h"
 #include "program.h"
@@ -907,11 +908,18 @@ void draw_modals(void)
     case MD_PALETTE:
         palette_draw(&close);
         break;
+    case MD_GLOSSARY:
+        teach_glossary_modal(&close);
+        break;
     case MD_REVIEW:
         review_modal(&close);
         break;
     case MD_WHATS_NEW: {
         static const char *const NEWS[][2] = {
+            { "Glossary and show the working", "Underlined words on the Mesh pages are CFD terms: hover one for a short explanation in "
+              "fluid-mechanics words, click it for the Glossary (Ctrl+G), with a picture, numbers to know, where it lives in OpenFOAM and "
+              "related terms. Under the STL mesher's cell size and prism layers, Show the working writes the calculation out by hand: "
+              "given, equations, working, result." },
             { "Starting values and numerics", "Physics > Setup, Starting values: start from potential flow (potentialFoam) or from another "
               "case's last results (mapFields onto this mesh, the boundaries kept), give regions their own temperature or velocity, and ramp "
               "a steady run's inlets. Solver: Robust, Balanced or Accurate numerics; hand edits on the Numerics page make it Custom. A run "

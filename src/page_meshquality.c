@@ -89,7 +89,7 @@ static float salome_report(const Case *c, float x, float y, float w)
     float y0 = y;
     char mf[PL_PATH];
     bool have = salome_mesh_file(c, mf, sizeof mf);
-    y += section_head(x, y, w, "SALOME's quality report", "SALOME's own measures on the mesh it made or imported: aspect ratio, cell "
+    y += section_head(x, y, w, "SALOME's quality report", "SALOME's own measures on the mesh it made or imported: [[aspect-ratio|aspect ratio]], cell "
                                                           "volume, edge length, the boundary faces' skewness and warping, as "
                                                           "histograms (log scale: a handful of bad cells still shows), and where the "
                                                           "worst cells are.");
@@ -217,7 +217,7 @@ float page_meshquality(Case *c, float x, float y, float w)
     float y0 = y;
     cm_read(c);
     if (!c->s.meshed) { y += note(x, y, w, "No mesh yet: generate or import one, then its quality shows here."); return y - y0; }
-    y += section_head(x, y, w, "checkMesh", "OpenFOAM's own check of the mesh on disk. Non-orthogonality over 70 degrees and skewness over 4 "
+    y += section_head(x, y, w, "checkMesh", "[[checkmesh|OpenFOAM's own check]] of the mesh on disk. [[non-orthogonality|Non-orthogonality]] over 70 degrees and [[skewness]] over 4 "
                                            "are where solvers start to struggle; a failed check names what to fix.");
     ui_disable(A.cj->active);
     float fw = ui_button_width(ICON_CIRCLE_CHECK, "Check everything");

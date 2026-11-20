@@ -22,16 +22,16 @@ const char *const BT_NAME[BT__N] = { "Wall", "Patch", "Inlet", "Outlet", "Symmet
 const MesherInfo MESHERS[MESHER__N] = {
     [MESHER_SNAPPY] = { "snappy", "OpenFOAM · Trimmed hex: snappyHexMesh", "snappyHexMesh", ENG_OPENFOAM,
         MF_3D | MF_2D | MF_LAYERS | MF_OCTREE, "snappyHexMesh",
-        "Hexahedra trimmed at the surface, with prism layers on any part. Runs here, with OpenFOAM. The usual choice.",
+        "[[hex|Hexahedra]] trimmed at the surface, with [[prism-layers]] on any part. Runs here, with OpenFOAM. The usual choice.",
         "2-D: hexahedra trimmed at the profile, made on a slab and cut to one cell. Its boundary layers can come out patchy on a thin "
         "profile; SALOME's 2-D meshers make them all round." },
     [MESHER_TET] = { "tet", "SALOME · Tetrahedral: NETGEN", "SALOME tetrahedral", ENG_SALOME, MF_3D | MF_2D | MF_LAYERS, NULL,
-        "SALOME's NETGEN tetrahedra: fills any closed shape, the cells are many and less accurate per cell.",
+        "SALOME's NETGEN [[tet|tetrahedra]]: fills any closed shape, the cells are many and less accurate per cell.",
         "2-D: SALOME cuts the profile out as CAD, meshes it with NETGEN triangles and boundary layers that follow the outline, and "
         "extrudes one cell (prisms). The best choice for an airfoil." },
     [MESHER_POLY] = { "poly", "SALOME · Polyhedral: NETGEN + polyDualMesh", "SALOME polyhedral", ENG_SALOME,
         MF_3D | MF_2D | MF_LAYERS | MF_POLY, "polyDualMesh",
-        "NETGEN tetrahedra joined into polyhedra by OpenFOAM's polyDualMesh: fewer cells, good on complex parts.",
+        "NETGEN tetrahedra joined into [[poly|polyhedra]] by OpenFOAM's polyDualMesh: fewer cells, good on complex parts.",
         "2-D: as Tetrahedral (triangles, extruded to prisms): polyhedra would span the depth." },
     [MESHER_BODYFIT] = { "bodyfit", "SALOME · Body-fitted hex", "SALOME body-fitted", ENG_SALOME, MF_3D | MF_2D | MF_CAD, NULL,
         "SALOME's body-fitted hexahedra (cut cells at the surface): no prism layers.",
@@ -40,16 +40,16 @@ const MesherInfo MESHERS[MESHER__N] = {
        closed surface (a wind tunnel: the box and the part together, the part's inside dropped) */
     [MESHER_CFCART] = { "cfcart", "OpenFOAM · Cartesian hex: cfMesh cartesianMesh", "cfMesh cartesianMesh", ENG_OPENFOAM,
         MF_3D | MF_2D | MF_LAYERS | MF_OCTREE, "cartesianMesh",
-        "cfMesh's hexahedra fitted to the surface, polyhedra where they meet it, prism layers on the walls. Often meshes dirty CAD "
+        "cfMesh's [[hex|hexahedra]] fitted to the surface, [[poly|polyhedra]] where they meet it, [[prism-layers]] on the walls. Often meshes dirty CAD "
         "that snappyHexMesh struggles with, and in far fewer cells.",
         "2-D: cfMesh's cartesian2DMesh: quadrilaterals fitted to the profile with layers round it, made in the plane, one cell deep. "
         "Fast: seconds for an airfoil." },
     [MESHER_CFPOLY] = { "cfpoly", "OpenFOAM · Polyhedral: cfMesh pMesh", "cfMesh pMesh", ENG_OPENFOAM,
         MF_3D | MF_LAYERS | MF_POLY | MF_OCTREE, "pMesh",
-        "cfMesh's polyhedra throughout, with prism layers on the walls: few cells for their accuracy, no SALOME needed.", NULL },
+        "cfMesh's [[poly|polyhedra]] throughout, with [[prism-layers]] on the walls: few cells for their accuracy, no SALOME needed.", NULL },
     [MESHER_CFTET] = { "cftet", "OpenFOAM · Tetrahedral: cfMesh tetMesh", "cfMesh tetMesh", ENG_OPENFOAM,
         MF_3D | MF_LAYERS | MF_OCTREE, "tetMesh",
-        "cfMesh's tetrahedra with prism layers on the walls: fills any closed shape; many cells.", NULL },
+        "cfMesh's [[tet|tetrahedra]] with [[prism-layers]] on the walls: fills any closed shape; many cells.", NULL },
     /* foamyHexMesh: a conformal Voronoi mesh (polyhedra, mostly hexagonal-faced) fitted to the surface; slow, and its FPE
        trap must be off (the flange tutorial itself stops on one in v2606) */
     [MESHER_FOAMY] = { "foamy", "OpenFOAM · Conformal Voronoi: foamyHexMesh (experimental)", "foamyHexMesh", ENG_OPENFOAM,

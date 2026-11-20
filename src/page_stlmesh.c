@@ -20,6 +20,7 @@
 #include <sys/wait.h>
 #include <unistd.h>
 #include "app.h"
+#include "teach.h"
 #include "assets.h"
 #include "orbit.h"
 #include "rlgl.h"
@@ -1884,7 +1885,7 @@ static float two_d_rows(float x, float y, float w)
         }
         y += ch + 14;
     }
-    Rectangle cr = prop_row(x, &y, w, "2-D", "A profile (an airfoil, a section) extruded along one axis: meshed one cell thick across it, with "
+    Rectangle cr = prop_row(x, &y, w, "2-D", "A profile (an airfoil, a section) extruded along one axis: meshed [[empty|one cell thick]] across it, with "
                             "its front and back empty, as OpenFOAM's 2-D cases are. Far fewer cells than 3-D.", 24);
     bool on = T.m.twoD;
     if (ui_switch(ui_id("stl-2d"), cr.x, cr.y + 2, &on)) set_two_d(on, on ? stl_thin_axis(&T.stl) : T.m.normal2D);
@@ -2041,7 +2042,7 @@ static float flow_step(float x, float y, float w)
         /* up: one of the four directions square to the flow */
         const char *upNames[4]; int upDirs[4], nu = 0, cur = 0, ud = mesher_up(&T.m);
         for (int d = 0; d < DIR__N; d++) if (d / 2 != T.m.flowDir / 2) { if (d == ud) cur = nu; upDirs[nu] = d; upNames[nu++] = DIR_NAME[d]; }
-        cr = prop_row(x, &y, w, "Up", "Where the top of the tunnel is; the ground (if the body sits on it) is the other way.", 34);
+        cr = prop_row(x, &y, w, "Up", "Where the top of the [[domain|tunnel]] is; the ground (if the body sits on it) is the other way.", 34);
         if (ui_segmented(ui_id("stl-updir"), (Rectangle){ cr.x, cr.y, fminf(240, cr.width), 34 }, upNames, nu, &cur) && upDirs[cur] != ud) {
             T.m.upDir = upDirs[cur]; save_cfg();
         }
@@ -2200,7 +2201,7 @@ static float sizes_section(float x, float y, float w)
 {
     float y0 = y;
     MeshCfg *m = &T.m;
-    y += section_head(x, y, w, "Cell size", "Everything is sized from the base size, as in STAR-CCM+. Pick a density to start from; the "
+    y += section_head(x, y, w, "Cell size", "Everything is sized from the [[base-size|base size]], as in STAR-CCM+. Pick a density to start from; the "
                                            "numbers under it are what it sets.");
     /* the density: the defaults for this part and flow, the base size doubled or halved */
     {
@@ -2220,10 +2221,13 @@ static float sizes_section(float x, float y, float w)
         /* what that means, in numbers anyone can picture */
         double Lp = 0; for (int k = 0; k < 3; k++) Lp = fmax(Lp, T.stl.bmax[k] - T.stl.bmin[k]);
         double hs = mesher_surface_cell(m), n = mesher_estimate_cells(m, &T.stl);
-        char t[200], cl[64]; fmt_cells(cl, sizeof cl, n);
-        pl_fmt_ui(t, sizeof t, "About %.0f cells along the part's length at its surface, %s in all. Finer is more accurate and slower to run.",
+        char t[400], cl[64]; fmt_cells(cl, sizeof cl, n);
+        pl_fmt_ui(t, sizeof t, "About %.0f cells along the part's length at its [[surface-size|surface]], %s in all. Finer is more accurate and slower to run, until "
+                  "the answer [[mesh-independence|stops changing]].",
                   hs > 0 ? Lp / hs : 0, cl);
         y += note(x, y, w, t);
+        Working wk; wk_surface_cell(&wk, m->base, m->targetPct, MESHERS[m->mesher].flags & MF_OCTREE, Lp);
+        y += teach_working("stl-wk-size", x, y - 6, w, &wk) - 2;
     }
     char a[96], l1[32], l2[32];
     /* a part thinner than its surface cells: snappyHexMesh can't carve it out */
@@ -2261,18 +2265,18 @@ static float sizes_section(float x, float y, float w)
         }
         y += ch + 14;
     }
-    if (row_num(x, &y, w, "stl-base", "Base size", "The largest cell, away from the surface.", &m->base, "%.4g", 1e-9, 1e6, "m", NULL)) save_cfg();
+    if (row_num(x, &y, w, "stl-base", "Base size", "The largest [[cell]], away from the surface.", &m->base, "%.4g", 1e-9, 1e6, "m", NULL)) save_cfg();
     fmt_len(l1, sizeof l1, m->base * m->targetPct / 100);
     snprintf(a, sizeof a, "= %s", l1);
-    if (row_num(x, &y, w, "stl-target", "Target surface size", "The cell size on the surface.", &m->targetPct, "%g", 0.01, 1000, "%", a)) save_cfg();
+    if (row_num(x, &y, w, "stl-target", "Target surface size", "The [[surface-size|cell size on the surface]].", &m->targetPct, "%g", 0.01, 1000, "%", a)) save_cfg();
     if (!T.adv) return y - y0;
     fmt_len(l2, sizeof l2, m->base * m->minPct / 100);
     snprintf(a, sizeof a, "= %s", l2);
     if (row_num(x, &y, w, "stl-min", "Minimum surface size", "Reached on tight curves and sharp edges.", &m->minPct, "%g", 0.01, 1000, "%", a)) save_cfg();
-    if (row_num(x, &y, w, "stl-curv", "Surface curvature", "Cells around a full circle on curved surfaces.", &m->curvature, "%g", 4, 360, "pts/circle", NULL)) save_cfg();
+    if (row_num(x, &y, w, "stl-curv", "Surface curvature", "Cells around a full circle on curved surfaces ([[curvature]]).", &m->curvature, "%g", 4, 360, "pts/circle", NULL)) save_cfg();
     if (row_num(x, &y, w, "stl-sgrow", "Surface growth rate", "How fast cells grow along the surface (SALOME).", &m->surfGrowth, "%g", 1.01, 3, NULL, NULL)) save_cfg();
-    if (row_num(x, &y, w, "stl-vgrow", "Volume growth rate", "How fast cells grow away from the surface: lower is smoother and more cells.", &m->volGrowth, "%g", 1.01, 3, NULL, NULL)) save_cfg();
-    if (row_num(x, &y, w, "stl-feat", "Feature angle", "Edges sharper than this are kept crisp (snapped to, not smoothed over).", &m->featureAngle, "%g", 1, 180, "°", NULL)) save_cfg();
+    if (row_num(x, &y, w, "stl-vgrow", "Volume growth rate", "How fast cells grow away from the surface ([[expansion-ratio|growth rate]]): lower is smoother and more cells.", &m->volGrowth, "%g", 1.01, 3, NULL, NULL)) save_cfg();
+    if (row_num(x, &y, w, "stl-feat", "Feature angle", "[[feature-edge|Edges]] sharper than this are kept crisp (snapped to, not smoothed over).", &m->featureAngle, "%g", 1, 180, "°", NULL)) save_cfg();
     return y - y0;
 }
 
@@ -2294,8 +2298,8 @@ static float prism_section(float x, float y, float w)
     float y0 = y;
     MeshCfg *m = &T.m;
     bool none = salome_mesher() && !salome_layers(m);
-    y += section_head(x, y, w, "Prism layers", m->twoD ? "Thin cells along the walls, for the boundary layer: in 2-D they follow the profile's outline."
-                                                      : "Thin cells stacked on the walls, for the boundary layer.");
+    y += section_head(x, y, w, "Prism layers", m->twoD ? "Thin cells along the walls, for the [[boundary-layer]]: in 2-D they follow the profile's outline."
+                                                      : "Thin [[prism-layers|cells stacked on the walls]], for the [[boundary-layer]].");
     Rectangle cr = prop_row(x, &y, w, "Prism layer mesher", NULL, 24);
     if (ui_switch(ui_id("stl-prism"), cr.x, cr.y + 2, &m->prism)) save_cfg();
     if (!m->prism) return y - y0;
@@ -2328,10 +2332,10 @@ static float prism_section(float x, float y, float w)
     }
     double T0 = m->base * m->prismPct / 100, h = mesher_layer_cell(m), Tm = mesher_layer_rel(m, NULL) * h;
     char a[96], l[32], t0[32]; fmt_len(t0, sizeof t0, T0); snprintf(a, sizeof a, "= %s", t0);
-    if (row_num(x, &y, w, "stl-pt", "Prism layer total thickness", "Of the base size.", &m->prismPct, "%g", 0.1, 500, "%", a)) save_cfg();
+    if (row_num(x, &y, w, "stl-pt", "Prism layer total thickness", "[[layer-thickness|The whole stack]], as a share of the base size.", &m->prismPct, "%g", 0.1, 500, "%", a)) save_cfg();
     double r = m->stretch, first = r == 1 ? Tm / m->layers : Tm * (r - 1) / (pow(r, m->layers) - 1);
     fmt_len(l, sizeof l, first); snprintf(a, sizeof a, "first layer %s", l);
-    if (row_num(x, &y, w, "stl-ps", "Prism layer stretching", "Each layer this much thicker than the one below.", &m->stretch, "%g", 1, 3, NULL, a)) save_cfg();
+    if (row_num(x, &y, w, "stl-ps", "Prism layer stretching", "Each layer this much thicker than the one below (the [[expansion-ratio]]).", &m->stretch, "%g", 1, 3, NULL, a)) save_cfg();
     char tl[32], hl[32], t2[480];
     fmt_len(tl, sizeof tl, Tm); fmt_len(hl, sizeof hl, h);
     if (fabs(Tm - T0) > 0.02 * T0)
@@ -2350,6 +2354,8 @@ static float prism_section(float x, float y, float w)
         pl_fmt_ui(t2, sizeof t2, "snappyHexMesh sizes them to the %s surface cells: where the surface is refined further (curvature, the "
                   "minimum size) they thin with its cells, and can break off where the size steps (Even surface cells holds them).", hl);
     y += note(x, y + 4, w, t2);
+    Working wk; wk_layer_stack(&wk, Tm, m->layers, r, h);
+    y += teach_working("stl-wk-layers", x, y, w, &wk);
     return y - y0;
 }
 
@@ -2357,7 +2363,7 @@ static float zones_section(float x, float y, float w)
 {
     float y0 = y;
     MeshCfg *m = &T.m;
-    y += section_head(x, y, w, "Volumetric controls", "Finer cells inside a box, sphere or cylinder: a wake, a gap, a jet. Coordinates in metres.");
+    y += section_head(x, y, w, "Volumetric controls", "[[refinement-region|Finer cells]] inside a box, sphere or cylinder: a wake, a gap, a jet. Coordinates in metres.");
     static const char *kinds[] = { "Box", "Sphere", "Cylinder" };
     static const char *const AX[3] = { "x", "y", "z" };
     int del = -1;

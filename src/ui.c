@@ -1,6 +1,7 @@
 /* ui.c -- immediate-mode UI toolkit (see ui.h) */
 #define _GNU_SOURCE
 #include "ui.h"
+#include "glossary.h"
 #include "input.h"
 
 #include <math.h>
@@ -85,7 +86,7 @@ static struct {
     /* tooltip */
     UiId  tipKey;
     double tipStart;
-    char  tip[256];
+    char  tip[600], tipTitle[96];
     bool  tipShow;
 
     Toast toasts[MAX_TOASTS];
@@ -829,8 +830,87 @@ void ui_text_clip(UiFamily f, float size, const char *s, float x, float y, float
     ui_text(f, size, buf, x, y, c);
 }
 
+/* ---- [[term]] markup (glossary.h): the shown words get a dotted underline and go to ui_term_hook, which handles
+   their hover and click. Wrapped as ui_text_wrap does, so a marked string takes the same room as its plain text. */
+void (*ui_term_hook)(const char *key, Rectangle r) = NULL;
+
+typedef struct { int a, b; } WrapWord;      /* [a, b) in the plain text */
+
+static void wrap_line_draw(UiFamily f, float size, const char *plain, const WrapWord *wd, int nw, const GlossSpan *sp, int ns,
+                           float x, float y, Color c)
+{
+    char line[1024]; int off[160]; int ll = 0;
+    for (int i = 0; i < nw && i < 160; i++) {
+        if (i && ll < (int)sizeof line - 1) line[ll++] = ' ';
+        off[i] = ll;
+        int n = wd[i].b - wd[i].a;
+        if (ll + n > (int)sizeof line - 1) n = (int)sizeof line - 1 - ll;
+        memcpy(line + ll, plain + wd[i].a, (size_t)n); ll += n;
+    }
+    line[ll] = 0;
+    if (nw > 160) nw = 160;
+    /* each span's part on this line: from the first word it touches to the last */
+    Rectangle seg[32]; int segK[32], nseg = 0;
+    for (int k = 0; k < ns && nseg < 32; k++) {
+        int o0 = -1, o1 = -1;
+        for (int i = 0; i < nw; i++) {
+            if (wd[i].a >= sp[k].end || wd[i].b <= sp[k].start) continue;
+            int s0 = wd[i].a > sp[k].start ? wd[i].a : sp[k].start, s1 = wd[i].b < sp[k].end ? wd[i].b : sp[k].end;
+            if (o0 < 0) o0 = off[i] + (s0 - wd[i].a);
+            o1 = off[i] + (s1 - wd[i].a);
+        }
+        if (o0 < 0 || o1 <= o0) continue;
+        char pre[1024];
+        snprintf(pre, sizeof pre, "%.*s", o0, line);  float x0 = x + ui_text_w(f, size, pre);
+        snprintf(pre, sizeof pre, "%.*s", o1, line);  float x1 = x + ui_text_w(f, size, pre);
+        seg[nseg] = (Rectangle){ x0, y - 1, x1 - x0, size + 5 }; segK[nseg++] = k;
+    }
+    for (int i = 0; i < nseg; i++) if (ui_term_hook) ui_term_hook(sp[segK[i]].key, seg[i]);   /* their hover first: under the text */
+    ui_text(f, size, line, x, y, c);
+    if (ui_culled(y - size, y + 2 * size)) return;
+    Color u = ui_alpha(U.th.lcars ? U.th.lc[1] : U.th.accent, U.disabled ? 0.35f : 0.8f);
+    for (int i = 0; i < nseg; i++)                         /* dotted underline */
+        for (float dx = 0; dx < seg[i].width - 0.5f; dx += 3.5f)
+            DrawRectangleRec((Rectangle){ snap(seg[i].x + dx), snap(y + size + 2), fminf(1.6f, seg[i].width - dx), 1.2f }, u);
+}
+
+static float text_wrap_marked(UiFamily f, float size, const char *s, Rectangle r, float lineH, Color c, bool draw)
+{
+    char plain[2048]; GlossSpan sp[32];
+    int ns = gloss_strip(s, plain, sizeof plain, sp, 32);
+    WrapWord wd[160]; int nw = 0;
+    char cand[1024];
+    float y = r.y;
+    const char *p = plain;
+    while (*p) {
+        if (*p == '\n') {
+            if (draw && nw) wrap_line_draw(f, size, plain, wd, nw, sp, ns, r.x, y, c);
+            y += lineH; nw = 0; p++;
+            continue;
+        }
+        const char *w = p;
+        while (*p && *p != ' ' && *p != '\n') p++;
+        WrapWord nwd = { (int)(w - plain), (int)(p - plain) };
+        if (nwd.b > nwd.a) {
+            int cl = 0;                                         /* the line with this word on the end */
+            for (int i = 0; i < nw; i++) cl += snprintf(cand + cl, sizeof cand - (size_t)cl, "%s%.*s", i ? " " : "", wd[i].b - wd[i].a, plain + wd[i].a);
+            if (cl > (int)sizeof cand - 1) cl = (int)sizeof cand - 1;
+            snprintf(cand + cl, sizeof cand - (size_t)cl, "%s%.*s", nw ? " " : "", nwd.b - nwd.a, plain + nwd.a);
+            if ((nw && ui_text_w(f, size, cand) > r.width) || nw == 160) {
+                if (draw) wrap_line_draw(f, size, plain, wd, nw, sp, ns, r.x, y, c);
+                y += lineH; nw = 0;
+            }
+            wd[nw++] = nwd;
+        }
+        while (*p == ' ') p++;
+    }
+    if (nw) { if (draw) wrap_line_draw(f, size, plain, wd, nw, sp, ns, r.x, y, c); y += lineH; }
+    return y - r.y;
+}
+
 float ui_text_wrap(UiFamily f, float size, const char *s, Rectangle r, float lineH, Color c, bool draw)
 {
+    if (s && strstr(s, "[[")) return text_wrap_marked(f, size, s, r, lineH, c, draw);
     char line[1024] = "";
     int ll = 0;
     float y = r.y;
@@ -1354,7 +1434,7 @@ void ui_begin_frame(void)
     }
     U.cursor = MOUSE_CURSOR_DEFAULT;
     U.wheelTarget = NULL;
-    U.tipShow = false;
+    U.tipShow = false; U.tipTitle[0] = 0;
     U.editSeen = false;
     enteredId = 0;
     U.disabled = false;
@@ -1564,20 +1644,22 @@ void ui_end_frame(void)
     }
     U.layer = 0;
     if (U.tipShow && U.tip[0] && !U.pop.open && !U.mDown) {
-        float w = fminf(ui_text_w(F_REG, 12.5f, U.tip) + 20, 360);
-        float h = ui_text_wrap(F_REG, 12.5f, U.tip, (Rectangle){ 0, 0, w - 20, 999 }, 17, t->text, false) + 14;
+        bool ti = U.tipTitle[0] != 0;
+        float maxW = ti ? 400 : 360;
+        float w = fminf(fmaxf(ui_text_w(F_REG, 12.5f, U.tip), ti ? ui_text_w(F_SEMI, 13.5f, U.tipTitle) : 0) + 20, maxW);
+        float th = ti ? 22 : 0;
+        float h = ui_text_wrap(F_REG, 12.5f, U.tip, (Rectangle){ 0, 0, w - 20, 999 }, 17, t->text, false) + 14 + th;
         float x = U.mouse.x + 14, y = U.mouse.y + 20;
         if (x + w > ui_width() - 6) x = ui_width() - 6 - w;
         if (y + h > ui_height() - 6) y = U.mouse.y - h - 8;
+        if (y < 6) y = 6;
         Rectangle r = { x, y, w, h };
         ui_shadow(r, 7, 0.8f);
-        if (t->lcars) {
-            ui_rect(r, 9, t->lc[1]);
-            ui_text_wrap(F_REG, 12.5f, U.tip, (Rectangle){ x + 10, y + 7, w - 20, h }, 17, BLACK, true);
-        } else {
-            ui_rect(r, 7, t->dark ? hex(0x22324D) : hex(0x1E2A40));
-            ui_text_wrap(F_REG, 12.5f, U.tip, (Rectangle){ x + 10, y + 7, w - 20, h }, 17, hex(0xEEF2F8), true);
-        }
+        Color fg = t->lcars ? BLACK : hex(0xEEF2F8);
+        if (t->lcars) ui_rect(r, 9, t->lc[1]);
+        else ui_rect(r, 7, t->dark ? hex(0x22324D) : hex(0x1E2A40));
+        if (ti) ui_text_clip(F_SEMI, 13.5f, U.tipTitle, x + 10, y + 8, w - 20, fg);
+        ui_text_wrap(F_REG, 12.5f, U.tip, (Rectangle){ x + 10, y + 7 + th, w - 20, h }, 17, fg, true);
     }
     draw_toasts();
     if (U.mReleased) U.active = 0;
@@ -2263,13 +2345,19 @@ bool ui_row(UiId id, Rectangle r, bool selected)
     return ui_clicked(r);
 }
 
-void ui_tooltip(Rectangle r, const char *text)
+void ui_tooltip_titled(Rectangle r, const char *title, const char *text, float delay)
 {
     if (!text || !ui_hovered(r)) return;
     UiId key = fnv(&r, sizeof r, 7);
     if (key != U.tipKey) { U.tipKey = key; U.tipStart = U.time; }
-    if (U.time - U.tipStart > 0.45) { U.tipShow = true; snprintf(U.tip, sizeof U.tip, "%s", text); }
+    if (U.time - U.tipStart > delay) {
+        U.tipShow = true;
+        gloss_strip(text, U.tip, sizeof U.tip, NULL, 0);             /* a tooltip's words aren't links */
+        snprintf(U.tipTitle, sizeof U.tipTitle, "%s", title ? title : "");
+    } else ui_request_frames(2);
 }
+
+void ui_tooltip(Rectangle r, const char *text) { ui_tooltip_titled(r, NULL, text, 0.45f); }
 
 /* ---------------------------------------------------------------- scroll */
 float ui_scroll_begin(UiScroll *s, Rectangle view)

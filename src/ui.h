@@ -150,6 +150,9 @@ void  ui_progress(Rectangle r, float frac, Color c);
 void  ui_spinner(float cx, float cy, float rad, Color c);
 bool  ui_row(UiId id, Rectangle r, bool selected);          /* hoverable list row */
 void  ui_tooltip(Rectangle r, const char *text);
+void  ui_tooltip_titled(Rectangle r, const char *title, const char *text, float delay);   /* a heading over the text */
+/* ui_text_wrap draws "[[key]]" / "[[key|shown words]]" (glossary.h) underlined, and hands each to this hook (hover, click) */
+extern void (*ui_term_hook)(const char *key, Rectangle r);
 void  ui_occlude_begin(Rectangle r);        /* a floating control on the page layer: what is under it gets no mouse */
 void  ui_occlude_end(void);
 void  ui_divider(float x, float y, float w);

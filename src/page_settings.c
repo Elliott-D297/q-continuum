@@ -911,11 +911,20 @@ void draw_modals(void)
     case MD_GLOSSARY:
         teach_glossary_modal(&close);
         break;
+    case MD_CALC:
+        calc_modal(&close);
+        break;
     case MD_REVIEW:
         review_modal(&close);
         break;
     case MD_WHATS_NEW: {
         static const char *const NEWS[][2] = {
+            { "Calculators, pre-flight checks, quality explained", "Calculators (palette, or First layer from y+ on the STL mesher): the "
+              "first cell height from y+ for a plate or a pipe, with liquid nitrogen, oxygen and hydrogen; cell grading; memory and run time "
+              "measured on this machine; Reynolds, Mach, Prandtl, Rayleigh and the rest with what each means for the setup. Generate says "
+              "what meshing will need and stops a mesh that won't fit. Before a run: a 2-D mesh more than one cell thick, a wedge over 5 "
+              "degrees, a case on a Windows drive. Mesh > Quality explains every checkMesh number with a picture and the fix, and shows the "
+              "flagged cells in ParaView." },
             { "Glossary and show the working", "Underlined words on the Mesh pages are CFD terms: hover one for a short explanation in "
               "fluid-mechanics words, click it for the Glossary (Ctrl+G), with a picture, numbers to know, where it lives in OpenFOAM and "
               "related terms. Under the STL mesher's cell size and prism layers, Show the working writes the calculation out by hand: "

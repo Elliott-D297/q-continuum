@@ -173,6 +173,8 @@ static float working_body(const Working *wk, float x, float y, float w, bool dra
     return y - y0;
 }
 
+void teach_working_set(const char *id, bool open) { *open_state(ui_id(id)) = open; }
+
 float teach_working(const char *id, float x, float y, float w, const Working *wk)
 {
     UiId uid = ui_id(id);

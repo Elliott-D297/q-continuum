@@ -1,0 +1,38 @@
+# Mesh overhaul plan step 3 (gap L11): a SALOME tetrahedral mesh of an STL with prism layers on, internal flow, comes out
+# without layers (NETGEN grows them on CAD faces only); after Generate the page says so, with SALOME's reason and the fixes.
+budget p95 60 max 600
+shell python3 "$QC_TESTS/tools/gen_named_box.py" $SB/ws/box.stl
+open $SB/ws/cavity
+click nav:mesh
+wait-until page Mesh
+click text:STL mesher
+wait 5
+click stl-path
+enter $SB/ws/box.stl
+wait 10
+click stl-next
+wait 3
+click stl-next
+wait 5
+click stl-name-kinds
+wait 3
+click stl-next
+wait 5
+click stl-mesher
+wait 3
+click text:SALOME · Tetrahedral: NETGEN
+wait 5
+assert text This mesh will have no prism layers
+click stl-next
+wait 5
+click stl-gen
+wait-until job running timeout 20
+wait-until job finished timeout 600
+assert log log.salome this mesh has none
+wait 10
+assert text This mesh has no prism layers
+assert text SALOME said: prism layers on the STL
+assert text You asked for 3 prism layers; this mesh has none.
+wheel -6 stl-gen
+wait 10
+screenshot $OUT/1_no_layers.png

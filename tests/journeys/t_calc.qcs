@@ -1,0 +1,135 @@
+# Mesh overhaul plan step 2, the calculators: wall spacing from y+ (opened from the STL mesher's prism layers, sent back to
+# it), grading, cells / memory / time, the dimensionless numbers; the Generate step's memory line and its stop when a mesh
+# can't fit. The numbers are docs/CALCULATORS.md's examples 1 and 3 (test_calc checks the arithmetic).
+budget p95 80 max 600
+shell mkdir -p $SB/ws/calc/system && python3 "$QC_TESTS/tools/gen_named_box.py" $SB/ws/box.stl && printf 'FoamFile { version 2.0; format ascii; class dictionary; object controlDict; }\napplication simpleFoam;\nstartTime 0;\nendTime 10;\ndeltaT 1;\nwriteControl timeStep;\nwriteInterval 10;\n' > $SB/ws/calc/system/controlDict
+open $SB/ws/calc
+click nav:mesh
+wait-until page Mesh
+click text:STL mesher
+wait 5
+click stl-path
+enter $SB/ws/box.stl
+wait 10
+click stl-next
+wait 3
+click stl-next
+wait 5
+click stl-name-kinds
+wait 5
+click stl-next
+wait 5
+# the prism layers' button opens the wall spacing tab, filled in from the case
+wheel -8 stl-ps
+wait 10
+click stl-calc-yplus
+wait 5
+assert modal calc
+assert text Filled in from calc
+assert text first cell height
+# example 1: air, 10 m/s along a 1 m plate, y+ 1 -> 69.24 µm, Re 6.6e5, 24 layers cover the 25.37 mm boundary layer
+click calc-U
+key A ctrl
+enter 10
+click calc-L
+key A ctrl
+enter 1
+click calc-yp
+key A ctrl
+enter 1
+click calc-cell
+key A ctrl
+enter 0
+wait 5
+assert text 69.24 µm
+assert text Re 6.6e+05
+assert text 24 layers growing by 1.2 cover it (27.18 mm)
+assert text Cf = 0.026 Re^(-1/7)
+screenshot $OUT/1_wall.png
+# a cryogen: liquid nitrogen in a 25 mm pipe at 2 m/s
+click calc-fluid
+wait 3
+click text:Liquid nitrogen
+wait 3
+assert text boiling at 1 atm, 77.36 K
+click calc-flow#1
+click calc-U
+key A ctrl
+enter 2
+click calc-L
+key A ctrl
+enter 0.025
+wait 5
+assert text 4.628 µm
+assert text Haaland
+screenshot $OUT/2_ln2_pipe.png
+# back to air, and send the layers to the mesher
+click calc-fluid
+wait 3
+click text:Air
+click calc-flow#0
+click calc-U
+key A ctrl
+enter 10
+click calc-L
+key A ctrl
+enter 1
+wait 5
+click calc-send-layers
+wait 5
+assert text prism layers from 69.24 µm
+# grading: example 3a, then 3c
+click calc-tabs#1
+wait 5
+assert text R = 10
+assert text (20 1 1) simpleGrading (10 1 1)
+assert text 1.252 mm
+screenshot $OUT/3_grading.png
+click calc-gmode#2
+click calc-gL
+key A ctrl
+enter 0.05
+click calc-gd1b
+key A ctrl
+enter 0.0001
+click calc-gr
+key A ctrl
+enter 1.2
+wait 5
+assert text 25 cells
+screenshot $OUT/4_grading_growth.png
+# cells, memory, time: a mesh far too big for the machine
+click calc-tabs#2
+wait 5
+assert text This machine:
+click calc-cells
+key A ctrl
+enter 400000000
+wait 5
+assert text More than is free
+screenshot $OUT/5_cost.png
+click calc-cells
+key A ctrl
+enter 1000000
+wait 3
+# the dimensionless numbers
+click calc-tabs#3
+wait 5
+assert text Reynolds: transitional
+assert text Mach: incompressible
+assert text Prandtl
+click calc-dim#7
+wait 3
+screenshot $OUT/6_dimless.png
+key ESCAPE
+wait 3
+# the Generate step says what meshing will need
+click stl-next
+wait 5
+assert text Meshing needs about
+screenshot $OUT/7_generate.png
+# and the palette action
+action help.calc
+wait 5
+assert modal calc
+key ESCAPE

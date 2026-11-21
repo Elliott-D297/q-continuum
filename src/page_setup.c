@@ -1525,7 +1525,11 @@ static float wall_rows(Case *c, float x, float y, float w, bool hints)
         }
         if (!side) th += 50;
     }
-    y += th + 16;
+    y += th + 8;
+    float cw = ui_button_width(ICON_SIGMA, "Work it through");
+    if (ui_button(ui_id("su-yplus-calc"), (Rectangle){ x, y, cw, 30 }, ICON_SIGMA, "Work it through", BTN_GHOST)) calc_open(CALC_WALL);
+    ui_tooltip((Rectangle){ x, y, cw, 30 }, "The Calculators dialog: this estimate step by step, other fluids (liquid nitrogen, hydrogen, oxygen), a pipe instead of a plate");
+    y += 30 + 12;
     return y - y0;
 }
 

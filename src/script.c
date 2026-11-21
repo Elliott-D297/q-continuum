@@ -138,7 +138,7 @@ static bool resolve(const char *t, Rectangle *vis, Rectangle *whole, Rectangle *
 /* ---------------------------------------------------------------- conditions */
 static const char *const MODAL_NAMES[] = { "none", "open-folder", "clone", "clean", "delete", "unsaved", "quit-running", "add-entry",
     "run-results", "new-file", "run-script", "cpl-new", "cpl-open", "cpl-results", "pv-claude", "hist-confirm", "precheck", "queue-add",
-    "movie", "study-new", "study-out", "study-exp", "deme-new", "conflict", "shortcuts", "whats-new", "palette", "environment", "review", "plume", "away", "cpl-build", "flavour", "blank", "del-file", "glossary" };
+    "movie", "study-new", "study-out", "study-exp", "deme-new", "conflict", "shortcuts", "whats-new", "palette", "environment", "review", "plume", "away", "cpl-build", "flavour", "blank", "del-file", "glossary", "calc" };
 
 const char *app_page_title(int p);
 

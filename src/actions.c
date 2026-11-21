@@ -76,6 +76,7 @@ static void a_keys(void) { A.modal = MD_SHORTCUTS; }
 static void a_computer(void) { palette_open(); }
 static void a_news(void) { A.modal = MD_WHATS_NEW; }
 static void a_glossary(void) { teach_glossary_open(NULL); }
+static void a_calc(void) { calc_open(-1); }
 static void a_tour(void) { tour_start(); }
 static void a_mesh_tour(void) { tour_start_mesh(); }
 static void a_intro(void) { intro_start(); }
@@ -157,6 +158,8 @@ static const Action ACTIONS[] = {
       "This list", NULL, a_keys, true },
     { "help.glossary",  "Glossary",               "Ctrl+G",        KEY_G,         M_CTRL,         NULL,           NULL,
       "The words of CFD and meshing in fluid-mechanics terms, with numbers to know", NULL, a_glossary, false },
+    { "help.calc",      "Calculators",            NULL,            0,             0,              NULL,           NULL,
+      "Wall spacing from y+ (cryogens too), cell grading, memory and run time, the dimensionless numbers, worked out by hand", NULL, a_calc, false },
     { "help.tour",      "Take the tour",          NULL,            0,             0,              "set-tour",     NULL,
       "A walk through every page: what it is for and how to work it", NULL, a_tour, false },
     { "help.meshtour",  "Meshing tutorial",       NULL,            0,             0,              "set-meshtour", NULL,

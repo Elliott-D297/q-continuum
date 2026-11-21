@@ -1,0 +1,44 @@
+# Mesh overhaul plan step 4 (gap L5): Mesh > Quality explains each checkMesh measure (picture, effect on the solution,
+# limits, fix), opening at the worst one; "Show the flagged cells in ParaView" gathers checkMesh's sets into the cellSet
+# qualityCells, writes it to VTK and opens ParaView with paraview/quality.py (recorded, not opened, in tests).
+# The mesh: the cavity sheared 76 degrees (760 faces over 70 degrees of non-orthogonality, one face of skewness 4).
+budget p95 80 max 800
+shell cp -a "${FOAM_TUTORIALS:-/usr/lib/openfoam/openfoam2606/tutorials}/incompressible/icoFoam/cavity/cavity" $SB/ws/sk && python3 -c "import re,sys; p=sys.argv[1]; s=open(p).read(); s=re.sub(r'vertices\s*\((.|\n)*?\);', 'vertices ( (0 0 0) (1 0 0) (5 1 0) (4 1 0) (0 0 0.1) (1 0 0.1) (5 1 0.1) (4 1 0.1) );', s, count=1); open(p,'w').write(s)" $SB/ws/sk/system/blockMeshDict
+open $SB/ws/sk
+action mesh.generate
+wait-until job running timeout 20
+wait-until job finished timeout 120
+click nav:mesh
+wait-until page Mesh
+click mesh-tabs#4
+wait 10
+click mq-full
+wait-until job running timeout 20
+wait-until job finished timeout 120
+wait 10
+assert text What the numbers mean
+assert text Non-orthogonality
+# it opens at the failed measure: skewness
+assert text WHAT IT DOES TO THE SOLUTION
+assert text The value on the face is taken at the wrong place
+screenshot $OUT/1_skew.png
+click mq-q#0
+wait 5
+assert text The angle between the line joining two cell centres
+assert text 760 past the limit (max 70.0°)
+screenshot $OUT/2_nonortho.png
+# a measure Check everything adds
+click mq-q#9
+wait 5
+assert text The smaller of two neighbouring cells' volumes over the larger
+screenshot $OUT/3_volratio.png
+# the flagged cells, as a cellSet and in ParaView
+click mq-cells
+wait-until job running timeout 20
+wait-until job finished timeout 120
+wait-until toast ParaView timeout 10
+assert file constant/polyMesh/sets/qualityCells
+assert file postProcessing/quality/qualityCells_0.vtm
+assert file paraview/quality.py
+assert log log.topoSet.quality qualityCells now size 400
+screenshot $OUT/4_paraview.png

@@ -20,6 +20,8 @@
 #include <sys/wait.h>
 #include <unistd.h>
 #include "app.h"
+#include "calc.h"
+#include "precheck.h"
 #include "teach.h"
 #include "assets.h"
 #include "orbit.h"
@@ -2356,6 +2358,11 @@ static float prism_section(float x, float y, float w)
     y += note(x, y + 4, w, t2);
     Working wk; wk_layer_stack(&wk, Tm, m->layers, r, h);
     y += teach_working("stl-wk-layers", x, y, w, &wk);
+    /* the first layer from y+, for the flow this part will see: the Calculators dialog, sent back here */
+    float cw = ui_button_width(ICON_SIGMA, "First layer from y+");
+    if (ui_button(ui_id("stl-calc-yplus"), (Rectangle){ x, y, cw, 32 }, ICON_SIGMA, "First layer from y+", BTN_SECONDARY)) calc_open(CALC_WALL);
+    ui_tooltip((Rectangle){ x, y, cw, 32 }, "Work out the first layer height for a y+ from the flow speed, the fluid (cryogens too) and the part's size, then send it here");
+    y += 42;
     return y - y0;
 }
 
@@ -2460,10 +2467,69 @@ static float mesh_step(float x, float y, float w)
 
 static double cells_estimate(void) { return mesher_estimate_cells(&T.m, &T.stl); }
 
+double stlmesh_cells_estimate(Case *c)
+{
+    if (!c) return 0;
+    sync_case(c);
+    return T.loaded ? cells_estimate() : 0;
+}
+
 static void fmt_cells(char *b, size_t cap, double n)
 {
     if (n >= 1e6) pl_fmt_ui(b, cap, "about %.1f million cells", n / 1e6);
     else pl_fmt_ui(b, cap, "about %.0f thousand cells", fmax(1, n / 1e3));
+}
+
+/* after a SALOME mesh: the prism layers asked for and not made, said out loud with the reason (mesh overhaul plan step 3,
+   gap L11). The script says so in log.salome when it drops them (NETGEN grows viscous layers on CAD faces, not on an STL's
+   bare triangles, unless the part is an all-wall body off the ground); checkMesh counting no prisms says so for the rest.
+   Reads the logs again only when they change. */
+static bool layers_missing(Case *c, char *why, size_t cap)
+{
+    static char path[PL_PATH], said[400]; static time_t mtS, mtC; static long prisms; static bool have;
+    char ls[PL_PATH], lc[PL_PATH];
+    pl_join(ls, sizeof ls, c->s.path, "log.salome"); pl_join(lc, sizeof lc, c->s.path, "log.checkMesh");
+    time_t a = pl_mtime(ls), b = pl_mtime(lc);
+    if (strcmp(path, c->s.path) || a != mtS || b != mtC) {
+        pl_strlcpy(path, c->s.path, sizeof path); mtS = a; mtC = b; said[0] = 0; prisms = -1; have = false;
+        char *t = a ? pl_read_file(ls, NULL) : NULL;
+        for (char *q = t ? strstr(t, "Q-Continuum: ") : NULL; q; q = strstr(q + 13, "Q-Continuum: ")) {
+            char *e = strchr(q, '\n'); size_t n = e ? (size_t)(e - q) : strlen(q);
+            char line[400]; snprintf(line, sizeof line, "%.*s", (int)(n - 13 < sizeof line ? n - 13 : sizeof line - 1), q + 13);
+            if (strstr(line, "without prism layers") || strstr(line, "without them") || strstr(line, "this mesh has none")) {
+                pl_strlcpy(said, line, sizeof said); have = true;
+            }
+        }
+        free(t);
+        char *k = b ? pl_read_file(lc, NULL) : NULL;
+        const char *p = k ? strstr(k, "prisms:") : NULL;
+        if (p) prisms = atol(p + 7);
+        free(k);
+    }
+    bool poly = T.m.mesher == MESHER_POLY || T.m.polyConvert;  /* polyDualMesh turns the prisms into polyhedra: only the log tells */
+    if (have) { snprintf(why, cap, "SALOME said: %s.", said); return true; }
+    if (!poly && prisms == 0) { snprintf(why, cap, "checkMesh counts no prisms in it."); return true; }
+    return false;
+}
+
+static float layers_missing_notice(Case *c, float x, float y, float w)
+{
+    MeshCfg *m = &T.m;
+    if (!c->s.meshed || !salome_mesher() || !m->prism || m->layers <= 0 || stlmesh_mesh_current(c) == 0) return 0;
+    char why[460];
+    if (!layers_missing(c, why, sizeof why)) return 0;
+    char t[1100], hl[32];
+    fmt_len(hl, sizeof hl, mesher_surface_cell(m));
+    bool said = !strncmp(why, "SALOME said", 11);          /* its words name the fixes already: add only the STEP file */
+    pl_fmt_ui(t, sizeof t, "You asked for %d prism layers; this mesh has none. %s Without them the cells on the walls are as big as the "
+              "surface cells (%s): y+ is far above 1, so a resolved wall isn't, and the wall shear stress, drag and heat transfer come out "
+              "wrong. %s", m->layers, why, hl, said ? "A STEP file of the part (Geometry) also gives SALOME the CAD faces it grows layers on." :
+              "SALOME grows layers on CAD faces: give it the part as a STEP file (Geometry), or switch Remesh surface on for a CAD-made "
+              "part with flat faces, or use snappyHexMesh, which makes layers on any STL.");
+    const char *title = "This mesh has no prism layers";
+    float ch = callout_height(w, title, t);
+    callout((Rectangle){ x, y, w, ch }, TOAST_WARN, ICON_TRIANGLE_ALERT, title, t);
+    return ch + 14;
 }
 
 /* ---------------------------------------------------------------------------- 5 Generate */
@@ -2478,6 +2544,34 @@ static float generate_step(Case *c, float x, float y, float w)
     ui_text(F_SEMI, 16, est, x, y, n > 2e7 ? TH.warn : TH.text);
     if (n > 2e7) ui_text(F_REG, 13, "That is a lot for one machine: Coarse, or a larger base size, brings it down (Mesh settings).", x, y + 24, TH.text3);
     y += n > 2e7 ? 50 : 34;
+    /* memory and time before meshing (plan step 2, gap L10): a mesh that can't fit is held back until the user insists */
+    static double armedFor;                                /* the estimate "Generate anyway" was pressed for */
+    double avail = mem_available_mb();
+    CalcCostIn ci = { .cells = n, .solver = CS_STEADY, .steps = 1000, .procs = run_procs_for_check(), .memAvailMB = avail, .nCpu = A.env.nCpu };
+    CalcCostOut co; calc_cost(&ci, &co, NULL);
+    bool tooBig = avail > 0 && co.meshMB > 0.9 * avail && armedFor != n;
+    {
+        char t[300], tm[48];
+        if (co.hours < 1) pl_fmt_ui(tm, sizeof tm, "%.0f min", fmax(1, co.hours * 60)); else pl_fmt_ui(tm, sizeof tm, "%.1f h", co.hours);
+        pl_fmt_ui(t, sizeof t, "Meshing needs about %.1f GB of the %.1f GB free; a steady run about %.1f GB and %s for 1000 iterations on %d process%s.",
+                  co.meshMB / 1024, avail / 1024, co.solveMB / 1024, tm, ci.procs, ci.procs == 1 ? "" : "es");
+        float cw = ui_button_width(ICON_SIGMA, "Calculators");
+        float th2 = ui_text_wrap(F_REG, 13, t, (Rectangle){ x, y, w - cw - 16, 80 }, 19, co.level ? TH.warn : TH.text3, true);
+        if (ui_button(ui_id("stl-calc-cost"), (Rectangle){ x + w - cw, y - 4, cw, 30 }, ICON_SIGMA, "Calculators", BTN_GHOST)) calc_open(CALC_COST);
+        ui_tooltip((Rectangle){ x + w - cw, y - 4, cw, 30 }, "Memory and run time worked out: other solvers, iterations and process counts");
+        y += fmaxf(26, th2) + 10;
+    }
+    if (tooBig) {
+        char t[400];
+        pl_fmt_ui(t, sizeof t, "Meshing this needs about %.1f GB and only %.1f GB is free: Linux would stop snappyHexMesh part way (\"Killed\"), "
+                  "or the whole machine would crawl. A larger base size or Coarse under Cell size brings it down: half the cell size is "
+                  "eight times the cells.", co.meshMB / 1024, avail / 1024);
+        float ch = callout_height(w, "This mesh won't fit in memory", t) + 46;
+        callout((Rectangle){ x, y, w, ch }, TOAST_ERR, ICON_TRIANGLE_ALERT, "This mesh won't fit in memory", t);
+        float aw = ui_button_width(NULL, "Generate anyway");
+        if (ui_button(ui_id("stl-gen-anyway"), (Rectangle){ x + 42, y + ch - 44, aw, 34 }, NULL, "Generate anyway", BTN_GHOST)) { armedFor = n; tooBig = false; }
+        y += ch + 12;
+    }
     /* where the mesh on disk stands against these settings */
     int cur = c->s.meshed ? stlmesh_mesh_current(c) : -1;
     if (c->s.meshed && cur == 0 && !running) {
@@ -2487,10 +2581,11 @@ static float generate_step(Case *c, float x, float y, float w)
         y += ch + 12;
     }
     float bx = x, bw;
-    ui_disable(running);
+    ui_disable(running || tooBig);
     bw = ui_button_width(ICON_PLAY, "Generate mesh");
     if (ui_button(ui_id("stl-gen"), (Rectangle){ bx, y, bw, 42 }, ICON_PLAY, "Generate mesh", BTN_PRIMARY)) generate(c);
     bx += bw + 10;
+    ui_disable(running);
     bw = ui_button_width(ICON_FILE_TEXT, "Write files only");
     if (ui_button(ui_id("stl-write"), (Rectangle){ bx, y, bw, 42 }, ICON_FILE_TEXT, "Write files only", BTN_SECONDARY) && prepare(c))
         ui_toast(TOAST_OK, salome_mesher() ? "Wrote salome/stl_mesh.py, mesher/mesher.ini and the STL" : "Wrote the snappyHexMesh, blockMesh and feature dictionaries");
@@ -2541,6 +2636,7 @@ static float generate_step(Case *c, float x, float y, float w)
         callout((Rectangle){ x, y, w, ch }, TOAST_INFO, ICON_LOADER_CIRCLE, NULL, t);
         y += ch + 16;
     } else if (c->s.meshed) {
+        y += layers_missing_notice(c, x, y, w);
         /* what comes after a mesh: look at it, then the physics */
         float vw = ui_button_width(ICON_EYE, "View the mesh"), pw = ui_button_width(ICON_ATOM, "Next: Physics > Setup");
         if (ui_button(ui_id("stl-view-mesh"), (Rectangle){ x, y, vw, 36 }, ICON_EYE, "View the mesh", BTN_SECONDARY)) A.meshTab = 2;

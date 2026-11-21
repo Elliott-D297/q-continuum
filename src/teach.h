@@ -10,6 +10,7 @@ void  teach_init(void);                          /* hooks [[term]] markup up to 
 void  teach_glossary_open(const char *key);      /* the Glossary dialog, at key (NULL: where it was) */
 void  teach_glossary_modal(bool *close);         /* draw_modals, MD_GLOSSARY */
 /* "Show the working": a toggle (collapsed at first) and, open, the calculation; returns the height used */
+void  teach_working_set(const char *id, bool open);   /* open or close a working panel (it starts closed) */
 float teach_working(const char *id, float x, float y, float w, const Working *wk);
 
 #endif

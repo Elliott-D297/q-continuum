@@ -55,6 +55,8 @@ static void fill_from_case(void)
     Case *c = A.cs;
     C.from[0] = 0; C.haveCase = false; C.stl = false;
     if (!c) return;
+    /* what only some cases give starts empty, so one case's time step or surface cells don't carry over to the next */
+    C.dt = 0; C.dT = 0; C.cell = 0; C.dx = 0;
     pl_strlcpy(C.caseName, c->s.name, sizeof C.caseName);
     double size = 0; bool ext = true;
     SimPatch pa[1];
@@ -156,7 +158,7 @@ static float fluid_inputs(float x, float y, float w, bool all)
     char caseLab[128]; pl_fmt_ui(caseLab, sizeof caseLab, "This case (%s)", C.caseName);
     for (int i = 0; i < CF__N; i++) items[i] = CALC_FLUID[i].name;
     items[FLU_CASE] = caseLab; items[FLU_CUSTOM] = "Custom";
-    int n = C.haveCase ? FLU__N : FLU__N;                        /* "This case" greyed below when there is none */
+    int n = FLU__N;                                             /* "This case" without a case's fluid: a toast says why */
     ui_text(F_REG, 13.5f, "Fluid", x, y + 9, TH.text2);
     int sel = C.fluid;
     if (!C.haveCase && sel == FLU_CASE) sel = FLU_CUSTOM;

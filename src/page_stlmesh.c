@@ -437,6 +437,22 @@ static bool prepare(Case *c)
 static void generate(Case *c);
 static void generate_after_clean(void) { if (A.cs) generate(A.cs); }
 
+/* memory before meshing (plan step 2, gap L10): free memory read every 2 s, not each frame; a mesh whose snappyHexMesh peak
+   would pass 90 % of it is held back until "Generate anyway" for that estimate (any way Generate is reached: button, Ctrl+M) */
+static double gen_armed_for;
+static double free_mb(void)
+{
+    static double v, at = -10;
+    if (GetTime() - at > 2) { v = mem_available_mb(); at = GetTime(); }
+    return v;
+}
+static bool mesh_too_big(double cells, double *needMB)
+{
+    double need = calc_mesh_mb(cells), avail = free_mb();
+    if (needMB) *needMB = need;
+    return avail > 0 && need > 0.9 * avail && gen_armed_for != cells;
+}
+
 static void generate(Case *c)
 {
     if (!app_require_foam() || !app_can_start()) return;
@@ -446,6 +462,12 @@ static void generate(Case *c)
         return;
     }
     if (salome_mesher() && !A.env.salome[0]) { ui_toast(TOAST_ERR, "SALOME is not installed: see the note under Mesher"); return; }
+    double need;
+    if (T.loaded && mesh_too_big(mesher_estimate_cells(&T.m, &T.stl), &need)) {
+        ui_toast(TOAST_ERR, "Meshing this needs about %.1f GB and only %.1f GB is free: Mesh > Generate says more, and has Generate anyway",
+                 need / 1024, free_mb() / 1024);
+        return;
+    }
     if (!prepare(c)) return;
     MeshOverrides ov; mo_init(&ov); mo_load(c->s.path, &ov);   /* the Advanced panel's command-line options */
     job_reset(A.cj, "Mesh");
@@ -2545,11 +2567,10 @@ static float generate_step(Case *c, float x, float y, float w)
     if (n > 2e7) ui_text(F_REG, 13, "That is a lot for one machine: Coarse, or a larger base size, brings it down (Mesh settings).", x, y + 24, TH.text3);
     y += n > 2e7 ? 50 : 34;
     /* memory and time before meshing (plan step 2, gap L10): a mesh that can't fit is held back until the user insists */
-    static double armedFor;                                /* the estimate "Generate anyway" was pressed for */
-    double avail = mem_available_mb();
+    double avail = free_mb();
     CalcCostIn ci = { .cells = n, .solver = CS_STEADY, .steps = 1000, .procs = run_procs_for_check(), .memAvailMB = avail, .nCpu = A.env.nCpu };
     CalcCostOut co; calc_cost(&ci, &co, NULL);
-    bool tooBig = avail > 0 && co.meshMB > 0.9 * avail && armedFor != n;
+    bool tooBig = mesh_too_big(n, NULL);
     {
         char t[300], tm[48];
         if (co.hours < 1) pl_fmt_ui(tm, sizeof tm, "%.0f min", fmax(1, co.hours * 60)); else pl_fmt_ui(tm, sizeof tm, "%.1f h", co.hours);
@@ -2569,7 +2590,7 @@ static float generate_step(Case *c, float x, float y, float w)
         float ch = callout_height(w, "This mesh won't fit in memory", t) + 46;
         callout((Rectangle){ x, y, w, ch }, TOAST_ERR, ICON_TRIANGLE_ALERT, "This mesh won't fit in memory", t);
         float aw = ui_button_width(NULL, "Generate anyway");
-        if (ui_button(ui_id("stl-gen-anyway"), (Rectangle){ x + 42, y + ch - 44, aw, 34 }, NULL, "Generate anyway", BTN_GHOST)) { armedFor = n; tooBig = false; }
+        if (ui_button(ui_id("stl-gen-anyway"), (Rectangle){ x + 42, y + ch - 44, aw, 34 }, NULL, "Generate anyway", BTN_GHOST)) { gen_armed_for = n; tooBig = false; }
         y += ch + 12;
     }
     /* where the mesh on disk stands against these settings */

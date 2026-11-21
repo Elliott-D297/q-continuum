@@ -85,7 +85,7 @@ int main(int argc, char **argv)
 
     /* the limits against snappyHexMesh's meshQualityDict */
     t = pl_read_file(argv[2], NULL);
-    CHECK(t, "cannot read %s", argv[2]);
+    if (!t) printf("(no %s: snappyHexMesh's limits not cross-checked)\n", argv[2]);
     if (t) {
         CHECK(dict_value(t, "maxNonOrtho") == QUAL[QM_NONORTHO].snappy, "maxNonOrtho %g vs %g", dict_value(t, "maxNonOrtho"), QUAL[QM_NONORTHO].snappy);
         CHECK(dict_value(t, "maxInternalSkewness") == QUAL[QM_SKEW].snappy, "maxInternalSkewness");

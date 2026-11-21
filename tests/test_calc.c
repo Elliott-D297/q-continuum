@@ -45,6 +45,10 @@ static void wall(void)
     while (outer < 0.6e-3) { outer *= 1.2; n++; }
     CHECK(o.nBlend == n && n == 13, "plate nBlend %d, expected %d (13)", o.nBlend, n);
 
+    /* layers that don't grow never blend into larger cells */
+    CalcWallIn flat = in; flat.r = 1; calc_wall(&flat, &o, NULL);
+    CHECK(o.nBlend == 0, "r = 1: no blend count (%d)", o.nBlend);
+
     /* example 2: liquid nitrogen at 2 m/s in a smooth 25 mm pipe, y+ = 1 */
     const CalcFluid *f = &CALC_FLUID[CF_LN2];
     CalcWallIn p = { .flow = CW_PIPE, .rho = f->rho, .mu = f->mu, .U = 2, .L = 0.025, .yplus = 1, .r = 1.2 };
@@ -89,6 +93,13 @@ static void grading(void)
     sum = 0; c = o.d1; for (int i = 0; i < o.N; i++) { sum += c; c *= o.r; }
     NEAR(sum, 0.05, 1e-9, "c sum");
     CHECK(o.r > 1.2, "c: fewer cells -> a little more growth (%.6g)", o.r);
+    /* edges too short for more than one cell: the cell is the edge */
+    CalcGradeIn one = { .mode = CG_FIRST_GROWTH, .L = 0.01, .d1 = 0.009, .r = 1.2 };
+    CHECK(calc_grading(&one, &o, NULL) && o.N == 1 && o.d1 == 0.01 && o.dn == 0.01, "one cell: N %d d1 %g dn %g", o.N, o.d1, o.dn);
+    CalcGradeIn two = { .mode = CG_FIRST_LAST, .L = 0.1, .d1 = 0.06, .dn = 0.07 };
+    CHECK(calc_grading(&two, &o, NULL) && o.N >= 2, "two sizes: two cells at least (%d)", o.N);
+    sum = 0; c = o.d1; for (int i = 0; i < o.N; i++) { sum += c; c *= o.r; }
+    NEAR(sum, 0.1, 1e-9, "two sizes sum");
     /* uniform */
     CalcGradeIn u = { .mode = CG_N_RATIO, .L = 1, .N = 10, .R = 1 };
     calc_grading(&u, &o, NULL); NEAR(o.d1, 0.1, 1e-12, "uniform d1");

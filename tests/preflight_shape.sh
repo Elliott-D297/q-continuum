@@ -27,6 +27,11 @@ done
 check "$out/wedge5" "wedge is" no "5 degree wedge"
 check "$out/wedge5" "cells thick" no "wedge one cell thick"
 check "$out/wedge10" "The wedge is 10 degrees" yes "10 degree wedge"
+# a side split into two wedge patches is still one side: 5 degrees, no warning
+cp -a "$out/wedge5" "$out/wedge5split"
+sed -i 's/^    Wedge back with angle 2.5 degrees$/&\n    Wedge back2 with angle 2.5 degrees\n    Wedge front2 with angle 2.5 degrees/' "$out/wedge5split/log.checkMesh"
+grep -q 'front2' "$out/wedge5split/log.checkMesh" || { echo "FAIL: wedge5split log not made"; fail=1; }
+check "$out/wedge5split" "wedge is" no "5 degree wedge split in four patches"
 # checkMesh's 2-D alignment error, as it prints it, makes a problem
 cp -a "$out/cavity1" "$out/misaligned"
 printf '    ***Number of edges not aligned with or perpendicular to non-empty directions: 12\n' >> "$out/misaligned/log.checkMesh"

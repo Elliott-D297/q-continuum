@@ -470,6 +470,8 @@ static float explainer(Case *c, float x, float y, float w)
 {
     float y0 = y;
     qr_read(c);
+    /* another job since: that one isn't ours to finish (ParaView mustn't pop up long after) */
+    if (qPending && strcmp(A.cj->title, "Quality cells")) qPending = false;
     /* the job finished: ParaView, or why not */
     if (qPending && !A.cj->active && !strcmp(A.cj->title, "Quality cells") && !strcmp(qPendingCase, c->s.path)) {
         qPending = false;

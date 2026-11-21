@@ -96,12 +96,12 @@ bool calc_wall(const CalcWallIn *in, CalcWallOut *o, Working *wk)
     o->y = in->yplus * o->nu / o->utau;
     o->h1 = 2 * o->y;
     o->nCover = calc_layers_to_total(o->h1, r, o->delta, &o->tCover);
-    if (in->cell > 0) {
+    if (in->cell > 0 && r > 1.0001) {                     /* layers that don't grow never blend */
         /* the outer layer within LAYER_OUTER_MIN..MAX of the cells beyond, as the STL mesher wants it: the fewest layers
            whose outer one reaches LAYER_OUTER_MIN of the cell */
         int n = 1;
         double outer = o->h1;
-        while (outer < LAYER_OUTER_MIN * in->cell && n < 200) { outer *= r; n++; if (r <= 1) break; }
+        while (outer < LAYER_OUTER_MIN * in->cell && n < 200) { outer *= r; n++; }
         o->nBlend = n; o->outerBlend = outer;
         o->tBlend = r > 1.0001 ? o->h1 * (pow(r, n) - 1) / (r - 1) : o->h1 * n;
     }
@@ -218,7 +218,7 @@ bool calc_grading(const CalcGradeIn *in, CalcGradeOut *o, Working *wk)
         if (!(d1 > 0) || !(dn > 0) || d1 >= L || dn >= L) { if (wk) wk_note(wk, "Needs a first and last cell, each shorter than the edge."); return false; }
         double r = fabs(dn - d1) < 1e-15 ? 1 : (L - d1) / (L - dn);      /* L = (r dn - d1) / (r - 1) */
         double Nf = fabs(r - 1) < 1e-12 ? L / d1 : 1 + log(dn / d1) / log(r);
-        o->N = (int)fmax(1, round(Nf));
+        o->N = (int)fmax(fabs(dn - d1) > 1e-15 ? 2 : 1, round(Nf));   /* two sizes need two cells */
         o->rounded = fabs(Nf - o->N) > 1e-6;
         o->R = dn / d1;                                      /* keep the ratio asked for; the cells shift a little */
         o->r = o->N > 1 ? pow(o->R, 1.0 / (o->N - 1)) : 1;
@@ -240,10 +240,10 @@ bool calc_grading(const CalcGradeIn *in, CalcGradeOut *o, Working *wk)
         if (!(Nf > 0) || !isfinite(Nf)) { if (wk) wk_note(wk, "Those cells shrink to nothing before the edge ends: use a ratio above 1, or a larger first cell."); return false; }
         o->N = (int)fmax(1, round(Nf));
         o->rounded = fabs(Nf - o->N) > 1e-6;
-        o->d1 = d1;
-        o->r = growth_for(L, o->N, d1);                     /* keep the first cell asked for (a wall's y+); the growth shifts */
+        o->d1 = o->N == 1 ? L : d1;                         /* one cell is the whole edge */
+        o->r = o->N == 1 ? 1 : growth_for(L, o->N, d1);     /* keep the first cell asked for (a wall's y+); the growth shifts */
         o->R = pow(o->r, o->N - 1);
-        o->dn = d1 * o->R;
+        o->dn = o->d1 * o->R;
         if (!wk) return true;
         given_len(wk, "L", L, "edge length");
         given_len(wk, "Δ₁", d1, "first cell");

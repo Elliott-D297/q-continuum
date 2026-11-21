@@ -38,7 +38,8 @@ LAYER_OUTER_MIN): 69.24 µm × 1.2¹² = 0.617 mm, so 13 layers.
 **A cryogen in a pipe.** Liquid nitrogen at its boiling point (NIST: ρ = 806.08 kg/m³, μ = 1.6067 × 10⁻⁴ Pa s) at 2 m/s in a
 smooth 25 mm pipe, y+ = 1: Re = 2 × 0.025 / 1.993 × 10⁻⁷ = 2.508 × 10⁵; Haaland, 1/√f = −1.8 log₁₀(6.9 / Re), f = 0.01484
 (within 2 % of Colebrook); τw = f ρ U² / 8 = 5.981 Pa; u_τ = 0.08614 m/s; y = 2.314 µm; **h₁ = 4.628 µm**. Liquid nitrogen
-is about 13 times less viscous (kinematically) than water: the first cell is far thinner than for water at the same speed.
+has about a fifth of water's kinematic viscosity (1.99 × 10⁻⁷ against 1.00 × 10⁻⁶ m²/s): the first cell is several times
+thinner than for water at the same speed.
 
 ### Fluid properties
 
@@ -85,7 +86,9 @@ r becomes 1.2025 (found by bisection) so the 25 cells still fill 0.05 m.
 iterations: **18 minutes**.
 
 The Generate step shows the same estimate, and holds Generate back behind **Generate anyway** when meshing would need more
-than 90 % of the free memory.
+than 90 % of the free memory, from its own button and from the step bar's (journey `t_mesh_memstop`, with
+`QC_TEST_HOST=250,0` pretending 250 MB are free). Ctrl+M is not the STL mesher: it runs whatever blockMesh /
+snappyHexMesh dictionaries are in system/, as before.
 
 ### Where the numbers come from
 

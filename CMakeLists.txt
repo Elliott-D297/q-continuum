@@ -171,8 +171,6 @@ endforeach()
 target_compile_definitions(test_units PRIVATE QC_LOG_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/logs")
 add_test(NAME foamdict_tutorials COMMAND test_foamdict ${QC_TUTORIALS})
 # 3.1: SENSOR SWEEP finds no problem in any shipped tutorial (they run as shipped)
-# the mesh-shape pre-flight checks (mesh overhaul plan step 3): 2-D one cell thick, wedge under 5 degrees, checkMesh 2-D errors
-add_test(NAME preflight_shape COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tests/preflight_shape.sh $<TARGET_FILE:test_sweep> ${QC_BASHRC} ${QC_SCRATCH})
 add_test(NAME sweep_tutorials COMMAND test_sweep ${QC_TUTORIALS})
 # bug hunt H-10, H-11: SENSOR SWEEP sees a velocity in m²/s and a misspelt PISO keyword before the run
 add_test(NAME sweep_bughunt COMMAND bash -c "$<TARGET_FILE:test_sweep> ${CMAKE_CURRENT_SOURCE_DIR}/tests/bughunt_seeds/brDims --case | grep -q 'not \\[0 1 -1 0 0 0 0\\]' && $<TARGET_FILE:test_sweep> ${CMAKE_CURRENT_SOURCE_DIR}/tests/bughunt_seeds/brKeyword --case | grep -q 'PISO/nCorrector isn.t a keyword'")
@@ -209,6 +207,9 @@ endforeach()
 get_property(_fast DIRECTORY PROPERTY TESTS)
 set_tests_properties(${_fast} PROPERTIES LABELS fast)
 set(QC_BASHRC ${QC_FOAM_GUESS}/etc/bashrc CACHE FILEPATH "OpenFOAM environment for the tests that run OpenFOAM")
+# the mesh-shape pre-flight checks (mesh overhaul plan step 3): 2-D one cell thick, wedge under 5 degrees, checkMesh 2-D errors
+add_test(NAME preflight_shape COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tests/preflight_shape.sh $<TARGET_FILE:test_sweep> ${QC_BASHRC} ${QC_SCRATCH})
+set_tests_properties(preflight_shape PROPERTIES LABELS full)
 add_test(NAME parser_oracle COMMAND test_oracle ${QC_TUTORIALS} ${QC_BASHRC} ${QC_SCRATCH} 400)
 set_tests_properties(parser_oracle PROPERTIES LABELS full TIMEOUT 1800)
 add_test(NAME parser_properties COMMAND test_props ${QC_TUTORIALS} ${QC_BASHRC} ${QC_SCRATCH} 300 1)

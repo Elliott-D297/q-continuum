@@ -757,13 +757,13 @@ static void mesh_shape(Case *c, Sweep *w)
     char lp[PL_PATH]; pl_join(lp, sizeof lp, c->s.path, "log.checkMesh");
     char *t = pl_read_file(lp, NULL);
     if (!t) return;
-    double tot = 0; int nAng = 0;
+    double half = 0; int nAng = 0;                             /* each wedge patch's angle to the centre plane */
     for (char *q = strstr(t, "    Wedge "); q; q = strstr(q + 10, "    Wedge ")) {
         char *a = strstr(q, " with angle ");
         char *eol = strchr(q, '\n');
-        if (a && (!eol || a < eol)) { tot += atof(a + 12); nAng++; }
+        if (a && (!eol || a < eol)) { half = fmax(half, atof(a + 12)); nAng++; }
     }
-    if (nAng == 1) tot *= 2;                                   /* the other half, by symmetry */
+    double tot = 2 * half;                                     /* the two sides (a side split into several patches counts once) */
     if (nAng && tot > 5.0 + 1e-6) {
         Finding *g = add(w, PC_WARN);
         if (g) {

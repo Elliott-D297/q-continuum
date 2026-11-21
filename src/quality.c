@@ -20,7 +20,8 @@ const QualMetric QUAL[QM__N] = {
         "(maxNonOrtho). Hexahedra in line with the flow: under 20; a good tetrahedral mesh: under 50.",
         "Better cells where it peaks: smaller cells or a gentler refinement step there, or less snapping squeeze (snappyHexMesh's "
         "nSmoothPatch, nRelaxIter). When it stays between 70 and 85, the solver copes with nNonOrthogonalCorrectors 2 or 3 and the "
-        "laplacian schemes' limited corrected 0.5 (Q-Continuum's Setup picks these from checkMesh's log)." },
+        "laplacian schemes' limited corrected 0.5 (Physics > Setup sets the laplacian correction from checkMesh's log, and its "
+        "Robust numerics add a non-orthogonal corrector)." },
     [QM_SKEW] = { "skew", "Skewness", "skewness", "", true, 4, 4, false, "skewFaces",
         "How far the line joining two cell centres passes from the centre of the face between them, as a share of the cells' "
         "size. Values on the face are interpolated where the line crosses it, but stand for the whole face.",

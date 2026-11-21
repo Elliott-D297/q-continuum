@@ -364,7 +364,11 @@ double stlmesh_cells_estimate(Case *c);                    /* page_stlmesh.c: th
 enum { CALC_WALL = 0, CALC_GRADE, CALC_COST, CALC_DIM, CALC__N };
 void  calc_open(int tab);
 void  calc_modal(bool *close);                               /* draw_modals, MD_CALC */
-int   run_procs_for_check(void);                             /* page_run.c: the processes the next run will use */
+int   run_procs_for_check(void);
+/* page_blocks.c -- Mesh > Block builder (mesh overhaul plan step 5): templates and the blockMeshDict tables (A.meshTab 5) */
+float blocks_page(Case *c, float x, float y, float w);
+bool  blocks_wants_first(void);                             /* a template with a wall first cell is open */
+void  blocks_take_first(double h1);                          /* ... and the y+ calculator's first cell goes in it */                             /* page_run.c: the processes the next run will use */
 /* page_setup.c: the walls' y+ from a run (mean, greatest) against the setup's wall treatment: a line saying so (out), and
    0 it suits, 1 it doesn't (the line says what to change), -1 nothing to say (laminar, no y+) */
 int   setup_yplus_advice(Case *c, double avg, double max, char *out, size_t cap);

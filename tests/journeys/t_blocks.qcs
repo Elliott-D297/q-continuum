@@ -1,0 +1,90 @@
+# Mesh overhaul plan step 5 (gaps L3 / E2): Mesh > Block builder. A blank "A box" case opens on it; the pipe template with
+# its wall's first cell from the y+ calculator meshes to checkMesh OK; the cavity template, then a cell count changed in the
+# Blocks table, saved and meshed again; a blockMeshDict with a $macro shows read-only with the reason.
+budget p95 120 max 900
+click nav:new case
+wait 5
+click starter-blank
+wait 3
+click blank-name
+key a ctrl
+type blk
+wait 2
+click blank-start#2
+wait 2
+click blank-create
+wait 10
+assert page Mesh
+assert text Start from a template
+assert text Block builder
+# the box it was made with, in the tables
+assert text 8 vertices, 1 blocks, 0 curved edges, 3 patches: 8000 cells
+screenshot $OUT/1_box.png
+# the pipe template
+click bk-t#4
+wait 5
+assert text 5 blocks, 50000 cells
+screenshot $OUT/2_pipe.png
+click bk-p-D
+key A ctrl
+enter 0.1
+wait 3
+assert text 5 blocks, 50000 cells
+# its first cell from y+: water at 2 m/s in the 0.1 m pipe, y+ 30
+click bk-yplus
+wait 5
+assert modal calc
+click calc-fluid
+wait 3
+click text:Water
+click calc-flow#1
+click calc-U
+key A ctrl
+enter 2
+click calc-L
+key A ctrl
+enter 0.1
+click calc-yp
+key A ctrl
+enter 30
+wait 3
+click calc-send-blocks
+wait 5
+assert not modal calc
+wait-until toast first cell at the walls timeout 5
+click bk-mesh
+wait-until job running timeout 20
+wait-until job finished timeout 300
+assert log log.checkMesh Mesh OK.
+assert log constant/polyMesh/boundary wall
+assert file mesher/blocks.ini
+assert log mesher/blocks.ini template = pipe
+assert file system/blockMeshDict.orig
+screenshot $OUT/3_pipe_meshed.png
+# the cavity, then a hand edit in the tables
+click bk-t#0
+wait 5
+click bk-mesh
+wait-until job running timeout 20
+wait-until job finished timeout 120
+assert log log.checkMesh Mesh OK.
+click bk-tab#1
+wait 5
+click bk-bn#0
+key A ctrl
+enter 30 30 1
+wait 3
+assert text Not saved yet
+screenshot $OUT/4_tables.png
+click bk-savemesh
+wait-until job running timeout 20
+wait-until job finished timeout 120
+assert log log.checkMesh cells:            900
+assert log mesher/blocks.ini template = custom
+assert log system/blockMeshDict (30 30 1)
+# a file the builder can't hold: read-only, with why
+shell printf 'FoamFile { version 2.0; format ascii; class dictionary; object blockMeshDict; }\nn 4;\nvertices ( (0 0 0) (1 0 0) (1 1 0) (0 1 0) (0 0 1) (1 0 1) (1 1 1) (0 1 1) );\nblocks ( hex (0 1 2 3 4 5 6 7) ($n $n $n) simpleGrading (1 1 1) );\nboundary ( );\n' > $SB/ws/blk/system/blockMeshDict
+wait 60
+assert text The block builder can't edit this blockMeshDict
+assert text uses $n
+screenshot $OUT/5_readonly.png

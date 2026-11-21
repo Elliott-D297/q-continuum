@@ -451,6 +451,106 @@ bool bm_apply(FDFile *f, const BmModel *m)
     return ok;
 }
 
+/* ================================================================ the tables' text */
+void bm_grading_text(const BmBlock *b, char *out, int cap)
+{
+    Str o; str_init(&o);
+    int n = b->kind == BG_EDGE ? 12 : 3;
+    for (int k = 0; k < n; k++) { if (k) str_cat(&o, " "); grade_text(&o, &b->g[k]); }
+    snprintf(out, (size_t)cap, "%s", o.s ? o.s : "");
+    str_free(&o);
+}
+
+bool bm_grading_parse(const char *text, BmBlock *b)
+{
+    Tk t = { text, 0, (int)strlen(text), 0, "" };
+    BmGrade g[12]; int n = 0;
+    for (;;) {
+        int save = t.i;
+        int k = tk(&t);
+        if (k == T_END) break;
+        t.i = save;
+        if (n >= 12 || !read_grade(&t, &g[n])) return false;
+        n++;
+    }
+    if (n != 3 && n != 12) return false;
+    for (int i = 0; i < n; i++) for (int s = 0; s < g[i].n; s++) if (!(g[i].ratio[s] > 0)) return false;
+    b->kind = n == 3 ? BG_SIMPLE : BG_EDGE;
+    memcpy(b->g, g, sizeof(BmGrade) * (size_t)n);
+    return true;
+}
+
+void bm_ints_text(const int *v, int n, char *out, int cap)
+{
+    int k = 0; out[0] = 0;
+    for (int i = 0; i < n && k < cap - 12; i++) k += snprintf(out + k, (size_t)(cap - k), "%s%d", i ? " " : "", v[i]);
+}
+
+bool bm_ints_parse(const char *text, int *v, int n)
+{
+    Tk t = { text, 0, (int)strlen(text), 0, "" };
+    int got[64], k = 0, ty;
+    while ((ty = tk(&t)) != T_END) {
+        if (ty == T_LP || ty == T_RP) continue;
+        double d;
+        if (ty != T_WORD || !is_num(t.w, &d) || d != floor(d) || k >= 64) return false;
+        got[k++] = (int)d;
+    }
+    if (k != n) return false;
+    memcpy(v, got, sizeof(int) * (size_t)n);
+    return true;
+}
+
+void bm_faces_text(const BmPatch *p, char *out, int cap)
+{
+    int k = 0; out[0] = 0;
+    for (int i = 0; i < p->nf && k < cap - 40; i++)
+        k += snprintf(out + k, (size_t)(cap - k), "%s(%d %d %d %d)", i ? " " : "", p->f[i][0], p->f[i][1], p->f[i][2], p->f[i][3]);
+}
+
+bool bm_faces_parse(const char *text, BmPatch *p)
+{
+    Tk t = { text, 0, (int)strlen(text), 0, "" };
+    int f[BM_MAXF][4], n = 0, ty;
+    while ((ty = tk(&t)) != T_END) {
+        if (ty != T_LP || n >= BM_MAXF) return false;
+        for (int i = 0; i < 4; i++) if (!read_int(&t, &f[n][i])) return false;
+        if (!want(&t, T_RP)) return false;
+        n++;
+    }
+    memcpy(p->f, f, sizeof(int) * 4 * (size_t)n);
+    p->nf = n;
+    return true;
+}
+
+void bm_points_text(const BmEdge *e, char *out, int cap)
+{
+    Str o; str_init(&o);
+    for (int i = 0; i < e->np; i++) {
+        str_cat(&o, i ? " (" : "("); num(&o, e->p[i][0]); str_cat(&o, " "); num(&o, e->p[i][1]); str_cat(&o, " "); num(&o, e->p[i][2]); str_cat(&o, ")");
+    }
+    snprintf(out, (size_t)cap, "%s", o.s ? o.s : "");
+    str_free(&o);
+}
+
+bool bm_points_parse(const char *text, BmEdge *e)
+{
+    Tk t = { text, 0, (int)strlen(text), 0, "" };
+    double (*p)[3] = malloc(sizeof(double) * 3 * BM_MAXPTS);
+    int n = 0, ty;
+    bool ok = true;
+    while (ok && (ty = tk(&t)) != T_END) {
+        if (ty != T_LP || n >= BM_MAXPTS) { ok = false; break; }
+        t.i = t.start;
+        ok = read_point(&t, p[n]);
+        if (ok) n++;
+    }
+    if (ok && (n < 1 || (e->kind == BE_ARC && n != 1))) ok = false;
+    if (ok) { memcpy(e->p, p, sizeof(double) * 3 * (size_t)n); e->np = n; }
+    free(p);
+    return ok;
+}
+
 /* ================================================================ geometry */
 static void sub3(const double *a, const double *b, double *o) { o[0] = a[0] - b[0]; o[1] = a[1] - b[1]; o[2] = a[2] - b[2]; }
 static void cross3(const double *a, const double *b, double *o) { o[0] = a[1] * b[2] - a[2] * b[1]; o[1] = a[2] * b[0] - a[0] * b[2]; o[2] = a[0] * b[1] - a[1] * b[0]; }

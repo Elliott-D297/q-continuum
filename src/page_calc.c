@@ -248,6 +248,14 @@ static float tab_wall(float x, float y, float w, bool wide)
             pl_fmt_ui(t, sizeof t, "to blend into the %s cells beyond: %s in all, the outer one %s", lenstr(C.cell), lenstr(o.tBlend), lenstr(o.outerBlend));
             ry += headline(rx, ry, rw, v, t, TH.text);
         }
+        if (blocks_wants_first()) {
+            float bw = ui_button_width(ICON_BOXES, "Use in the block builder");
+            if (ui_button(ui_id("calc-send-blocks"), (Rectangle){ rx, ry + 4, bw, 34 }, ICON_BOXES, "Use in the block builder", BTN_PRIMARY)) {
+                blocks_take_first(o.h1); A.modal = MD_NONE;
+            }
+            ui_tooltip((Rectangle){ rx, ry + 4, bw, 34 }, "The template's first cell at the walls becomes this height; its grading follows");
+            ry += 48;
+        }
         if (C.stl && A.cs) {
             float bw = ui_button_width(ICON_LAYERS, "Send to the STL mesher");
             if (ui_button(ui_id("calc-send-layers"), (Rectangle){ rx, ry + 4, bw, 34 }, ICON_LAYERS, "Send to the STL mesher", BTN_PRIMARY)) {

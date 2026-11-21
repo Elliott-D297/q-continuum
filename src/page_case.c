@@ -604,6 +604,7 @@ void page_mesh(Rectangle r)
     }
     if (A.meshTab == 1) snprintf(sub, sizeof sub, "Import a mesh made in SALOME (UNV, MED, or the saved study) or Gmsh, or build one with a SALOME script.");
     if (A.meshTab == 3) snprintf(sub, sizeof sub, "Mesh any STL or STEP part: snappyHexMesh here, or SALOME's tetrahedra, polyhedra and body-fitted hexahedra.");
+    if (A.meshTab == 5) snprintf(sub, sizeof sub, "Build system/blockMeshDict from a template (pipe, channel, step, airfoil ...) or block by block, and see it in 3-D.");
     /* View and Quality are about the mesh on disk, whatever made it (W0, 2026-11-14: they kept the blockMesh line) */
     if ((A.meshTab == 2 || A.meshTab == 4) && !c->s.meshed)
         snprintf(sub, sizeof sub, "No mesh yet: make one on the %s tab first.", mt && !strcmp(mt, "blockMesh") ? "Dictionaries" : "STL mesher");
@@ -615,7 +616,7 @@ void page_mesh(Rectangle r)
     ui_disable(A.cj->active || !mt);
     /* secondary when the steps bar is there: its Next is the page's one primary action (workflow plan W1) */
     bool barShown = !c->s.prog && c->s.nRegions == 0;
-    if (A.meshTab == 0 && ui_button(ui_id("mesh-gen"), (Rectangle){ x + w - bw, top + 32, bw, 36 }, ICON_PLAY, "Generate mesh", barShown ? BTN_SECONDARY : BTN_PRIMARY)) app_generate_mesh();
+    if ((A.meshTab == 0 || A.meshTab == 5) && ui_button(ui_id("mesh-gen"), (Rectangle){ x + w - bw, top + 32, bw, 36 }, ICON_PLAY, "Generate mesh", barShown ? BTN_SECONDARY : BTN_PRIMARY)) app_generate_mesh();
     ui_disable(A.cj->active || !c->s.meshed);
     if (ui_button(ui_id("mesh-check"), (Rectangle){ x + w - bw - bw2 - 10, top + 32, bw2, 36 }, ICON_CIRCLE_CHECK, "Check mesh", BTN_SECONDARY))
         app_start_tool("checkMesh", "checkMesh", "checkMesh", "checkMesh", "log.checkMesh");
@@ -651,24 +652,26 @@ void page_mesh(Rectangle r)
     if (A.meshTab < 0) {
         char q[PL_PATH], st[PL_PATH], im[PL_PATH]; pl_join(q, sizeof q, c->s.path, "salome/mesh.py"); pl_join(st, sizeof st, c->s.path, "mesher/mesher.ini");
         pl_join(im, sizeof im, c->s.path, "salome/imported.txt");          /* an imported mesh: where it can be imported again */
-        A.meshTab = pl_is_file(st) ? 3 : pl_is_file(q) || pl_is_file(im) ? 1 : 0;
+        char bk[PL_PATH]; pl_join(bk, sizeof bk, c->s.path, "mesher/blocks.ini");
+        A.meshTab = pl_is_file(st) ? 3 : pl_is_file(q) || pl_is_file(im) ? 1 : pl_is_file(bk) ? 5 : 0;
     }
-    /* shown in this order; A.meshTab keeps its numbers (0 dictionaries, 1 SALOME, 2 view, 3 STL mesher) */
+    /* shown in this order; A.meshTab keeps its numbers (0 dictionaries, 1 SALOME, 2 view, 3 STL mesher, 4 quality, 5 block builder) */
     /* W7 (workflow plan): the case's own way of making its mesh, View and Quality as tabs; the other ways to make a mesh as links
        beside them ("Other ways to make the mesh: STL mesher, SALOME script"), each becoming the first tab when chosen. The old
        tab ids (mesh-tabs#0 Dictionaries, #1 STL mesher, #2 SALOME script, #3 View, #4 Quality) stay on the same things */
-    static const char *const SRC_NAME[3] = { "Dictionaries", "STL mesher", "SALOME script" };
-    static const int SRC_TAB[3] = { 0, 3, 1 };              /* A.meshTab of each source */
+    static const char *const SRC_NAME[4] = { "Dictionaries", "STL mesher", "SALOME script", "Block builder" };
+    static const int SRC_TAB[4] = { 0, 3, 1, 5 };           /* A.meshTab of each source */
     static char srcCase[PL_PATH]; static int src = -1;
     if (strcmp(srcCase, c->s.path)) {                       /* a case's own source: as A.meshTab's default picked it */
         pl_strlcpy(srcCase, c->s.path, sizeof srcCase);
         char q[PL_PATH], st[PL_PATH], im[PL_PATH]; pl_join(q, sizeof q, c->s.path, "salome/mesh.py"); pl_join(st, sizeof st, c->s.path, "mesher/mesher.ini");
         pl_join(im, sizeof im, c->s.path, "salome/imported.txt");
-        src = pl_is_file(st) ? 1 : pl_is_file(q) || pl_is_file(im) ? 2 : 0;
+        char bk[PL_PATH]; pl_join(bk, sizeof bk, c->s.path, "mesher/blocks.ini");
+        src = pl_is_file(st) ? 1 : pl_is_file(q) || pl_is_file(im) ? 2 : pl_is_file(bk) ? 3 : 0;
     }
-    for (int k = 0; k < 3; k++) if (A.meshTab == SRC_TAB[k]) src = k;   /* a source chosen: the first tab */
+    for (int k = 0; k < 4; k++) if (A.meshTab == SRC_TAB[k]) src = k;   /* a source chosen: the first tab */
     const char *tabs3[3] = { SRC_NAME[src], "View", "Quality" };
-    static const int OLD_ID[3][3] = { { 0, 3, 4 }, { 1, 3, 4 }, { 2, 3, 4 } };
+    static const int OLD_ID[4][3] = { { 0, 3, 4 }, { 1, 3, 4 }, { 2, 3, 4 }, { 5, 3, 4 } };
     int shown = A.meshTab == 2 ? 1 : A.meshTab == 4 ? 2 : 0;
     float tth;
     if (ui_tabs(ui_id("mesh-tab"), x, y, tabs3, 3, &shown, &tth)) A.meshTab = shown == 0 ? SRC_TAB[src] : shown == 1 ? 2 : 4;
@@ -682,7 +685,7 @@ void page_mesh(Rectangle r)
     }
     {   /* the other ways, as links on the right of the tab row */
         float lx = x + w;
-        for (int k = 2; k >= 0; k--) {
+        for (int k = 3; k >= 0; k--) {
             if (k == src) continue;
             float lw = ui_text_w(F_MED, 13, SRC_NAME[k]) + 16;
             lx -= lw;
@@ -690,7 +693,7 @@ void page_mesh(Rectangle r)
             bool hov = ui_hovered(lr);
             if (hov) ui_cursor(MOUSE_CURSOR_POINTING_HAND);
             ui_text(F_MED, 13, SRC_NAME[k], lx + 8, y + 10, hov ? TH.accent : TH.text2);
-            ui_register(ui_idn(ui_id("mesh-tabs"), k == 0 ? 0 : k == 1 ? 1 : 2), lr, SRC_NAME[k]);
+            ui_register(ui_idn(ui_id("mesh-tabs"), k == 0 ? 0 : k == 1 ? 1 : k == 2 ? 2 : 5), lr, SRC_NAME[k]);
             if (ui_clicked(lr)) A.meshTab = SRC_TAB[k];
             lx -= 4;
         }
@@ -736,6 +739,11 @@ void page_mesh(Rectangle r)
         return;
     }
     if (c->region[0]) { y += region_mesh(x, y, w); ui_scroll_end(sc, y - top + 20); return; }
+    if (A.meshTab == 5) {                                  /* the block builder */
+        y += blocks_page(c, x, y + 6, w) + 6;
+        ui_scroll_end(sc, y - top + 40);
+        return;
+    }
     if (A.meshTab == 3) {
         y += page_stlmesh(r, x, y, w);
         ui_scroll_end(sc, y - top + 40);

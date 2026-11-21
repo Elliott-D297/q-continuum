@@ -170,9 +170,21 @@ bool stl_load(const char *path, Stl *s)
     memset(s, 0, sizeof *s);
     s->scale = 1;
     pl_strlcpy(s->path, path, sizeof s->path);
+    /* fine CAD exports run to hundreds of MB (the user's exhaust: 270 MB, 5.4 M triangles); the general 64 MB limit
+       refused them as "Could not read" */
+    const long long maxBytes = 2LL << 30;
+    long long fsz = pl_file_size(path);
+    if (fsz > maxBytes) {
+        snprintf(s->err, sizeof s->err, "%s is too big to open (%.0f MB, the limit is %.0f MB): export it coarser",
+                 pl_basename(path), fsz / 1048576.0, maxBytes / 1048576.0);
+        return false;
+    }
     size_t len = 0;
-    char *buf = pl_read_file(path, &len);
-    if (!buf) { snprintf(s->err, sizeof s->err, "Could not read %s", path); return false; }
+    char *buf = pl_read_file_max(path, &len, maxBytes);
+    if (!buf) {
+        snprintf(s->err, sizeof s->err, fsz > 0 ? "Could not read %s (out of memory?)" : "Could not read %s", path);
+        return false;
+    }
     /* binary: 80-byte header, a count, 50 bytes a triangle. An ASCII file starts with "solid", but so do some binary ones,
        so the size decides */
     uint32_t cnt = 0;
@@ -378,10 +390,15 @@ void stl_split(Stl *s, double angleDeg)
                 if (remap[q] == q && !strcmp(s->solid[solidOf[q]], s->solid[solidOf[r]])) { remap[r] = q; break; }
     } else {
         /* slivers (under 0.5 % of the area) join their largest neighbour, a few rounds so chains of slivers settle; one pass
-           over the edges a round. Regions past the limit are folded into the last one when numbered below. */
+           over the edges a round. Regions past the limit are folded into the last one when numbered below.
+           A small region whose border is mostly a sharp edge (over 60 degrees) is a real face, not faceting noise, and stays:
+           an inlet cap on a long pipe is a tiny share of the area (user's exhaust manifold, 2026-11-20: four 2347 mm² runner
+           ends of a 765,000 mm² surface had been folded into the runner walls) */
         int *best = malloc(sizeof(int) * (size_t)nr);
+        double *bLen = malloc(sizeof(double) * (size_t)nr), *bSharp = malloc(sizeof(double) * (size_t)nr);
+        const double cosSharp = cos(60 * M_PI / 180);
         for (int round = 0; round < 4; round++) {
-            for (int r = 0; r < nr; r++) best[r] = -1;
+            for (int r = 0; r < nr; r++) { best[r] = -1; bLen[r] = bSharp[r] = 0; }
             for (size_t j = 0; j < cap; j++) {
                 if (ek[j] == -1 || ec[j] != 2) continue;
                 int ra = reg[et0[j]], rb = reg[et1[j]];
@@ -390,10 +407,19 @@ void stl_split(Stl *s, double angleDeg)
                 if (ra == rb) continue;
                 if (best[ra] < 0 || rArea[rb] > rArea[best[ra]]) best[ra] = rb;
                 if (best[rb] < 0 || rArea[ra] > rArea[best[rb]]) best[rb] = ra;
+                int t = et0[j], o = et1[j], e = 0;               /* the edge's length, from its first triangle */
+                while (e < 2 && triEdge[3 * t + e] != (int)j) e++;
+                const float *p = s->tri + 9 * (size_t)t + 3 * e, *q = s->tri + 9 * (size_t)t + 3 * ((e + 1) % 3);
+                double len = sqrt((p[0] - q[0]) * (p[0] - q[0]) + (p[1] - q[1]) * (p[1] - q[1]) + (p[2] - q[2]) * (p[2] - q[2]));
+                double dot = nrm[3 * t] * nrm[3 * o] + nrm[3 * t + 1] * nrm[3 * o + 1] + nrm[3 * t + 2] * nrm[3 * o + 2];
+                bLen[ra] += len; bLen[rb] += len;
+                if (dot < cosSharp) { bSharp[ra] += len; bSharp[rb] += len; }
             }
             bool changed = false;
             for (int r = 0; r < nr; r++) {
                 if (remap[r] != r || best[r] < 0 || rArea[r] >= s->area * 0.005) continue;
+                /* a face behind a sharp edge: kept, down to 0.05 % of the area (specks and ledges of a few mm² still go) */
+                if (bLen[r] > 0 && bSharp[r] > 0.5 * bLen[r] && rArea[r] >= s->area * 0.0005) continue;
                 int b = best[r];
                 while (remap[b] != b) b = remap[b];
                 if (b == r || rArea[b] < rArea[r]) continue;   /* only into a larger one: no cycles */
@@ -401,7 +427,7 @@ void stl_split(Stl *s, double angleDeg)
             }
             if (!changed) break;
         }
-        free(best);
+        free(best); free(bLen); free(bSharp);
     }
     /* number the live regions 0.., largest first; past the limit everything left goes into the last one */
     int *live = malloc(sizeof(int) * (size_t)nr), nl = 0;
@@ -1543,7 +1569,7 @@ static bool write_foamy(const char *casePath, const MeshCfg *m, const Stl *s, ch
         b.len = 0; b.s[0] = 0;
     }
     pl_join(p, sizeof p, casePath, "constant/triSurface/geometry.stl");
-    char *part = g_dry ? strdup("") : pl_read_file(p, NULL);
+    char *part = g_dry ? strdup("") : pl_read_file_max(p, NULL, 8LL << 30);   /* ASCII copy of a fine STL: GBs */
     if (!part) { snprintf(err, (size_t)cap, "Could not read constant/triSurface/geometry.stl"); str_free(&b); return false; }
     str_cat(&b, part); free(part);
     pl_join(p, sizeof p, casePath, "constant/triSurface/foamy.stl");
@@ -1622,7 +1648,7 @@ static bool write_cfmesh(const char *casePath, const MeshCfg *m, const Stl *s, c
     Str b; str_init(&b);
     if (m->domain == DOMAIN_EXTERNAL && !g_dry) tunnel_surface(m, s, &b);
     char p[PL_PATH]; pl_join(p, sizeof p, casePath, "constant/triSurface/geometry.stl");
-    char *part = g_dry ? strdup("") : pl_read_file(p, NULL);
+    char *part = g_dry ? strdup("") : pl_read_file_max(p, NULL, 8LL << 30);   /* ASCII copy of a fine STL: GBs */
     if (!part) { snprintf(err, (size_t)cap, "Could not read constant/triSurface/geometry.stl"); str_free(&b); return false; }
     str_cat(&b, part); free(part);
     pl_join(p, sizeof p, casePath, "constant/triSurface/cfmesh.stl");

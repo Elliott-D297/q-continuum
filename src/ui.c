@@ -1,6 +1,7 @@
 /* ui.c -- immediate-mode UI toolkit (see ui.h) */
 #define _GNU_SOURCE
 #include "ui.h"
+#include "glossary.h"
 #include "input.h"
 
 #include <math.h>
@@ -17,7 +18,7 @@
 #define MAX_CLIP 16
 #define MAX_TOASTS 5
 
-typedef struct { UiFamily f; int px; bool plex; Font font; } FontSlot;
+typedef struct { UiFamily f; int px; int alt; Font font; } FontSlot;
 typedef struct { UiId id; float v; unsigned frame; } AnimSlot;
 typedef struct { int kind; char msg[240]; double t0; } Toast;
 
@@ -44,6 +45,7 @@ static struct {
     FontSlot fonts[MAX_FONTS];
     int   nFonts;
     int   codepoints[400];
+    int   symCodepoints[400], nSym;          /* those the DejaVu symbols face draws */
     int   nCodepoints;
 
     /* input */
@@ -85,7 +87,7 @@ static struct {
     /* tooltip */
     UiId  tipKey;
     double tipStart;
-    char  tip[256];
+    char  tip[600], tipTitle[96];
     bool  tipShow;
 
     Toast toasts[MAX_TOASTS];
@@ -559,9 +561,24 @@ static void build_codepoints(void)
     const int extra[] = { 0x2013, 0x2014, 0x2018, 0x2019, 0x201C, 0x201D, 0x2022, 0x2026, 0x2190, 0x2191, 0x2192, 0x2193,
                           0x0394, 0x03B1, 0x03B2, 0x03B5, 0x03BA, 0x03BC, 0x03BD, 0x03C1, 0x03C3, 0x03C9, 0x03C6,
                           0x03B7, 0x03B8, 0x03BB, 0x03C4, 0x2202, 0x221A, 0x221E,
-                          0x2207, 0x2248, 0x2264, 0x2265, 0x2212, 0x2713, 0x2074 };
+                          0x2207, 0x2248, 0x2264, 0x2265, 0x2212, 0x2713, 0x2074,
+                          /* the working panels' symbols (mesh plan steps 1-2): subscripts, superscripts, sums, arrows */
+                          0x2070, 0x2071, 0x2075, 0x2076, 0x2077, 0x2078, 0x2079, 0x207B, 0x2211, 0x222B, 0x2260, 0x2261,
+                          0x21D2, 0x22C5, 0x2032 };
     for (size_t i = 0; i < sizeof extra / sizeof extra[0]; i++) U.codepoints[n++] = extra[i];
+    for (int c = 0x391; c <= 0x3C9; c++)                      /* the whole Greek alphabet, both cases */
+        if (c != 0x3A2 && (c <= 0x3A9 || c >= 0x3B1)) {
+            bool dup = false;
+            for (int i = 0; i < n && !dup; i++) dup = U.codepoints[i] == c;
+            if (!dup) U.codepoints[n++] = c;
+        }
+    for (int c = 0x2080; c <= 0x2089; c++) U.codepoints[n++] = c;   /* subscript digits */
     U.nCodepoints = n;
+    U.nSym = 0;
+    for (int i = 0; i < n; i++) {
+        int c = U.codepoints[i];
+        if ((c >= 0x370 && c <= 0x3FF) || (c >= 0x2070 && c <= 0x209F) || (c >= 0x2190 && c <= 0x22FF) || c == 0x2713) U.symCodepoints[U.nSym++] = c;
+    }
 }
 
 /* stb_truetype sizes a font by (ascender - descender); IBM Plex has 1.3 em of that, so sizes in this
@@ -641,16 +658,18 @@ static float spacing(UiFamily f) { const DisplayFace *d = display(f); return d ?
 
 static float snap(float v) { return roundf(v * U.scale) / U.scale; }
 
-/* the font for a family; plex: IBM Plex even in the LCARS style (Antonio has no Greek, math or arrows) */
-static Font font_for(UiFamily f, float size, bool plex)
+/* the font for a family; alt 1: IBM Plex Sans even in the LCARS style (Antonio has no Greek, math or arrows); alt 2: the
+   DejaVu Sans symbols, for the Greek, sub- and superscripts and math the bundled Plex subsets lack */
+static Font font_for(UiFamily f, float size, int alt)
 {
-    const DisplayFace *d = plex ? NULL : display(f);
+    const DisplayFace *d = alt ? NULL : display(f);
     float e = f == F_ICON ? 1.0f : EM * (d ? d->k : 1.0f);
     int px = (int)lroundf(size * e * U.scale);
     if (px < 6) px = 6;
-    for (int i = 0; i < U.nFonts; i++) if (U.fonts[i].f == f && U.fonts[i].px == px && U.fonts[i].plex == plex) return U.fonts[i].font;
+    for (int i = 0; i < U.nFonts; i++) if (U.fonts[i].f == f && U.fonts[i].px == px && U.fonts[i].alt == alt) return U.fonts[i].font;
     const unsigned char *data; unsigned int len;
-    if (d) {
+    if (alt == 2) { data = asset_DejaVuSans_Symbols_ttf; len = asset_DejaVuSans_Symbols_ttf_len; }
+    else if (d) {
         if (f == F_REG) { data = d->reg; len = *d->nreg; }
         else if (f == F_MED) { data = d->med; len = *d->nmed; }
         else { data = d->semi; len = *d->nsemi; }
@@ -664,16 +683,35 @@ static Font font_for(UiFamily f, float size, bool plex)
     }
     Font font;
     if (f == F_ICON) font = LoadFontFromMemory(".ttf", data, (int)len, px, (int *)PL_ICON_CODEPOINTS, PL_ICON_COUNT);
+    else if (alt == 2) font = LoadFontFromMemory(".ttf", data, (int)len, px, U.symCodepoints, U.nSym);
     else font = LoadFontFromMemory(".ttf", data, (int)len, px, U.codepoints, U.nCodepoints);
     SetTextureFilter(font.texture, TEXTURE_FILTER_BILINEAR);
-    if (U.nFonts < MAX_FONTS) { U.fonts[U.nFonts] = (FontSlot){ f, px, plex, font }; U.nFonts++; }
+    if (U.nFonts < MAX_FONTS) { U.fonts[U.nFonts] = (FontSlot){ f, px, alt, font }; U.nFonts++; }
     return font;
 }
-Font ui_font(UiFamily f, float size) { return font_for(f, size, false); }
+Font ui_font(UiFamily f, float size) { return font_for(f, size, 0); }
 
-/* characters the display faces lack: Greek, arrows, math operators, check marks. LCARS text with any of these is drawn in runs, the
-   missing ones in IBM Plex at the same size (Co ≈ |U|·Δt/Δx). */
-static bool plex_only(int cp) { return (cp >= 0x370 && cp <= 0x3FF) || (cp >= 0x2190 && cp <= 0x22FF) || cp == 0x2713; }
+/* characters the display faces lack: Greek, arrows, math operators, check marks. Text with any of these is drawn in runs: on a
+   display face (LCARS) the ones IBM Plex Sans has in Plex at the same size (Co ≈ |U|·Δt/Δx); the ones the bundled Plex subsets
+   lack (Plex Sans: all but eleven Greek letters; Plex Mono: all Greek; both: sub- and superscripts, √, ∂ ...) in the DejaVu Sans
+   symbols subset (assets/fonts/DejaVuSans-Symbols.ttf). Before 2026-11-21 those drew as blanks (τ, ₁ in the working panels). */
+static bool special(int cp) { return (cp >= 0x370 && cp <= 0x3FF) || (cp >= 0x2070 && cp <= 0x209F) || (cp >= 0x2190 && cp <= 0x22FF) || cp == 0x2713; }
+static bool plex_mono_has(int cp) { return (cp >= 0x2190 && cp <= 0x2193) || cp == 0x2212 || cp == 0x2248 || cp == 0x2264 || cp == 0x2265 || cp == 0x2713; }
+static bool plex_sans_has(int cp)
+{
+    switch (cp) {
+    case 0x394: case 0x3B1: case 0x3B2: case 0x3B5: case 0x3BA: case 0x3BC: case 0x3BD: case 0x3C1: case 0x3C3: case 0x3C6: case 0x3C9: return true;
+    default: return plex_mono_has(cp);
+    }
+}
+/* which face draws cp in family f: 0 the family's own, 1 IBM Plex Sans (for a display face), 2 the DejaVu symbols */
+static int alt_of(UiFamily f, int cp)
+{
+    if (!special(cp) || f == F_ICON) return 0;
+    if (f == F_MONO || f == F_MONO_MED) return plex_mono_has(cp) ? 0 : 2;
+    if (display(f)) return plex_sans_has(cp) ? 1 : 2;
+    return plex_sans_has(cp) ? 0 : 2;
+}
 
 /* draw (or just measure) s in runs; returns the width */
 static float text_runs(UiFamily f, float size, const char *s, float x, float y, Color c, bool draw)
@@ -683,11 +721,12 @@ static float text_runs(UiFamily f, float size, const char *s, float x, float y, 
     char run[1024];
     while (*p) {
         int n, cp = GetCodepointNext(p, &n);
-        bool plex = plex_only(cp);
+        int plex = alt_of(f, cp);
+        (void)n;
         int k = 0;
         while (*p && k < (int)sizeof run - 5) {             /* the longest run of the same kind */
             int m, q = GetCodepointNext(p, &m);
-            if (plex_only(q) != plex) break;
+            if (alt_of(f, q) != plex) break;
             memcpy(run + k, p, (size_t)m); k += m; p += m;
         }
         run[k] = 0;
@@ -700,10 +739,10 @@ static float text_runs(UiFamily f, float size, const char *s, float x, float y, 
 }
 static bool needs_runs(UiFamily f, const char *s)
 {
-    if (!display(f)) return false;
+    if (f == F_ICON) return false;
     for (const unsigned char *p = (const unsigned char *)s; *p; p++) if (*p >= 0xCD) {   /* lead bytes of U+0370 and above */
         int n, cp = GetCodepointNext((const char *)p, &n);
-        if (plex_only(cp)) return true;
+        if (alt_of(f, cp)) return true;
         p += n - 1;
     }
     return false;
@@ -829,8 +868,87 @@ void ui_text_clip(UiFamily f, float size, const char *s, float x, float y, float
     ui_text(f, size, buf, x, y, c);
 }
 
+/* ---- [[term]] markup (glossary.h): the shown words get a dotted underline and go to ui_term_hook, which handles
+   their hover and click. Wrapped as ui_text_wrap does, so a marked string takes the same room as its plain text. */
+void (*ui_term_hook)(const char *key, Rectangle r) = NULL;
+
+typedef struct { int a, b; } WrapWord;      /* [a, b) in the plain text */
+
+static void wrap_line_draw(UiFamily f, float size, const char *plain, const WrapWord *wd, int nw, const GlossSpan *sp, int ns,
+                           float x, float y, Color c)
+{
+    char line[1024]; int off[160]; int ll = 0;
+    for (int i = 0; i < nw && i < 160; i++) {
+        if (i && ll < (int)sizeof line - 1) line[ll++] = ' ';
+        off[i] = ll;
+        int n = wd[i].b - wd[i].a;
+        if (ll + n > (int)sizeof line - 1) n = (int)sizeof line - 1 - ll;
+        memcpy(line + ll, plain + wd[i].a, (size_t)n); ll += n;
+    }
+    line[ll] = 0;
+    if (nw > 160) nw = 160;
+    /* each span's part on this line: from the first word it touches to the last */
+    Rectangle seg[32]; int segK[32], nseg = 0;
+    for (int k = 0; k < ns && nseg < 32; k++) {
+        int o0 = -1, o1 = -1;
+        for (int i = 0; i < nw; i++) {
+            if (wd[i].a >= sp[k].end || wd[i].b <= sp[k].start) continue;
+            int s0 = wd[i].a > sp[k].start ? wd[i].a : sp[k].start, s1 = wd[i].b < sp[k].end ? wd[i].b : sp[k].end;
+            if (o0 < 0) o0 = off[i] + (s0 - wd[i].a);
+            o1 = off[i] + (s1 - wd[i].a);
+        }
+        if (o0 < 0 || o1 <= o0) continue;
+        char pre[1024];
+        snprintf(pre, sizeof pre, "%.*s", o0, line);  float x0 = x + ui_text_w(f, size, pre);
+        snprintf(pre, sizeof pre, "%.*s", o1, line);  float x1 = x + ui_text_w(f, size, pre);
+        seg[nseg] = (Rectangle){ x0, y - 1, x1 - x0, size + 5 }; segK[nseg++] = k;
+    }
+    for (int i = 0; i < nseg; i++) if (ui_term_hook) ui_term_hook(sp[segK[i]].key, seg[i]);   /* their hover first: under the text */
+    ui_text(f, size, line, x, y, c);
+    if (ui_culled(y - size, y + 2 * size)) return;
+    Color u = ui_alpha(U.th.lcars ? U.th.lc[1] : U.th.accent, U.disabled ? 0.35f : 0.8f);
+    for (int i = 0; i < nseg; i++)                         /* dotted underline */
+        for (float dx = 0; dx < seg[i].width - 0.5f; dx += 3.5f)
+            DrawRectangleRec((Rectangle){ snap(seg[i].x + dx), snap(y + size + 2), fminf(1.6f, seg[i].width - dx), 1.2f }, u);
+}
+
+static float text_wrap_marked(UiFamily f, float size, const char *s, Rectangle r, float lineH, Color c, bool draw)
+{
+    char plain[2048]; GlossSpan sp[32];
+    int ns = gloss_strip(s, plain, sizeof plain, sp, 32);
+    WrapWord wd[160]; int nw = 0;
+    char cand[1024];
+    float y = r.y;
+    const char *p = plain;
+    while (*p) {
+        if (*p == '\n') {
+            if (draw && nw) wrap_line_draw(f, size, plain, wd, nw, sp, ns, r.x, y, c);
+            y += lineH; nw = 0; p++;
+            continue;
+        }
+        const char *w = p;
+        while (*p && *p != ' ' && *p != '\n') p++;
+        WrapWord nwd = { (int)(w - plain), (int)(p - plain) };
+        if (nwd.b > nwd.a) {
+            int cl = 0;                                         /* the line with this word on the end */
+            for (int i = 0; i < nw; i++) cl += snprintf(cand + cl, sizeof cand - (size_t)cl, "%s%.*s", i ? " " : "", wd[i].b - wd[i].a, plain + wd[i].a);
+            if (cl > (int)sizeof cand - 1) cl = (int)sizeof cand - 1;
+            snprintf(cand + cl, sizeof cand - (size_t)cl, "%s%.*s", nw ? " " : "", nwd.b - nwd.a, plain + nwd.a);
+            if ((nw && ui_text_w(f, size, cand) > r.width) || nw == 160) {
+                if (draw) wrap_line_draw(f, size, plain, wd, nw, sp, ns, r.x, y, c);
+                y += lineH; nw = 0;
+            }
+            wd[nw++] = nwd;
+        }
+        while (*p == ' ') p++;
+    }
+    if (nw) { if (draw) wrap_line_draw(f, size, plain, wd, nw, sp, ns, r.x, y, c); y += lineH; }
+    return y - r.y;
+}
+
 float ui_text_wrap(UiFamily f, float size, const char *s, Rectangle r, float lineH, Color c, bool draw)
 {
+    if (s && strstr(s, "[[")) return text_wrap_marked(f, size, s, r, lineH, c, draw);
     char line[1024] = "";
     int ll = 0;
     float y = r.y;
@@ -1354,7 +1472,7 @@ void ui_begin_frame(void)
     }
     U.cursor = MOUSE_CURSOR_DEFAULT;
     U.wheelTarget = NULL;
-    U.tipShow = false;
+    U.tipShow = false; U.tipTitle[0] = 0;
     U.editSeen = false;
     enteredId = 0;
     U.disabled = false;
@@ -1564,20 +1682,22 @@ void ui_end_frame(void)
     }
     U.layer = 0;
     if (U.tipShow && U.tip[0] && !U.pop.open && !U.mDown) {
-        float w = fminf(ui_text_w(F_REG, 12.5f, U.tip) + 20, 360);
-        float h = ui_text_wrap(F_REG, 12.5f, U.tip, (Rectangle){ 0, 0, w - 20, 999 }, 17, t->text, false) + 14;
+        bool ti = U.tipTitle[0] != 0;
+        float maxW = ti ? 400 : 360;
+        float w = fminf(fmaxf(ui_text_w(F_REG, 12.5f, U.tip), ti ? ui_text_w(F_SEMI, 13.5f, U.tipTitle) : 0) + 20, maxW);
+        float th = ti ? 22 : 0;
+        float h = ui_text_wrap(F_REG, 12.5f, U.tip, (Rectangle){ 0, 0, w - 20, 999 }, 17, t->text, false) + 14 + th;
         float x = U.mouse.x + 14, y = U.mouse.y + 20;
         if (x + w > ui_width() - 6) x = ui_width() - 6 - w;
         if (y + h > ui_height() - 6) y = U.mouse.y - h - 8;
+        if (y < 6) y = 6;
         Rectangle r = { x, y, w, h };
         ui_shadow(r, 7, 0.8f);
-        if (t->lcars) {
-            ui_rect(r, 9, t->lc[1]);
-            ui_text_wrap(F_REG, 12.5f, U.tip, (Rectangle){ x + 10, y + 7, w - 20, h }, 17, BLACK, true);
-        } else {
-            ui_rect(r, 7, t->dark ? hex(0x22324D) : hex(0x1E2A40));
-            ui_text_wrap(F_REG, 12.5f, U.tip, (Rectangle){ x + 10, y + 7, w - 20, h }, 17, hex(0xEEF2F8), true);
-        }
+        Color fg = t->lcars ? BLACK : hex(0xEEF2F8);
+        if (t->lcars) ui_rect(r, 9, t->lc[1]);
+        else ui_rect(r, 7, t->dark ? hex(0x22324D) : hex(0x1E2A40));
+        if (ti) ui_text_clip(F_SEMI, 13.5f, U.tipTitle, x + 10, y + 8, w - 20, fg);
+        ui_text_wrap(F_REG, 12.5f, U.tip, (Rectangle){ x + 10, y + 7 + th, w - 20, h }, 17, fg, true);
     }
     draw_toasts();
     if (U.mReleased) U.active = 0;
@@ -2263,13 +2383,19 @@ bool ui_row(UiId id, Rectangle r, bool selected)
     return ui_clicked(r);
 }
 
-void ui_tooltip(Rectangle r, const char *text)
+void ui_tooltip_titled(Rectangle r, const char *title, const char *text, float delay)
 {
     if (!text || !ui_hovered(r)) return;
     UiId key = fnv(&r, sizeof r, 7);
     if (key != U.tipKey) { U.tipKey = key; U.tipStart = U.time; }
-    if (U.time - U.tipStart > 0.45) { U.tipShow = true; snprintf(U.tip, sizeof U.tip, "%s", text); }
+    if (U.time - U.tipStart > delay) {
+        U.tipShow = true;
+        gloss_strip(text, U.tip, sizeof U.tip, NULL, 0);             /* a tooltip's words aren't links */
+        snprintf(U.tipTitle, sizeof U.tipTitle, "%s", title ? title : "");
+    } else ui_request_frames(2);
 }
+
+void ui_tooltip(Rectangle r, const char *text) { ui_tooltip_titled(r, NULL, text, 0.45f); }
 
 /* ---------------------------------------------------------------- scroll */
 float ui_scroll_begin(UiScroll *s, Rectangle view)

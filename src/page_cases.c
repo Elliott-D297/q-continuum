@@ -512,7 +512,7 @@ void blank_modal(bool *close)
     static const char *const SAY[] = {
         "Opens the STL mesher with the file dialog (STL, STEP or IGES): snappyHexMesh or SALOME, step by step.",
         "Opens Mesh > SALOME with the file dialog: a UNV or MED file or a saved study (.hdf) from SALOME, or a Gmsh .msh.",
-        "A 1 m box of 20 x 20 x 20 cells with an inlet, an outlet and walls, in system/blockMeshDict: change it on Mesh > Dictionaries.",
+        "A 1 m box of 20 x 20 x 20 cells with an inlet, an outlet and walls, in system/blockMeshDict; Mesh > Block builder changes it, or starts from a template (pipe, channel, step, airfoil ...).",
         "Just the case: Mesh has the STL mesher, the import and blockMesh when you want them." };
     y += 62;
     y += ui_text_wrap(F_REG, 13, SAY[BL.start], (Rectangle){ x, y, w, 60 }, 19, TH.text3, true) + 10;
@@ -537,7 +537,7 @@ void blank_modal(bool *close)
     if (!A.cs || strcmp(A.cs->s.path, dst)) return;        /* held up by unsaved edits in the open case: it opens after */
     if (start == BL_STL) { A.meshTab = 3; stlmesh_choose(); }
     else if (start == BL_IMPORT) { A.meshTab = 1; salome_choose(); }
-    else if (start == BL_BOX) A.meshTab = 0;
+    else if (start == BL_BOX) A.meshTab = 5;
     ui_toast(TOAST_OK, "Made the blank case %s", pl_basename(dst));
 }
 

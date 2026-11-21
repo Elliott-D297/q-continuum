@@ -3,10 +3,14 @@
      test_stlmesh prep <case>                 the mesh dictionaries from mesher/mesher.ini, as Generate does; for a 2-D
                                               mesh it writes the extrudeMesh step's shell lines to <case>/mesher/2d.sh
      test_stlmesh estimate <case>...        the cell estimate for each case's mesher.ini (no files written)
+     test_stlmesh regions <scratch>          long pipes split into regions: the small end caps stay their own regions (an
+                                              inlet on a long pipe is a tiny share of the area; user's exhaust manifold 2026-11-20)
      test_stlmesh smooth <stl> <out.stl>      a 2-D profile (the NACA airfoil, in mm) made smooth: checks it is closed, keeps
                                               its regions, its corners small, its area and its trailing edge
    tests/stlmesh_mesh.sh then runs the tools */
+#define _GNU_SOURCE
 #include <math.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -62,6 +66,63 @@ static int smooth(const char *stl, const char *out)
     return 0;
 }
 
+
+/* a closed pipe along z, radius R, length L (mm), nseg facets round, as an ASCII STL with one solid (as CAD exports) */
+static void write_pipe(const char *path, double R, double L, int nseg, bool square)
+{
+    FILE *f = fopen(path, "w");
+    fprintf(f, "solid part\n");
+    #define TRI(a, b, c) fprintf(f, " facet normal 0 0 0\n  outer loop\n   vertex %.6f %.6f %.6f\n   vertex %.6f %.6f %.6f\n   vertex %.6f %.6f %.6f\n  endloop\n endfacet\n", \
+                                 a[0], a[1], a[2], b[0], b[1], b[2], c[0], c[1], c[2])
+    if (square) nseg = 4;
+    for (int i = 0; i < nseg; i++) {
+        double a0 = 2 * M_PI * i / nseg + (square ? M_PI / 4 : 0), a1 = 2 * M_PI * (i + 1) / nseg + (square ? M_PI / 4 : 0);
+        double p0[3] = { R * cos(a0), R * sin(a0), 0 }, p1[3] = { R * cos(a1), R * sin(a1), 0 };
+        double q0[3] = { p0[0], p0[1], L }, q1[3] = { p1[0], p1[1], L };
+        double c0[3] = { 0, 0, 0 }, c1[3] = { 0, 0, L };
+        int nz = 40;                                       /* the wall in rings, like a real tessellation */
+        for (int k = 0; k < nz; k++) {
+            double z0 = L * k / nz, z1 = L * (k + 1) / nz;
+            double A[3] = { p0[0], p0[1], z0 }, B[3] = { p1[0], p1[1], z0 }, C[3] = { p1[0], p1[1], z1 }, D[3] = { p0[0], p0[1], z1 };
+            TRI(A, B, C); TRI(A, C, D);
+        }
+        TRI(c0, p1, p0);                                   /* the caps, as fans */
+        TRI(c1, q0, q1);
+    }
+    #undef TRI
+    fprintf(f, "endsolid part\n");
+    fclose(f);
+}
+
+static int regions(const char *dir)
+{
+    char p[1024];
+    pl_mkdirs(dir);
+    static const struct { const char *name; double R, L; int nseg; bool square; } P[] = {
+        { "duct",  5, 1000, 4, true },    /* 10 mm square duct, 1 m long: each cap 0.25 % of the area */
+        { "pipe", 10, 3000, 96, false },  /* round, 20 mm bore, 3 m long: each cap 0.17 %                */
+    };
+    for (size_t i = 0; i < sizeof P / sizeof P[0]; i++) {
+        snprintf(p, sizeof p, "%s/%s.stl", dir, P[i].name);
+        write_pipe(p, P[i].R, P[i].L, P[i].nseg, P[i].square);
+        Stl s;
+        FAILIF(!stl_load(p, &s), "%s", s.err);
+        stl_set_scale(&s, 0.001); stl_split(&s, 30);
+        MeshCfg m; memset(&m, 0, sizeof m);
+        mesher_defaults(&m, &s);
+        char cs[1024]; snprintf(cs, sizeof cs, "%s/%s-case", dir, P[i].name);
+        stl_split_part(&s, m.splitAngle, cs);
+        int caps = 0, walls = 0;
+        for (int r = 0; r < s.nRegions; r++) { if (fabs(s.reg[r].n[2]) > 0.99) caps++; else walls++; }
+        printf("%s: split angle %g, %d regions: %d caps, %d wall\n", P[i].name, m.splitAngle, s.nRegions, caps, walls);
+        FAILIF(caps != 2, "%s: %d end caps found, not 2 (folded into the wall?)", P[i].name, caps);
+        FAILIF(walls != (P[i].square ? 4 : 1), "%s: %d wall regions", P[i].name, walls);
+        stl_free(&s);
+    }
+    printf("ok\n");
+    return 0;
+}
+
 int main(int argc, char **argv)
 {
     if (argc >= 3 && !strcmp(argv[1], "estimate")) {
@@ -84,6 +145,7 @@ int main(int argc, char **argv)
         if (k < 0 || !mesh_example_setup(k, argv[3], err, sizeof err)) { fprintf(stderr, "%s\n", k < 0 ? "no such example" : err); return 1; }
         return 0;
     }
+    if (argc == 3 && !strcmp(argv[1], "regions")) return regions(argv[2]);
     if (argc == 4 && !strcmp(argv[1], "smooth")) return smooth(argv[2], argv[3]);
     if (argc >= 4 && !strcmp(argv[1], "init")) return init(argv[2], argv[3], argc > 4 ? atof(argv[4]) : 1);
     if (argc != 3 || strcmp(argv[1], "prep")) { fprintf(stderr, "usage: test_stlmesh init <stl> <case> [scale] | prep <case>\n"); return 2; }

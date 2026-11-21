@@ -22,7 +22,7 @@ typedef enum {
 #define MAX_JOBS 8
 
 #define WHATS_NEW_REV 13         /* bump with each batch of changes worth telling about (page_settings.c lists them) */
-typedef enum { MD_NONE = 0, MD_OPEN_FOLDER, MD_CLONE, MD_CLEAN, MD_DELETE, MD_UNSAVED, MD_QUIT_RUNNING, MD_ADD_ENTRY, MD_RUN_RESULTS, MD_NEW_FILE, MD_RUN_SCRIPT, MD_CPL_NEW, MD_CPL_OPEN, MD_CPL_RESULTS, MD_PV_CLAUDE, MD_HIST_CONFIRM, MD_PRECHECK, MD_QUEUE_ADD, MD_MOVIE, MD_STUDY_NEW, MD_STUDY_OUT, MD_STUDY_EXP, MD_PROG_CLEAN, MD_CONFLICT, MD_SHORTCUTS, MD_WHATS_NEW, MD_PALETTE, MD_ENV, MD_REVIEW, MD_PLUME, MD_AWAY, MD_CPL_BUILD, MD_FLAVOUR, MD_BLANK, MD_DEL_FILE } Modal;
+typedef enum { MD_NONE = 0, MD_OPEN_FOLDER, MD_CLONE, MD_CLEAN, MD_DELETE, MD_UNSAVED, MD_QUIT_RUNNING, MD_ADD_ENTRY, MD_RUN_RESULTS, MD_NEW_FILE, MD_RUN_SCRIPT, MD_CPL_NEW, MD_CPL_OPEN, MD_CPL_RESULTS, MD_PV_CLAUDE, MD_HIST_CONFIRM, MD_PRECHECK, MD_QUEUE_ADD, MD_MOVIE, MD_STUDY_NEW, MD_STUDY_OUT, MD_STUDY_EXP, MD_PROG_CLEAN, MD_CONFLICT, MD_SHORTCUTS, MD_WHATS_NEW, MD_PALETTE, MD_ENV, MD_REVIEW, MD_PLUME, MD_AWAY, MD_CPL_BUILD, MD_FLAVOUR, MD_BLANK, MD_DEL_FILE, MD_GLOSSARY, MD_CALC } Modal;
 
 typedef struct {
     Env      env;
@@ -359,6 +359,17 @@ bool  stlmesh_template_hints(Case *c, bool layers);          /* page_stlmesh.c: 
    height y1 out to about half that cell (snappy holds the outer layer to 0.3-1.0 of it), prism layers on; the first
    layer the mesher will then make. Both false when it would need more than 60 layers (the surface too coarse for y1) */
 bool  stlmesh_wall_layers(Case *c, double *first, int *n, double *cell);
+double stlmesh_cells_estimate(Case *c);                    /* page_stlmesh.c: the mesher's cell estimate, 0 without an STL case */
+/* page_calc.c -- the Calculators dialog (mesh overhaul plan step 2): opens at a tab, filled in from the open case */
+enum { CALC_WALL = 0, CALC_GRADE, CALC_COST, CALC_DIM, CALC__N };
+void  calc_open(int tab);
+void  calc_modal(bool *close);                               /* draw_modals, MD_CALC */
+int   run_procs_for_check(void);
+/* page_blocks.c -- Mesh > Block builder (mesh overhaul plan step 5): templates and the blockMeshDict tables (A.meshTab 5) */
+float blocks_page(Case *c, float x, float y, float w);
+bool  blocks_wants_first(void);                             /* a template with a wall first cell is open */
+void  blocks_take_first(double h1);                          /* ... and the y+ calculator's first cell goes in it */
+bool  extrude_add_steps(Case *c, Job *j);               /* page_blocks.c: Generate mesh's extrusion steps (mesher/extrude.ini) */                             /* page_run.c: the processes the next run will use */
 /* page_setup.c: the walls' y+ from a run (mean, greatest) against the setup's wall treatment: a line saying so (out), and
    0 it suits, 1 it doesn't (the line says what to change), -1 nothing to say (laminar, no y+) */
 int   setup_yplus_advice(Case *c, double avg, double max, char *out, size_t cap);

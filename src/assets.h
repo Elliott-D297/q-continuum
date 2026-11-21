@@ -5,6 +5,7 @@ extern const unsigned char asset_IBMPlexSans_Regular_ttf[];  extern const unsign
 extern const unsigned char asset_IBMPlexSans_Medium_ttf[];   extern const unsigned int asset_IBMPlexSans_Medium_ttf_len;
 extern const unsigned char asset_IBMPlexSans_SemiBold_ttf[]; extern const unsigned int asset_IBMPlexSans_SemiBold_ttf_len;
 extern const unsigned char asset_IBMPlexMono_Regular_ttf[];  extern const unsigned int asset_IBMPlexMono_Regular_ttf_len;
+extern const unsigned char asset_DejaVuSans_Symbols_ttf[];  extern const unsigned int asset_DejaVuSans_Symbols_ttf_len;
 extern const unsigned char asset_IBMPlexMono_Medium_ttf[];   extern const unsigned int asset_IBMPlexMono_Medium_ttf_len;
 extern const unsigned char asset_lucide_ttf[];               extern const unsigned int asset_lucide_ttf_len;
 extern const unsigned char asset_Antonio_Regular_ttf[];       extern const unsigned int asset_Antonio_Regular_ttf_len;

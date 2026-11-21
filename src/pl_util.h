@@ -52,7 +52,8 @@ void  pl_stat_cache_clear(void);
 bool  pl_is_exec(const char *p);      /* a regular file we may run (cached like the four above on /mnt/<drive>) */
 long long pl_file_size(const char *p);
 long long pl_dir_size(const char *p, int maxDepth);
-char *pl_read_file(const char *p, size_t *len);               /* malloc'd, NUL-terminated */
+char *pl_read_file(const char *p, size_t *len);               /* malloc'd, NUL-terminated; NULL past 64 MB */
+char *pl_read_file_max(const char *p, size_t *len, long long maxBytes);   /* same, with its own size limit */
 char *pl_read_head(const char *p, size_t maxBytes);           /* first bytes of a file    */
 bool  pl_write_file(const char *p, const char *data, size_t len);  /* atomic (tmp + rename) */
 bool  pl_touch(const char *p);

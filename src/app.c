@@ -9,6 +9,7 @@
 #include <sys/wait.h>
 #include <unistd.h>
 #include "app.h"
+#include "teach.h"
 #include "intro.h"
 #include "salometool.h"
 #include "undo.h"
@@ -1916,6 +1917,7 @@ int main(int argc, char **argv)
     float dpi = GetWindowScaleDPI().x;
     if (scale <= 0 && dpi > 1.01f && A.set.uiScale == 1.0f) A.set.uiScale = dpi;
     ui_init(A.set.uiScale, A.set.theme);
+    teach_init();
     ui_sound_hook = ui_sound;
 
     A.cj = &A.jobs[MAX_JOBS];

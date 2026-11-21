@@ -13,7 +13,8 @@ enter $SB/ws/flange.stl
 wait 10
 assert text 6468 triangles
 assert text Closed (watertight)
-assert text 24 boundaries
+# 28 since 2026-11-20: four small flat faces behind sharp edges (0.19 % to 0.48 % of the area) are kept, not folded in as slivers
+assert text 28 boundaries
 assert file mesher/mesher.ini
 note the flow: Geometry > Flow > Boundaries > Mesh settings > Generate
 click stl-next

@@ -264,14 +264,16 @@ static long long dir_size_rec(const char *p, int depth)
 }
 long long pl_dir_size(const char *p, int maxDepth) { return dir_size_rec(p, maxDepth); }
 
-char *pl_read_file(const char *p, size_t *len)
+char *pl_read_file(const char *p, size_t *len) { return pl_read_file_max(p, len, 64LL << 20); }
+
+char *pl_read_file_max(const char *p, size_t *len, long long maxBytes)
 {
     FILE *f = fopen(p, "rb");
     if (!f) return NULL;
-    fseek(f, 0, SEEK_END);
-    long n = ftell(f);
-    fseek(f, 0, SEEK_SET);
-    if (n < 0 || n > (64L << 20)) { fclose(f); return NULL; }
+    fseeko(f, 0, SEEK_END);
+    off_t n = ftello(f);
+    fseeko(f, 0, SEEK_SET);
+    if (n < 0 || (long long)n > maxBytes) { fclose(f); return NULL; }
     char *b = malloc((size_t)n + 1);
     if (!b) { fclose(f); return NULL; }
     size_t r = fread(b, 1, (size_t)n, f);

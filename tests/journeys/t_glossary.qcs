@@ -1,0 +1,72 @@
+# Mesh overhaul plan step 1, the shared teaching pieces: glossary terms underlined in the Mesh pages' text (hover: the
+# entry in short; click: the Glossary at it, with related terms, Back and search) and "Show the working" panels under
+# the STL mesher's cell size and prism layers (collapsed at first; Given / Equations / Working / Result).
+budget p95 80 max 500
+shell mkdir -p $SB/ws/gl/system && python3 "$QC_TESTS/tools/gen_named_box.py" $SB/ws/box.stl && printf 'FoamFile { version 2.0; format ascii; class dictionary; object controlDict; }\napplication simpleFoam;\nstartTime 0;\nendTime 10;\ndeltaT 1;\nwriteControl timeStep;\nwriteInterval 10;\n' > $SB/ws/gl/system/controlDict
+open $SB/ws/gl
+click nav:mesh
+wait-until page Mesh
+click text:STL mesher
+wait 5
+click stl-path
+enter $SB/ws/box.stl
+wait 10
+click stl-next
+wait 3
+click stl-next
+wait 5
+click stl-name-kinds
+wait 5
+click stl-next
+wait 5
+# the markup is gone from the drawn text; the term is underlined and hoverable
+assert text Everything is sized from the base size, as in STAR-CCM+.
+assert not text [[
+hover term:base-size
+sleep 1
+wait 5
+assert text Click for the whole entry.
+screenshot $OUT/1_hover.png
+# the working, collapsed until asked for
+assert text Show the working
+click stl-wk-size
+wait 5
+assert text The surface cell size
+assert text level = round(log2(100 /
+screenshot $OUT/2_working.png
+# a click opens the Glossary at the term
+click term:base-size
+wait 5
+assert modal glossary
+assert text PICTURE IT
+assert text NUMBERS TO KNOW
+assert text The largest cell, away from the part.
+screenshot $OUT/3_glossary.png
+click gl-see#9
+wait 5
+assert text Surface size (target surface size)
+click gl-back
+wait 5
+assert text The largest cell, away from the part.
+click gl-q
+type skew
+wait 5
+assert text How far the line joining two cell centres misses
+screenshot $OUT/4_search.png
+key ESCAPE
+wait 3
+key ESCAPE
+wait 3
+# the prism layers' working
+click stl-wk-layers
+wait 5
+assert text The prism layer stack
+assert text t1 = T (r - 1) / (r^N - 1)
+wheel -6 stl-wk-layers
+wait 10
+screenshot $OUT/5_layers.png
+# the shortcut opens it from anywhere
+key G ctrl
+wait 5
+assert text NUMBERS TO KNOW
+screenshot $OUT/6_shortcut.png

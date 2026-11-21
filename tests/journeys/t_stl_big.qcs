@@ -1,0 +1,17 @@
+# A fine STL past 64 MB (user's exhaust export 2026-11-20: 270 MB, 5.4 M triangles) used to be refused as
+# "Could not read": the general file reader's 64 MB limit. STLs now open up to 2 GB.
+budget p95 400 max 30000
+open $SB/ws/cavity
+shell python3 "$QC_TESTS/tools/gen_big_stl.py" ../big.stl 900
+click nav:mesh
+wait-until page Mesh
+click text:STL mesher
+wait 5
+click stl-path
+enter $SB/ws/big.stl
+wait 30
+assert not text Could not read
+assert text 3236400 triangles
+assert text Closed (watertight)
+assert file mesher/mesher.ini
+screenshot $OUT/stl_big.png

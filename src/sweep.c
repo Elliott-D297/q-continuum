@@ -714,6 +714,89 @@ static void control_keywords(Case *c, Sweep *w)
     w->checks++;
 }
 
+/* the mesh's shape (mesh overhaul plan step 3, gap L4): a 2-D or axisymmetric mesh one cell thick, the wedge under 5
+   degrees, checkMesh's 2-D and wedge errors; and a case on a Windows drive. A 2-D mesh two cells thick runs without a word
+   from OpenFOAM (checked with v2606: checkMesh says "Mesh OK", icoFoam runs) at twice the cost; every cell of a one-cell
+   mesh has exactly two faces on the empty (or wedge) patches, so the boundary file and the cell count tell. */
+static void mesh_shape(Case *c, Sweep *w)
+{
+    if (pl_slow_fs(c->s.path)) {
+        Finding *g = add(w, PC_WARN); if (!g) return;
+        Explanation *x = &g->x;
+        pl_fmt_ui(x->title, sizeof x->title, "The case is on a Windows drive (%.6s)", c->s.path);
+        pl_fmt_ui(x->text, sizeof x->text, "Files under /mnt/ go through WSL's bridge to Windows: OpenFOAM reads and writes them 5 to 20 times slower "
+                  "than on the Linux side, and a run writes every field at every write time, so it can spend longer writing than solving. "
+                  "Copy the case into your Linux home (Cases > Clone, to ~/OpenFOAM/...) and run it there; Windows still sees it at "
+                  "\\\\wsl$.");
+        w->checks++;
+    }
+    if (c->s.nRegions > 0 || c->s.nCells <= 0 || !c->s.meshed) return;
+    long nE = 0, nW = 0; int pE = 0, pW = 0;
+    for (int i = 0; i < c->nPatches; i++) {
+        const PatchInfo *pa = &c->patches[i];
+        if (!strcmp(pa->type, "empty")) { nE += pa->nFaces; pE++; }
+        else if (!strcmp(pa->type, "wedge")) { nW += pa->nFaces; pW++; }
+    }
+    if (!pE && !pW) return;
+    w->checks++;
+    long n = c->s.nCells;
+    const char *kind = pW ? "axisymmetric (wedge)" : "2-D";
+    long faces = pW ? nW : nE;
+    if (faces > 0 && faces < 2 * n - n / 50) {                /* fewer than two faces a cell: cells that touch no empty patch */
+        double thick = 2.0 * (double)n / (double)faces;
+        Finding *g = add(w, PC_WARN); if (!g) return;
+        Explanation *x = &g->x;
+        pl_fmt_ui(x->title, sizeof x->title, "The %s mesh is %.0f cells thick: one is enough", kind, thick);
+        pl_fmt_ui(x->text, sizeof x->text, "%ld cells but only %ld faces on the %s patches: a %s mesh one cell thick has two a cell. OpenFOAM "
+                  "runs it without a word and solves the same 2-D flow in each layer, so the run costs %.0f times as much for the same "
+                  "answer. Make the mesh one cell across the %s direction (blockMesh: 1 in that direction; the STL mesher's 2-D does it).",
+                  n, faces, pW ? "wedge" : "empty", kind, thick, pW ? "angular" : "thin");
+        pl_strlcpy(x->file, "constant/polyMesh/boundary", sizeof x->file);
+    }
+    /* checkMesh: the wedge angle, and errors in the 2-D or wedge set-up */
+    char lp[PL_PATH]; pl_join(lp, sizeof lp, c->s.path, "log.checkMesh");
+    char *t = pl_read_file(lp, NULL);
+    if (!t) return;
+    double half = 0; int nAng = 0;                             /* each wedge patch's angle to the centre plane */
+    for (char *q = strstr(t, "    Wedge "); q; q = strstr(q + 10, "    Wedge ")) {
+        char *a = strstr(q, " with angle ");
+        char *eol = strchr(q, '\n');
+        if (a && (!eol || a < eol)) { half = fmax(half, atof(a + 12)); nAng++; }
+    }
+    double tot = 2 * half;                                     /* the two sides (a side split into several patches counts once) */
+    if (nAng && tot > 5.0 + 1e-6) {
+        Finding *g = add(w, PC_WARN);
+        if (g) {
+            Explanation *x = &g->x;
+            pl_fmt_ui(x->title, sizeof x->title, "The wedge is %.3g degrees: keep it under 5", tot);
+            pl_fmt_ui(x->text, sizeof x->text, "An axisymmetric case solves one slice of the circle, and its flat faces stand in for the curved "
+                      "ones. Past about 5 degrees (2.5 either side of the plane) that stand-in shows: the cells' volumes and the radial "
+                      "terms drift from the true round shape. checkMesh measured %.3g degrees in all.", tot);
+            pl_strlcpy(x->file, "log.checkMesh", sizeof x->file);
+        }
+    }
+    static const struct { const char *key, *title, *text; } E[] = {
+        { "***Number of edges not aligned", "The 2-D mesh's edges aren't square to its empty direction",
+          "checkMesh found edges that run neither along nor across the 2-D plane: the front and back (empty) patches aren't flat and "
+          "parallel, so OpenFOAM can't treat the mesh as one cell thick. Remesh: extrude the 2-D mesh straight (extrudeMesh, or blockMesh with 1 cell)." },
+        { "***Wedge patch", "A wedge patch isn't flat",
+          "A wedge patch must be one plane through the axis. Remesh it: extrudeMesh with the wedge type, or blockMesh with the wedge's two faces planar." },
+        { "***Cannot find opposite wedge", "A wedge patch has no partner",
+          "An axisymmetric mesh needs two wedge patches, one either side of the plane: one is missing or has another type in the boundary file." },
+        { "***Wedges do not have the same axis", "The two wedge patches turn about different axes",
+          "Both wedge patches must meet on one axis. Remesh the wedge symmetric about its plane." },
+    };
+    for (size_t i = 0; i < sizeof E / sizeof E[0]; i++) {
+        if (!strstr(t, E[i].key)) continue;
+        Finding *g = add(w, PC_BAD); if (!g) break;
+        Explanation *x = &g->x;
+        pl_strlcpy(x->title, E[i].title, sizeof x->title);
+        pl_strlcpy(x->text, E[i].text, sizeof x->text);
+        pl_strlcpy(x->file, "log.checkMesh", sizeof x->file);
+    }
+    free(t);
+}
+
 static int cmpf(const void *a, const void *b) { return ((const Finding *)b)->level - ((const Finding *)a)->level; }
 
 int sensor_sweep(Case *c, Sweep *w)
@@ -731,6 +814,7 @@ int sensor_sweep(Case *c, Sweep *w)
     knudsen(c, w);
     field_dims(c, w);
     control_keywords(c, w);
+    mesh_shape(c, w);
     qsort(w->f, (size_t)w->n, sizeof w->f[0], cmpf);
     for (int i = 0; i < w->n; i++) if (w->f[i].ask || w->f[i].level >= PC_BAD) w->ask = true;
     return w->worst;

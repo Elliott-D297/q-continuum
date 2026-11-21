@@ -138,7 +138,7 @@ static bool resolve(const char *t, Rectangle *vis, Rectangle *whole, Rectangle *
 /* ---------------------------------------------------------------- conditions */
 static const char *const MODAL_NAMES[] = { "none", "open-folder", "clone", "clean", "delete", "unsaved", "quit-running", "add-entry",
     "run-results", "new-file", "run-script", "cpl-new", "cpl-open", "cpl-results", "pv-claude", "hist-confirm", "precheck", "queue-add",
-    "movie", "study-new", "study-out", "study-exp", "deme-new", "conflict", "shortcuts", "whats-new", "palette", "environment", "review", "plume", "away", "cpl-build", "flavour", "blank" };
+    "movie", "study-new", "study-out", "study-exp", "deme-new", "conflict", "shortcuts", "whats-new", "palette", "environment", "review", "plume", "away", "cpl-build", "flavour", "blank", "del-file", "glossary", "calc" };
 
 const char *app_page_title(int p);
 
@@ -369,6 +369,14 @@ void script_tick(int frame)
             if (cmd[0] == 'd') { inp_queue_button(2, true); inp_queue_button(3, false); }
             S.clicks += cmd[0] == 'd' ? 2 : 1;
             say("%s %s", cmd, arg);
+            next(); S.waitFrames = 2; return;
+        }
+        if (!strcmp(cmd, "hover")) {                     /* "hover <target>": the mouse over it, no click (tooltips, glossary terms) */
+            Vector2 p;
+            if (!target_ready(arg, &p)) return;
+            act();
+            inp_queue_move(0, p.x, p.y);
+            say("hover %s", arg);
             next(); S.waitFrames = 2; return;
         }
         if (!strcmp(cmd, "clickat")) {                   /* "clickat <target> fx fy": at a fraction of its width and height */

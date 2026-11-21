@@ -20,6 +20,9 @@
 #include <sys/wait.h>
 #include <unistd.h>
 #include "app.h"
+#include "calc.h"
+#include "precheck.h"
+#include "teach.h"
 #include "assets.h"
 #include "orbit.h"
 #include "rlgl.h"
@@ -434,6 +437,22 @@ static bool prepare(Case *c)
 static void generate(Case *c);
 static void generate_after_clean(void) { if (A.cs) generate(A.cs); }
 
+/* memory before meshing (plan step 2, gap L10): free memory read every 2 s, not each frame; a mesh whose snappyHexMesh peak
+   would pass 90 % of it is held back until "Generate anyway" for that estimate (any way Generate is reached: button, Ctrl+M) */
+static double gen_armed_for;
+static double free_mb(void)
+{
+    static double v, at = -10;
+    if (GetTime() - at > 2) { v = mem_available_mb(); at = GetTime(); }
+    return v;
+}
+static bool mesh_too_big(double cells, double *needMB)
+{
+    double need = calc_mesh_mb(cells), avail = free_mb();
+    if (needMB) *needMB = need;
+    return avail > 0 && need > 0.9 * avail && gen_armed_for != cells;
+}
+
 static void generate(Case *c)
 {
     if (!app_require_foam() || !app_can_start()) return;
@@ -443,6 +462,12 @@ static void generate(Case *c)
         return;
     }
     if (salome_mesher() && !A.env.salome[0]) { ui_toast(TOAST_ERR, "SALOME is not installed: see the note under Mesher"); return; }
+    double need;
+    if (T.loaded && mesh_too_big(mesher_estimate_cells(&T.m, &T.stl), &need)) {
+        ui_toast(TOAST_ERR, "Meshing this needs about %.1f GB and only %.1f GB is free: Mesh > Generate says more, and has Generate anyway",
+                 need / 1024, free_mb() / 1024);
+        return;
+    }
     if (!prepare(c)) return;
     MeshOverrides ov; mo_init(&ov); mo_load(c->s.path, &ov);   /* the Advanced panel's command-line options */
     job_reset(A.cj, "Mesh");
@@ -543,6 +568,7 @@ static void generate(Case *c)
     snprintf(cm, sizeof cm, "checkMesh%s%s%s %s", mo_cmd_flag(&ov, "checkMesh", "-allGeometry", false) ? " -allGeometry" : "",
              mo_cmd_flag(&ov, "checkMesh", "-allTopology", false) ? " -allTopology" : "",
              mo_cmd_flag(&ov, "checkMesh", "-meshQuality", false) ? " -meshQuality" : "", mo_cmd_extra(&ov, "checkMesh"));
+    extrude_add_steps(c, A.cj);                            /* an extrusion in the mesh's recipe (Block builder > Extrude) */
     job_add(A.cj, "checkMesh", "checkMesh", cm, "log.checkMesh", false);
     mo_free(&ov);
     if (job_start(A.cj, c->s.path, app_bashrc(), GetTime())) ui_toast(TOAST_INFO, "Meshing %s: the Run page shows the log", pl_basename(T.m.cad[0] ? T.m.cad : T.m.stl));
@@ -1884,7 +1910,7 @@ static float two_d_rows(float x, float y, float w)
         }
         y += ch + 14;
     }
-    Rectangle cr = prop_row(x, &y, w, "2-D", "A profile (an airfoil, a section) extruded along one axis: meshed one cell thick across it, with "
+    Rectangle cr = prop_row(x, &y, w, "2-D", "A profile (an airfoil, a section) extruded along one axis: meshed [[empty|one cell thick]] across it, with "
                             "its front and back empty, as OpenFOAM's 2-D cases are. Far fewer cells than 3-D.", 24);
     bool on = T.m.twoD;
     if (ui_switch(ui_id("stl-2d"), cr.x, cr.y + 2, &on)) set_two_d(on, on ? stl_thin_axis(&T.stl) : T.m.normal2D);
@@ -2041,7 +2067,7 @@ static float flow_step(float x, float y, float w)
         /* up: one of the four directions square to the flow */
         const char *upNames[4]; int upDirs[4], nu = 0, cur = 0, ud = mesher_up(&T.m);
         for (int d = 0; d < DIR__N; d++) if (d / 2 != T.m.flowDir / 2) { if (d == ud) cur = nu; upDirs[nu] = d; upNames[nu++] = DIR_NAME[d]; }
-        cr = prop_row(x, &y, w, "Up", "Where the top of the tunnel is; the ground (if the body sits on it) is the other way.", 34);
+        cr = prop_row(x, &y, w, "Up", "Where the top of the [[domain|tunnel]] is; the ground (if the body sits on it) is the other way.", 34);
         if (ui_segmented(ui_id("stl-updir"), (Rectangle){ cr.x, cr.y, fminf(240, cr.width), 34 }, upNames, nu, &cur) && upDirs[cur] != ud) {
             T.m.upDir = upDirs[cur]; save_cfg();
         }
@@ -2200,7 +2226,7 @@ static float sizes_section(float x, float y, float w)
 {
     float y0 = y;
     MeshCfg *m = &T.m;
-    y += section_head(x, y, w, "Cell size", "Everything is sized from the base size, as in STAR-CCM+. Pick a density to start from; the "
+    y += section_head(x, y, w, "Cell size", "Everything is sized from the [[base-size|base size]], as in STAR-CCM+. Pick a density to start from; the "
                                            "numbers under it are what it sets.");
     /* the density: the defaults for this part and flow, the base size doubled or halved */
     {
@@ -2220,10 +2246,13 @@ static float sizes_section(float x, float y, float w)
         /* what that means, in numbers anyone can picture */
         double Lp = 0; for (int k = 0; k < 3; k++) Lp = fmax(Lp, T.stl.bmax[k] - T.stl.bmin[k]);
         double hs = mesher_surface_cell(m), n = mesher_estimate_cells(m, &T.stl);
-        char t[200], cl[64]; fmt_cells(cl, sizeof cl, n);
-        pl_fmt_ui(t, sizeof t, "About %.0f cells along the part's length at its surface, %s in all. Finer is more accurate and slower to run.",
+        char t[400], cl[64]; fmt_cells(cl, sizeof cl, n);
+        pl_fmt_ui(t, sizeof t, "About %.0f cells along the part's length at its [[surface-size|surface]], %s in all. Finer is more accurate and slower to run, until "
+                  "the answer [[mesh-independence|stops changing]].",
                   hs > 0 ? Lp / hs : 0, cl);
         y += note(x, y, w, t);
+        Working wk; wk_surface_cell(&wk, m->base, m->targetPct, MESHERS[m->mesher].flags & MF_OCTREE, Lp);
+        y += teach_working("stl-wk-size", x, y - 6, w, &wk) - 2;
     }
     char a[96], l1[32], l2[32];
     /* a part thinner than its surface cells: snappyHexMesh can't carve it out */
@@ -2261,18 +2290,18 @@ static float sizes_section(float x, float y, float w)
         }
         y += ch + 14;
     }
-    if (row_num(x, &y, w, "stl-base", "Base size", "The largest cell, away from the surface.", &m->base, "%.4g", 1e-9, 1e6, "m", NULL)) save_cfg();
+    if (row_num(x, &y, w, "stl-base", "Base size", "The largest [[cell]], away from the surface.", &m->base, "%.4g", 1e-9, 1e6, "m", NULL)) save_cfg();
     fmt_len(l1, sizeof l1, m->base * m->targetPct / 100);
     snprintf(a, sizeof a, "= %s", l1);
-    if (row_num(x, &y, w, "stl-target", "Target surface size", "The cell size on the surface.", &m->targetPct, "%g", 0.01, 1000, "%", a)) save_cfg();
+    if (row_num(x, &y, w, "stl-target", "Target surface size", "The [[surface-size|cell size on the surface]].", &m->targetPct, "%g", 0.01, 1000, "%", a)) save_cfg();
     if (!T.adv) return y - y0;
     fmt_len(l2, sizeof l2, m->base * m->minPct / 100);
     snprintf(a, sizeof a, "= %s", l2);
     if (row_num(x, &y, w, "stl-min", "Minimum surface size", "Reached on tight curves and sharp edges.", &m->minPct, "%g", 0.01, 1000, "%", a)) save_cfg();
-    if (row_num(x, &y, w, "stl-curv", "Surface curvature", "Cells around a full circle on curved surfaces.", &m->curvature, "%g", 4, 360, "pts/circle", NULL)) save_cfg();
+    if (row_num(x, &y, w, "stl-curv", "Surface curvature", "Cells around a full circle on curved surfaces ([[curvature]]).", &m->curvature, "%g", 4, 360, "pts/circle", NULL)) save_cfg();
     if (row_num(x, &y, w, "stl-sgrow", "Surface growth rate", "How fast cells grow along the surface (SALOME).", &m->surfGrowth, "%g", 1.01, 3, NULL, NULL)) save_cfg();
-    if (row_num(x, &y, w, "stl-vgrow", "Volume growth rate", "How fast cells grow away from the surface: lower is smoother and more cells.", &m->volGrowth, "%g", 1.01, 3, NULL, NULL)) save_cfg();
-    if (row_num(x, &y, w, "stl-feat", "Feature angle", "Edges sharper than this are kept crisp (snapped to, not smoothed over).", &m->featureAngle, "%g", 1, 180, "°", NULL)) save_cfg();
+    if (row_num(x, &y, w, "stl-vgrow", "Volume growth rate", "How fast cells grow away from the surface ([[expansion-ratio|growth rate]]): lower is smoother and more cells.", &m->volGrowth, "%g", 1.01, 3, NULL, NULL)) save_cfg();
+    if (row_num(x, &y, w, "stl-feat", "Feature angle", "[[feature-edge|Edges]] sharper than this are kept crisp (snapped to, not smoothed over).", &m->featureAngle, "%g", 1, 180, "°", NULL)) save_cfg();
     return y - y0;
 }
 
@@ -2294,8 +2323,8 @@ static float prism_section(float x, float y, float w)
     float y0 = y;
     MeshCfg *m = &T.m;
     bool none = salome_mesher() && !salome_layers(m);
-    y += section_head(x, y, w, "Prism layers", m->twoD ? "Thin cells along the walls, for the boundary layer: in 2-D they follow the profile's outline."
-                                                      : "Thin cells stacked on the walls, for the boundary layer.");
+    y += section_head(x, y, w, "Prism layers", m->twoD ? "Thin cells along the walls, for the [[boundary-layer]]: in 2-D they follow the profile's outline."
+                                                      : "Thin [[prism-layers|cells stacked on the walls]], for the [[boundary-layer]].");
     Rectangle cr = prop_row(x, &y, w, "Prism layer mesher", NULL, 24);
     if (ui_switch(ui_id("stl-prism"), cr.x, cr.y + 2, &m->prism)) save_cfg();
     if (!m->prism) return y - y0;
@@ -2328,10 +2357,10 @@ static float prism_section(float x, float y, float w)
     }
     double T0 = m->base * m->prismPct / 100, h = mesher_layer_cell(m), Tm = mesher_layer_rel(m, NULL) * h;
     char a[96], l[32], t0[32]; fmt_len(t0, sizeof t0, T0); snprintf(a, sizeof a, "= %s", t0);
-    if (row_num(x, &y, w, "stl-pt", "Prism layer total thickness", "Of the base size.", &m->prismPct, "%g", 0.1, 500, "%", a)) save_cfg();
+    if (row_num(x, &y, w, "stl-pt", "Prism layer total thickness", "[[layer-thickness|The whole stack]], as a share of the base size.", &m->prismPct, "%g", 0.1, 500, "%", a)) save_cfg();
     double r = m->stretch, first = r == 1 ? Tm / m->layers : Tm * (r - 1) / (pow(r, m->layers) - 1);
     fmt_len(l, sizeof l, first); snprintf(a, sizeof a, "first layer %s", l);
-    if (row_num(x, &y, w, "stl-ps", "Prism layer stretching", "Each layer this much thicker than the one below.", &m->stretch, "%g", 1, 3, NULL, a)) save_cfg();
+    if (row_num(x, &y, w, "stl-ps", "Prism layer stretching", "Each layer this much thicker than the one below (the [[expansion-ratio]]).", &m->stretch, "%g", 1, 3, NULL, a)) save_cfg();
     char tl[32], hl[32], t2[480];
     fmt_len(tl, sizeof tl, Tm); fmt_len(hl, sizeof hl, h);
     if (fabs(Tm - T0) > 0.02 * T0)
@@ -2350,6 +2379,13 @@ static float prism_section(float x, float y, float w)
         pl_fmt_ui(t2, sizeof t2, "snappyHexMesh sizes them to the %s surface cells: where the surface is refined further (curvature, the "
                   "minimum size) they thin with its cells, and can break off where the size steps (Even surface cells holds them).", hl);
     y += note(x, y + 4, w, t2);
+    Working wk; wk_layer_stack(&wk, Tm, m->layers, r, h);
+    y += teach_working("stl-wk-layers", x, y, w, &wk);
+    /* the first layer from y+, for the flow this part will see: the Calculators dialog, sent back here */
+    float cw = ui_button_width(ICON_SIGMA, "First layer from y+");
+    if (ui_button(ui_id("stl-calc-yplus"), (Rectangle){ x, y, cw, 32 }, ICON_SIGMA, "First layer from y+", BTN_SECONDARY)) calc_open(CALC_WALL);
+    ui_tooltip((Rectangle){ x, y, cw, 32 }, "Work out the first layer height for a y+ from the flow speed, the fluid (cryogens too) and the part's size, then send it here");
+    y += 42;
     return y - y0;
 }
 
@@ -2357,7 +2393,7 @@ static float zones_section(float x, float y, float w)
 {
     float y0 = y;
     MeshCfg *m = &T.m;
-    y += section_head(x, y, w, "Volumetric controls", "Finer cells inside a box, sphere or cylinder: a wake, a gap, a jet. Coordinates in metres.");
+    y += section_head(x, y, w, "Volumetric controls", "[[refinement-region|Finer cells]] inside a box, sphere or cylinder: a wake, a gap, a jet. Coordinates in metres.");
     static const char *kinds[] = { "Box", "Sphere", "Cylinder" };
     static const char *const AX[3] = { "x", "y", "z" };
     int del = -1;
@@ -2454,10 +2490,69 @@ static float mesh_step(float x, float y, float w)
 
 static double cells_estimate(void) { return mesher_estimate_cells(&T.m, &T.stl); }
 
+double stlmesh_cells_estimate(Case *c)
+{
+    if (!c) return 0;
+    sync_case(c);
+    return T.loaded ? cells_estimate() : 0;
+}
+
 static void fmt_cells(char *b, size_t cap, double n)
 {
     if (n >= 1e6) pl_fmt_ui(b, cap, "about %.1f million cells", n / 1e6);
     else pl_fmt_ui(b, cap, "about %.0f thousand cells", fmax(1, n / 1e3));
+}
+
+/* after a SALOME mesh: the prism layers asked for and not made, said out loud with the reason (mesh overhaul plan step 3,
+   gap L11). The script says so in log.salome when it drops them (NETGEN grows viscous layers on CAD faces, not on an STL's
+   bare triangles, unless the part is an all-wall body off the ground); checkMesh counting no prisms says so for the rest.
+   Reads the logs again only when they change. */
+static bool layers_missing(Case *c, char *why, size_t cap)
+{
+    static char path[PL_PATH], said[400]; static time_t mtS, mtC; static long prisms; static bool have;
+    char ls[PL_PATH], lc[PL_PATH];
+    pl_join(ls, sizeof ls, c->s.path, "log.salome"); pl_join(lc, sizeof lc, c->s.path, "log.checkMesh");
+    time_t a = pl_mtime(ls), b = pl_mtime(lc);
+    if (strcmp(path, c->s.path) || a != mtS || b != mtC) {
+        pl_strlcpy(path, c->s.path, sizeof path); mtS = a; mtC = b; said[0] = 0; prisms = -1; have = false;
+        char *t = a ? pl_read_file(ls, NULL) : NULL;
+        for (char *q = t ? strstr(t, "Q-Continuum: ") : NULL; q; q = strstr(q + 13, "Q-Continuum: ")) {
+            char *e = strchr(q, '\n'); size_t n = e ? (size_t)(e - q) : strlen(q);
+            char line[400]; snprintf(line, sizeof line, "%.*s", (int)(n - 13 < sizeof line ? n - 13 : sizeof line - 1), q + 13);
+            if (strstr(line, "without prism layers") || strstr(line, "without them") || strstr(line, "this mesh has none")) {
+                pl_strlcpy(said, line, sizeof said); have = true;
+            }
+        }
+        free(t);
+        char *k = b ? pl_read_file(lc, NULL) : NULL;
+        const char *p = k ? strstr(k, "prisms:") : NULL;
+        if (p) prisms = atol(p + 7);
+        free(k);
+    }
+    bool poly = T.m.mesher == MESHER_POLY || T.m.polyConvert;  /* polyDualMesh turns the prisms into polyhedra: only the log tells */
+    if (have) { snprintf(why, cap, "SALOME said: %s.", said); return true; }
+    if (!poly && prisms == 0) { snprintf(why, cap, "checkMesh counts no prisms in it."); return true; }
+    return false;
+}
+
+static float layers_missing_notice(Case *c, float x, float y, float w)
+{
+    MeshCfg *m = &T.m;
+    if (!c->s.meshed || !salome_mesher() || !m->prism || m->layers <= 0 || stlmesh_mesh_current(c) == 0) return 0;
+    char why[460];
+    if (!layers_missing(c, why, sizeof why)) return 0;
+    char t[1100], hl[32];
+    fmt_len(hl, sizeof hl, mesher_surface_cell(m));
+    bool said = !strncmp(why, "SALOME said", 11);          /* its words name the fixes already: add only the STEP file */
+    pl_fmt_ui(t, sizeof t, "You asked for %d prism layers; this mesh has none. %s Without them the cells on the walls are as big as the "
+              "surface cells (%s): y+ is far above 1, so a resolved wall isn't, and the wall shear stress, drag and heat transfer come out "
+              "wrong. %s", m->layers, why, hl, said ? "A STEP file of the part (Geometry) also gives SALOME the CAD faces it grows layers on." :
+              "SALOME grows layers on CAD faces: give it the part as a STEP file (Geometry), or switch Remesh surface on for a CAD-made "
+              "part with flat faces, or use snappyHexMesh, which makes layers on any STL.");
+    const char *title = "This mesh has no prism layers";
+    float ch = callout_height(w, title, t);
+    callout((Rectangle){ x, y, w, ch }, TOAST_WARN, ICON_TRIANGLE_ALERT, title, t);
+    return ch + 14;
 }
 
 /* ---------------------------------------------------------------------------- 5 Generate */
@@ -2472,6 +2567,33 @@ static float generate_step(Case *c, float x, float y, float w)
     ui_text(F_SEMI, 16, est, x, y, n > 2e7 ? TH.warn : TH.text);
     if (n > 2e7) ui_text(F_REG, 13, "That is a lot for one machine: Coarse, or a larger base size, brings it down (Mesh settings).", x, y + 24, TH.text3);
     y += n > 2e7 ? 50 : 34;
+    /* memory and time before meshing (plan step 2, gap L10): a mesh that can't fit is held back until the user insists */
+    double avail = free_mb();
+    CalcCostIn ci = { .cells = n, .solver = CS_STEADY, .steps = 1000, .procs = run_procs_for_check(), .memAvailMB = avail, .nCpu = A.env.nCpu };
+    CalcCostOut co; calc_cost(&ci, &co, NULL);
+    bool tooBig = mesh_too_big(n, NULL);
+    {
+        char t[300], tm[48];
+        if (co.hours < 1) pl_fmt_ui(tm, sizeof tm, "%.0f min", fmax(1, co.hours * 60)); else pl_fmt_ui(tm, sizeof tm, "%.1f h", co.hours);
+        pl_fmt_ui(t, sizeof t, "Meshing needs about %.1f GB of the %.1f GB free; a steady run about %.1f GB and %s for 1000 iterations on %d process%s.",
+                  co.meshMB / 1024, avail / 1024, co.solveMB / 1024, tm, ci.procs, ci.procs == 1 ? "" : "es");
+        float cw = ui_button_width(ICON_SIGMA, "Calculators");
+        float th2 = ui_text_wrap(F_REG, 13, t, (Rectangle){ x, y, w - cw - 16, 80 }, 19, co.level ? TH.warn : TH.text3, true);
+        if (ui_button(ui_id("stl-calc-cost"), (Rectangle){ x + w - cw, y - 4, cw, 30 }, ICON_SIGMA, "Calculators", BTN_GHOST)) calc_open(CALC_COST);
+        ui_tooltip((Rectangle){ x + w - cw, y - 4, cw, 30 }, "Memory and run time worked out: other solvers, iterations and process counts");
+        y += fmaxf(26, th2) + 10;
+    }
+    if (tooBig) {
+        char t[400];
+        pl_fmt_ui(t, sizeof t, "Meshing this needs about %.1f GB and only %.1f GB is free: Linux would stop snappyHexMesh part way (\"Killed\"), "
+                  "or the whole machine would crawl. A larger base size or Coarse under Cell size brings it down: half the cell size is "
+                  "eight times the cells.", co.meshMB / 1024, avail / 1024);
+        float ch = callout_height(w, "This mesh won't fit in memory", t) + 46;
+        callout((Rectangle){ x, y, w, ch }, TOAST_ERR, ICON_TRIANGLE_ALERT, "This mesh won't fit in memory", t);
+        float aw = ui_button_width(NULL, "Generate anyway");
+        if (ui_button(ui_id("stl-gen-anyway"), (Rectangle){ x + 42, y + ch - 44, aw, 34 }, NULL, "Generate anyway", BTN_GHOST)) { gen_armed_for = n; tooBig = false; }
+        y += ch + 12;
+    }
     /* where the mesh on disk stands against these settings */
     int cur = c->s.meshed ? stlmesh_mesh_current(c) : -1;
     if (c->s.meshed && cur == 0 && !running) {
@@ -2481,10 +2603,11 @@ static float generate_step(Case *c, float x, float y, float w)
         y += ch + 12;
     }
     float bx = x, bw;
-    ui_disable(running);
+    ui_disable(running || tooBig);
     bw = ui_button_width(ICON_PLAY, "Generate mesh");
     if (ui_button(ui_id("stl-gen"), (Rectangle){ bx, y, bw, 42 }, ICON_PLAY, "Generate mesh", BTN_PRIMARY)) generate(c);
     bx += bw + 10;
+    ui_disable(running);
     bw = ui_button_width(ICON_FILE_TEXT, "Write files only");
     if (ui_button(ui_id("stl-write"), (Rectangle){ bx, y, bw, 42 }, ICON_FILE_TEXT, "Write files only", BTN_SECONDARY) && prepare(c))
         ui_toast(TOAST_OK, salome_mesher() ? "Wrote salome/stl_mesh.py, mesher/mesher.ini and the STL" : "Wrote the snappyHexMesh, blockMesh and feature dictionaries");
@@ -2535,6 +2658,7 @@ static float generate_step(Case *c, float x, float y, float w)
         callout((Rectangle){ x, y, w, ch }, TOAST_INFO, ICON_LOADER_CIRCLE, NULL, t);
         y += ch + 16;
     } else if (c->s.meshed) {
+        y += layers_missing_notice(c, x, y, w);
         /* what comes after a mesh: look at it, then the physics */
         float vw = ui_button_width(ICON_EYE, "View the mesh"), pw = ui_button_width(ICON_ATOM, "Next: Physics > Setup");
         if (ui_button(ui_id("stl-view-mesh"), (Rectangle){ x, y, vw, 36 }, ICON_EYE, "View the mesh", BTN_SECONDARY)) A.meshTab = 2;

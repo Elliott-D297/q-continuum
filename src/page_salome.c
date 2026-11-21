@@ -40,6 +40,7 @@ static bool can_mesh(Case *c, void (*then)(void))
 static void add_convert(void)
 {
     job_add(A.cj, "ideasUnvToFoam", "ideasUnvToFoam", "ideasUnvToFoam " UNV " && echo && " "{\n" WALLS "}", "log.ideasUnvToFoam", false);
+    if (A.cs) extrude_add_steps(A.cs, A.cj);               /* an extrusion in the mesh's recipe (Block builder > Extrude) */
     job_add(A.cj, "checkMesh", "checkMesh", "checkMesh", "log.checkMesh", false);
 }
 
@@ -215,6 +216,7 @@ static bool import_mesh(Case *c, const char *src)
                  "else ideasUnvToFoam salome/imported.unv || %s; fi && echo && {\n" WALLS "}", retry);
         job_add(A.cj, "ideasUnvToFoam", "ideasUnvToFoam", conv, "log.ideasUnvToFoam", false);
     }
+    if (A.cs) extrude_add_steps(A.cs, A.cj);               /* an extrusion in the mesh's recipe (Block builder > Extrude) */
     job_add(A.cj, "checkMesh", "checkMesh", "checkMesh", "log.checkMesh", false);
     if (!job_start(A.cj, c->s.path, app_bashrc(), GetTime())) { ui_toast(TOAST_ERR, "Could not start the import"); return false; }
     ui_toast(TOAST_INFO, "Importing %s: its boundary condition files (0/) are written when it is done", pl_basename(src));

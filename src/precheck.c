@@ -15,7 +15,7 @@ static bool test_host(int which, double *v)
 {
     const char *t = getenv("QC_TEST_HOST");
     double m, l;
-    if (!t || sscanf(t, "%lf %lf", &m, &l) != 2) return false;
+    if (!t || sscanf(t, "%lf%*[ ,]%lf", &m, &l) != 2) return false;   /* "MB load", or "MB,load" (QC_APP_ENV splits at spaces) */
     *v = which ? l : m;
     return true;
 }

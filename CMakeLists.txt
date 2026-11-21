@@ -48,6 +48,7 @@ set(QC_FONTS
   ${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/IBMPlexMono-Regular.ttf
   ${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/IBMPlexMono-Medium.ttf
   ${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/lucide.ttf
+  ${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/DejaVuSans-Symbols.ttf
   ${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/Antonio-Regular.ttf
   ${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/Antonio-Medium.ttf
   ${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/Antonio-Bold.ttf
@@ -104,14 +105,14 @@ configure_file(${QC_ASSETS_C}.tmp ${QC_ASSETS_C} COPYONLY)
 
 # ---------------------------------------------------------------- core (no graphics) + app
 add_library(qc_core STATIC
-  src/pl_util.c src/foamdict.c src/foamcase.c src/runner.c src/env.c src/xmlspan.c src/coupling.c src/safety.c src/precheck.c src/monitor.c src/xsection.c src/explain.c src/physics.c src/fieldinfo.c src/redalert.c src/sweep.c src/demeparams.c src/program.c src/params.c src/textdiff.c src/runlog.c src/plume.c src/cplbuild.c src/stlmesh.c src/meshopts.c src/meshexamples.c src/simsetup.c src/simmodels.c src/qjson.c src/ccxmodel.c src/femesh.c src/festudy.c src/progblank.c
+  src/pl_util.c src/foamdict.c src/foamcase.c src/runner.c src/env.c src/xmlspan.c src/coupling.c src/safety.c src/precheck.c src/monitor.c src/xsection.c src/explain.c src/physics.c src/fieldinfo.c src/redalert.c src/sweep.c src/demeparams.c src/program.c src/params.c src/textdiff.c src/runlog.c src/plume.c src/cplbuild.c src/stlmesh.c src/meshopts.c src/meshexamples.c src/simsetup.c src/simmodels.c src/qjson.c src/ccxmodel.c src/femesh.c src/festudy.c src/progblank.c src/glossary.c src/working.c src/calc.c src/quality.c src/bmesh.c src/extrude.c
   ${QC_ASSETS_C})   # the embedded fonts and starters (program.c writes the Chrono starter)
 target_include_directories(qc_core PUBLIC src)
 target_link_libraries(qc_core PUBLIC m)
 
 add_executable(q-continuum
   src/app.c src/app_widgets.c src/suggest.c src/ui.c src/input.c src/script.c
-  src/page_cases.c src/page_case.c src/page_bc.c src/page_dicts.c src/page_run.c src/logview.c src/undo.c src/actions.c src/palette.c src/page_settings.c src/page_env.c src/texteditor.c src/page_coupling.c src/page_salome.c src/page_history.c src/page_queue.c src/page_studies.c src/page_deme.c src/page_prog.c src/page_review.c src/page_away.c src/flavour.c src/logo.c src/terms.c src/page_movie.c src/page_xsection.c src/page_meshview.c src/orbit.c src/tour.c src/sound.c src/page_stlmesh.c src/page_setup.c src/salometool.c src/page_meshquality.c src/page_meshadv.c src/intro.c src/page_results.c src/gpu.c src/page_fea.c)
+  src/page_cases.c src/page_case.c src/page_bc.c src/page_dicts.c src/page_run.c src/logview.c src/undo.c src/actions.c src/palette.c src/page_settings.c src/page_env.c src/texteditor.c src/page_coupling.c src/page_salome.c src/page_history.c src/page_queue.c src/page_studies.c src/page_deme.c src/page_prog.c src/page_review.c src/page_away.c src/flavour.c src/logo.c src/terms.c src/page_movie.c src/page_xsection.c src/page_meshview.c src/orbit.c src/tour.c src/sound.c src/page_stlmesh.c src/page_setup.c src/salometool.c src/page_meshquality.c src/page_meshadv.c src/intro.c src/page_results.c src/gpu.c src/page_fea.c src/teach.c src/page_calc.c src/page_blocks.c)
 target_link_libraries(q-continuum PRIVATE qc_core raylib)
 target_compile_definitions(q-continuum PRIVATE QC_VERSION="${PROJECT_VERSION}")
 
@@ -164,7 +165,7 @@ function(qc_unit name)
   target_link_libraries(${name} PRIVATE qc_core m)
   qc_target(${name})
 endfunction()
-foreach(t test_foamdict test_logparse test_xml test_coupling test_sync test_tutorials test_oracle test_props test_dictsem test_units test_explain test_sweep test_deme test_program test_params test_textdiff test_plume test_cplbuild test_monitor test_simsetup test_stlmesh test_qjson test_xsection test_meshverdict test_meshopts test_ccxmodel test_femesh)
+foreach(t test_foamdict test_logparse test_xml test_coupling test_sync test_tutorials test_oracle test_props test_dictsem test_units test_explain test_sweep test_deme test_program test_params test_textdiff test_plume test_cplbuild test_monitor test_simsetup test_stlmesh test_qjson test_xsection test_meshverdict test_meshopts test_ccxmodel test_femesh test_glossary test_calc test_quality test_bmesh test_extrude)
   qc_unit(${t})
 endforeach()
 target_compile_definitions(test_units PRIVATE QC_LOG_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/logs")
@@ -206,6 +207,15 @@ endforeach()
 get_property(_fast DIRECTORY PROPERTY TESTS)
 set_tests_properties(${_fast} PROPERTIES LABELS fast)
 set(QC_BASHRC ${QC_FOAM_GUESS}/etc/bashrc CACHE FILEPATH "OpenFOAM environment for the tests that run OpenFOAM")
+# the mesh-shape pre-flight checks (mesh overhaul plan step 3): 2-D one cell thick, wedge under 5 degrees, checkMesh 2-D errors
+add_test(NAME preflight_shape COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tests/preflight_shape.sh $<TARGET_FILE:test_sweep> ${QC_BASHRC} ${QC_SCRATCH})
+set_tests_properties(preflight_shape PROPERTIES LABELS full)
+add_test(NAME extrude COMMAND test_extrude unit)
+set_tests_properties(extrude PROPERTIES LABELS fast)
+add_test(NAME extrude_openfoam COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tests/extrude_openfoam.sh $<TARGET_FILE:test_extrude> $<TARGET_FILE:test_bmesh> ${QC_BASHRC} ${QC_SCRATCH})
+set_tests_properties(extrude_openfoam PROPERTIES LABELS full)
+add_test(NAME bmesh_openfoam COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tests/bmesh_openfoam.sh $<TARGET_FILE:test_bmesh> ${QC_BASHRC} ${QC_SCRATCH})
+set_tests_properties(bmesh_openfoam PROPERTIES LABELS full TIMEOUT 1800)
 add_test(NAME parser_oracle COMMAND test_oracle ${QC_TUTORIALS} ${QC_BASHRC} ${QC_SCRATCH} 400)
 set_tests_properties(parser_oracle PROPERTIES LABELS full TIMEOUT 1800)
 add_test(NAME parser_properties COMMAND test_props ${QC_TUTORIALS} ${QC_BASHRC} ${QC_SCRATCH} 300 1)
@@ -259,7 +269,22 @@ add_test(NAME mesh_verdict COMMAND test_meshverdict ${QC_SCRATCH})
 set_tests_properties(qjson PROPERTIES LABELS fast)
 add_test(NAME stlmesh_smooth COMMAND test_stlmesh smooth ${CMAKE_CURRENT_SOURCE_DIR}/tests/tools/NACA_Airfoil.STL ${QC_SCRATCH}/naca_smooth.stl)
 set_tests_properties(stlmesh_smooth PROPERTIES LABELS fast)
+# small end caps on long pipes stay their own regions (inlets), not folded into the wall as slivers (user, 2026-11-20)
+add_test(NAME stlmesh_regions COMMAND test_stlmesh regions ${QC_SCRATCH}/stl_regions)
+set_tests_properties(stlmesh_regions PROPERTIES LABELS fast)
 add_test(NAME meshopts COMMAND test_meshopts ${QC_SCRATCH})
+# the glossary and "show the working" (mesh overhaul plan step 1); every [[term]] in src/ must be an entry
+add_test(NAME glossary COMMAND test_glossary ${CMAKE_CURRENT_SOURCE_DIR}/src)
+# the calculators (mesh overhaul plan step 2) against the hand-worked examples in docs/CALCULATORS.md
+add_test(NAME calc COMMAND test_calc)
+# the mesh quality explainer (mesh overhaul plan step 4): log.checkMesh read, limits against meshQualityDict and checkMesh's source
+add_test(NAME quality COMMAND test_quality ${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures ${QC_FOAM_GUESS}/etc/caseDicts/meshQualityDict ${QC_FOAM_GUESS}/src)
+set_tests_properties(quality PROPERTIES LABELS fast)
+# the block builder (mesh overhaul plan step 5): its model, reader, writer and checks; the templates and round trip in OpenFOAM
+add_test(NAME bmesh COMMAND test_bmesh unit)
+set_tests_properties(bmesh PROPERTIES LABELS fast)
+set_tests_properties(calc PROPERTIES LABELS fast)
+set_tests_properties(glossary PROPERTIES LABELS fast)
 add_test(NAME ccxmodel COMMAND test_ccxmodel ${QC_SCRATCH})
 add_test(NAME femesh COMMAND test_femesh ${QC_SCRATCH})
 add_test(NAME fea_routes COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tests/fea_routes.sh $<TARGET_FILE:test_femesh> ${QC_SCRATCH})

@@ -11,6 +11,7 @@
 #include "actions.h"
 #include "intro.h"
 #include "palette.h"
+#include "teach.h"
 #include "undo.h"
 #include "safety.h"
 #include "tour.h"
@@ -74,6 +75,8 @@ static void a_hist(void)
 static void a_keys(void) { A.modal = MD_SHORTCUTS; }
 static void a_computer(void) { palette_open(); }
 static void a_news(void) { A.modal = MD_WHATS_NEW; }
+static void a_glossary(void) { teach_glossary_open(NULL); }
+static void a_calc(void) { calc_open(-1); }
 static void a_tour(void) { tour_start(); }
 static void a_mesh_tour(void) { tour_start_mesh(); }
 static void a_intro(void) { intro_start(); }
@@ -153,6 +156,10 @@ static const Action ACTIONS[] = {
       "Search every command, page, case, patch, field and keyword; \"deltaT = 0.001\" sets a value", NULL, a_computer, true },
     { "help.keys",      "Keyboard shortcuts",     "F1",            KEY_F1,        0,              NULL,           NULL,
       "This list", NULL, a_keys, true },
+    { "help.glossary",  "Glossary",               "Ctrl+G",        KEY_G,         M_CTRL,         NULL,           NULL,
+      "The words of CFD and meshing in fluid-mechanics terms, with numbers to know", NULL, a_glossary, false },
+    { "help.calc",      "Calculators",            NULL,            0,             0,              NULL,           NULL,
+      "Wall spacing from y+ (cryogens too), cell grading, memory and run time, the dimensionless numbers, worked out by hand", NULL, a_calc, false },
     { "help.tour",      "Take the tour",          NULL,            0,             0,              "set-tour",     NULL,
       "A walk through every page: what it is for and how to work it", NULL, a_tour, false },
     { "help.meshtour",  "Meshing tutorial",       NULL,            0,             0,              "set-meshtour", NULL,

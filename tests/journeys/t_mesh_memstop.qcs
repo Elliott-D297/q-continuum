@@ -1,0 +1,34 @@
+# Mesh overhaul plan step 2 (gap L10): a mesh whose snappyHexMesh peak would pass 90 % of the free memory is held back, by the
+# Generate button and the step bar's alike, until "Generate anyway". Run with QC_TEST_HOST=250,0 (250 MB free; run_all_journeys.sh
+# sets it): the box's ~66 thousand cells need about 0.3 GB.
+budget p95 60 max 500
+shell python3 "$QC_TESTS/tools/gen_named_box.py" $SB/ws/box.stl
+open $SB/ws/cavity
+click nav:mesh
+wait-until page Mesh
+click text:STL mesher
+wait 5
+click stl-path
+enter $SB/ws/box.stl
+wait 10
+click stl-next
+wait 3
+click stl-next
+wait 5
+click stl-name-kinds
+wait 5
+click stl-next
+wait 5
+click stl-next
+wait 5
+assert text This mesh won't fit in memory
+assert text Meshing needs about 0.3 GB of the 0.2 GB free
+screenshot $OUT/1_held.png
+# the step bar's Generate mesh is held too (it reaches the same generate())
+click wf-next
+wait-until toast Meshing this needs about timeout 5
+assert not file log.snappyHexMesh
+click stl-gen-anyway
+wait 5
+assert not text This mesh won't fit in memory
+screenshot $OUT/2_anyway.png

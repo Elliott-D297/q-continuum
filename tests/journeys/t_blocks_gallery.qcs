@@ -1,0 +1,72 @@
+# Mesh overhaul plan step 5: every block-builder template's form and preview, for the visual matrix (no asserts on numbers:
+# test_bmesh / bmesh_openfoam check those).
+budget p95 120 max 900
+shell mkdir -p $SB/ws/gal/system && printf 'FoamFile { version 2.0; format ascii; class dictionary; object controlDict; }\napplication simpleFoam;\nstartTime 0;\nendTime 10;\ndeltaT 1;\nwriteControl timeStep;\nwriteInterval 10;\n' > $SB/ws/gal/system/controlDict && mkdir -p $SB/ws/gal/mesher && echo 'template = custom' > $SB/ws/gal/mesher/blocks.ini
+open $SB/ws/gal
+click nav:mesh
+wait-until page Mesh
+assert text Start from a template
+click bk-t#0
+wait 5
+wheel -5 bk-t#0
+wait 10
+assert text Write and mesh
+screenshot $OUT/0_template.png
+wheel 20 bk-t#0
+wait 5
+click bk-t#1
+wait 5
+wheel -5 bk-t#1
+wait 10
+assert text Write and mesh
+screenshot $OUT/1_template.png
+wheel 20 bk-t#0
+wait 5
+click bk-t#2
+wait 5
+wheel -5 bk-t#2
+wait 10
+assert text Write and mesh
+screenshot $OUT/2_template.png
+wheel 20 bk-t#0
+wait 5
+click bk-t#3
+wait 5
+wheel -5 bk-t#3
+wait 10
+assert text Write and mesh
+screenshot $OUT/3_template.png
+wheel 20 bk-t#0
+wait 5
+click bk-t#4
+wait 5
+wheel -5 bk-t#4
+wait 10
+assert text Write and mesh
+screenshot $OUT/4_template.png
+wheel 20 bk-t#0
+wait 5
+click bk-t#5
+wait 5
+wheel -5 bk-t#5
+wait 10
+assert text Write and mesh
+screenshot $OUT/5_template.png
+wheel 20 bk-t#0
+wait 5
+click bk-t#6
+wait 5
+wheel -5 bk-t#6
+wait 10
+assert text Write and mesh
+screenshot $OUT/6_template.png
+wheel 20 bk-t#0
+wait 5
+click bk-t#7
+wait 5
+wheel -5 bk-t#7
+wait 10
+assert text Write and mesh
+screenshot $OUT/7_template.png
+wheel 20 bk-t#0
+wait 5

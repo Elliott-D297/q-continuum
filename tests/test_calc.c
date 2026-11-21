@@ -38,6 +38,12 @@ static void wall(void)
     NEAR(o.Re, Re, 1e-9, "plate Re = sim_wall_spacing"); NEAR(o.h1, h1, 1e-9, "plate h1 = sim_wall_spacing");
     NEAR(o.delta, d, 1e-9, "plate delta = sim_wall_spacing"); NEAR(o.utau, ut, 1e-9, "plate u_tau = sim_wall_spacing");
 
+    /* every input given: the working keeps all of its lines (it held 24, and lost the results and notes) */
+    CalcWallIn full = in; full.cell = 0.002; full.yplus = 10;
+    calc_wall(&full, &o, &wk);
+    wk_text(&wk, t, sizeof t);
+    CHECK(strstr(t, "N_blend") && strstr(t, "buffer layer") && strstr(t, "Check the y+ field"), "full working kept whole: %d lines", wk.n);
+
     /* blending into 2 mm surface cells: layers until the outer one reaches 0.3 × 2 mm = 0.6 mm */
     in.cell = 0.002;
     calc_wall(&in, &o, NULL);

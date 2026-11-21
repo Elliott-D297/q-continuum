@@ -71,7 +71,7 @@ static int tk(Tk *t)
 static bool is_num(const char *w, double *v)
 {
     char *e; double d = strtod(w, &e);
-    if (e == w || *e) return false;
+    if (e == w || *e || !isfinite(d)) return false;              /* "nan" and "inf" are no coordinates */
     if (v) *v = d;
     return true;
 }
@@ -82,7 +82,7 @@ static bool read_num(Tk *t, double *v) { return tk(t) == T_WORD && is_num(t->w, 
 static bool read_int(Tk *t, int *v)
 {
     double d;
-    if (!read_num(t, &d) || d != floor(d)) return false;
+    if (!read_num(t, &d) || d != floor(d) || fabs(d) > 1e9) return false;   /* whole, and fits an int */
     *v = (int)d;
     return true;
 }
@@ -112,8 +112,7 @@ static char *entry_text(FDFile *f, const char *key, FDEntry **out)
     FDEntry *e = fd_find(f, key);
     if (out) *out = e;
     if (!e) return NULL;
-    int a = e->valStart, b = e->valEnd;
-    if (e->kind == FD_DICT) { a = e->valStart; b = e->valEnd; }
+    int a = e->valStart, b = e->valEnd;                          /* a dictionary: the text inside its braces */
     char *s = malloc((size_t)(b - a) + 1);
     memcpy(s, f->text + a, (size_t)(b - a)); s[b - a] = 0;
     return s;
@@ -127,7 +126,7 @@ static bool unsupported_text(const char *s, char *why, int cap, const char *wher
     while ((k = tk(&t)) != T_END) {
         if (k != T_WORD) continue;
         if (t.w[0] == '$' || t.w[0] == '#') {
-            snprintf(why, (size_t)cap, "%s uses %s: the block builder would replace it with plain numbers. Edit this blockMeshDict as text (Files) to keep it.", where, t.w);
+            if (why) snprintf(why, (size_t)cap, "%s uses %s: the block builder would replace it with plain numbers. Edit this blockMeshDict as text (Files) to keep it.", where, t.w);
             return true;
         }
     }
@@ -157,8 +156,8 @@ bool bm_read(FDFile *f, BmModel *m, char *why, int cap)
         Tk t = { s, 0, (int)strlen(s), 0, "" };
         int k1 = tk(&t), k2 = tk(&t);
         free(s);
-        if (k1 == T_LP && k2 == T_RP) continue;                 /* an empty list is no harm */
-        snprintf(why, (size_t)cap, "This blockMeshDict has a %s section (%s), which the block builder doesn't edit: edit it as text (Files).",
+        if ((k1 == T_LP && k2 == T_RP) || k1 == T_END) continue;   /* an empty list or dictionary is no harm */
+        if (why) snprintf(why, (size_t)cap, "This blockMeshDict has a %s section (%s), which the block builder doesn't edit: edit it as text (Files).",
                  NOPE[i], !strcmp(NOPE[i], "patches") ? "the old way of listing patches" : !strcmp(NOPE[i], "faces") ? "curved or projected faces" : "projected geometry");
         return false;
     }
@@ -276,10 +275,9 @@ bool bm_read(FDFile *f, BmModel *m, char *why, int cap)
                 int keyAt = t.start;
                 char key[64]; snprintf(key, sizeof key, "%s", t.w);
                 if (!strcmp(key, "type")) {
-                    ok = tk(&t) == T_WORD && want(&t, T_SEMI);
-                    if (ok) { /* t.w holds ";" now: re-read the word */ }
-                    Tk u = { s, keyAt, t.n, 0, "" }; tk(&u); tk(&u);
-                    snprintf(p->type, sizeof p->type, "%s", u.w);
+                    ok = tk(&t) == T_WORD;
+                    if (ok) snprintf(p->type, sizeof p->type, "%s", t.w);
+                    ok = ok && want(&t, T_SEMI);
                 } else if (!strcmp(key, "faces")) {
                     ok = want(&t, T_LP);
                     while (ok) {
@@ -300,8 +298,14 @@ bool bm_read(FDFile *f, BmModel *m, char *why, int cap)
                         else if (k == T_RP || k == T_RB) depth--;
                         else if (k == T_SEMI && depth == 0) break;
                     }
-                    if (ok) {
-                        size_t L = strlen(p->extra);
+                    if (ok) {                                        /* kept whole, or the file isn't the builder's to edit */
+                        size_t L = strlen(p->extra), add = (size_t)(t.i - keyAt) + (L ? 1 : 0);
+                        if (L + add >= sizeof p->extra) {
+                            if (why) snprintf(why, (size_t)cap, "Patch %s has more settings than the block builder keeps (%.40s ...): edit this "
+                                              "blockMeshDict as text (Files).", p->name, s + keyAt);
+                            free(s);
+                            return false;
+                        }
                         snprintf(p->extra + L, sizeof p->extra - L, "%s%.*s", L ? " " : "", t.i - keyAt, s + keyAt);
                     }
                 }
@@ -452,13 +456,14 @@ bool bm_apply(FDFile *f, const BmModel *m)
 }
 
 /* ================================================================ the tables' text */
-void bm_grading_text(const BmBlock *b, char *out, int cap)
+int bm_grading_text(const BmBlock *b, char *out, int cap)
 {
     Str o; str_init(&o);
     int n = b->kind == BG_EDGE ? 12 : 3;
     for (int k = 0; k < n; k++) { if (k) str_cat(&o, " "); grade_text(&o, &b->g[k]); }
-    snprintf(out, (size_t)cap, "%s", o.s ? o.s : "");
+    int need = snprintf(out, (size_t)cap, "%s", o.s ? o.s : "");
     str_free(&o);
+    return need;
 }
 
 bool bm_grading_parse(const char *text, BmBlock *b)
@@ -474,16 +479,20 @@ bool bm_grading_parse(const char *text, BmBlock *b)
         n++;
     }
     if (n != 3 && n != 12) return false;
-    for (int i = 0; i < n; i++) for (int s = 0; s < g[i].n; s++) if (!(g[i].ratio[s] > 0)) return false;
+    for (int i = 0; i < n; i++)
+        for (int s = 0; s < g[i].n; s++) if (!(g[i].ratio[s] > 0) || !(g[i].len[s] > 0) || !(g[i].cells[s] > 0)) return false;
     b->kind = n == 3 ? BG_SIMPLE : BG_EDGE;
     memcpy(b->g, g, sizeof(BmGrade) * (size_t)n);
     return true;
 }
 
-void bm_ints_text(const int *v, int n, char *out, int cap)
+int bm_ints_text(const int *v, int n, char *out, int cap)
 {
-    int k = 0; out[0] = 0;
-    for (int i = 0; i < n && k < cap - 12; i++) k += snprintf(out + k, (size_t)(cap - k), "%s%d", i ? " " : "", v[i]);
+    Str o; str_init(&o);
+    for (int i = 0; i < n; i++) str_catf(&o, "%s%d", i ? " " : "", v[i]);
+    int need = snprintf(out, (size_t)cap, "%s", o.s ? o.s : "");
+    str_free(&o);
+    return need;
 }
 
 bool bm_ints_parse(const char *text, int *v, int n)
@@ -493,7 +502,7 @@ bool bm_ints_parse(const char *text, int *v, int n)
     while ((ty = tk(&t)) != T_END) {
         if (ty == T_LP || ty == T_RP) continue;
         double d;
-        if (ty != T_WORD || !is_num(t.w, &d) || d != floor(d) || k >= 64) return false;
+        if (ty != T_WORD || !is_num(t.w, &d) || d != floor(d) || fabs(d) > 1e9 || k >= 64) return false;
         got[k++] = (int)d;
     }
     if (k != n) return false;
@@ -501,11 +510,13 @@ bool bm_ints_parse(const char *text, int *v, int n)
     return true;
 }
 
-void bm_faces_text(const BmPatch *p, char *out, int cap)
+int bm_faces_text(const BmPatch *p, char *out, int cap)
 {
-    int k = 0; out[0] = 0;
-    for (int i = 0; i < p->nf && k < cap - 40; i++)
-        k += snprintf(out + k, (size_t)(cap - k), "%s(%d %d %d %d)", i ? " " : "", p->f[i][0], p->f[i][1], p->f[i][2], p->f[i][3]);
+    Str o; str_init(&o);
+    for (int i = 0; i < p->nf; i++) str_catf(&o, "%s(%d %d %d %d)", i ? " " : "", p->f[i][0], p->f[i][1], p->f[i][2], p->f[i][3]);
+    int need = snprintf(out, (size_t)cap, "%s", o.s ? o.s : "");
+    str_free(&o);
+    return need;
 }
 
 bool bm_faces_parse(const char *text, BmPatch *p)
@@ -523,14 +534,15 @@ bool bm_faces_parse(const char *text, BmPatch *p)
     return true;
 }
 
-void bm_points_text(const BmEdge *e, char *out, int cap)
+int bm_points_text(const BmEdge *e, char *out, int cap)
 {
     Str o; str_init(&o);
     for (int i = 0; i < e->np; i++) {
         str_cat(&o, i ? " (" : "("); num(&o, e->p[i][0]); str_cat(&o, " "); num(&o, e->p[i][1]); str_cat(&o, " "); num(&o, e->p[i][2]); str_cat(&o, ")");
     }
-    snprintf(out, (size_t)cap, "%s", o.s ? o.s : "");
+    int need = snprintf(out, (size_t)cap, "%s", o.s ? o.s : "");
     str_free(&o);
+    return need;
 }
 
 bool bm_points_parse(const char *text, BmEdge *e)
@@ -633,10 +645,21 @@ static void edge_between(const BmModel *m, int a, int b, double t, double *out)
     free(pts);
 }
 
+bool bm_block_edge(const BmModel *m, int b, int k, int *a, int *c)
+{
+    if (b < 0 || b >= m->nb || k < 0 || k > 11) return false;
+    *a = m->b[b].v[EDGE[k][0]]; *c = m->b[b].v[EDGE[k][1]];
+    return true;
+}
+
 void bm_edge_point(const BmModel *m, int b, int k, double t, double out[3])
 {
+    out[0] = out[1] = out[2] = 0;
+    if (b < 0 || b >= m->nb || k < 0 || k > 11) return;
     const BmBlock *bl = &m->b[b];
-    edge_between(m, bl->v[EDGE[k][0]], bl->v[EDGE[k][1]], t, out);
+    int a = bl->v[EDGE[k][0]], c = bl->v[EDGE[k][1]];
+    if (a < 0 || a >= m->nv || c < 0 || c >= m->nv) return;     /* a vertex number typed out of range */
+    edge_between(m, a, c, t, out);
 }
 
 void bm_grade_points(const BmGrade *g, int n, double *out)
@@ -761,6 +784,16 @@ static int face_key(const int *f, int key[4])
     return n;
 }
 
+/* the cells along the edge from global vertex a to b in a block, or -1 when it isn't one of the block's edges */
+static int edge_cells(const BmBlock *b, int a, int c)
+{
+    for (int k = 0; k < 12; k++) {
+        int p = b->v[EDGE[k][0]], q = b->v[EDGE[k][1]];
+        if ((p == a && q == c) || (p == c && q == a)) return b->n[k / 4];
+    }
+    return -1;
+}
+
 static double block_det(const BmModel *m, const BmBlock *b)
 {
     double d[3][3] = { { 0 } };
@@ -788,8 +821,11 @@ int bm_check(const BmModel *m, BmIssue *out, int max)
         for (int k = 0; k < 3; k++) if (b->n[k] < 1) n = add_issue(out, max, n, 2, "Block %d has %d cells along x%d: at least 1.", i, b->n[k], k + 1);
         int ng = b->kind == BG_EDGE ? 12 : 3;
         for (int k = 0; k < ng; k++)
-            for (int s = 0; s < b->g[k].n; s++)
+            for (int s = 0; s < b->g[k].n; s++) {
                 if (!(b->g[k].ratio[s] > 0)) n = add_issue(out, max, n, 2, "Block %d: an expansion ratio of %g; ratios are above 0 (below 1 the cells shrink).", i, b->g[k].ratio[s]);
+                if (!(b->g[k].len[s] > 0) || !(b->g[k].cells[s] > 0))
+                    n = add_issue(out, max, n, 2, "Block %d: a multi-grading segment with %g of the length and %g of the cells; both shares are above 0.", i, b->g[k].len[s], b->g[k].cells[s]);
+            }
     }
     if (!vok) return n;
     for (int i = 0; i < m->nb; i++) {
@@ -801,7 +837,7 @@ int bm_check(const BmModel *m, BmIssue *out, int max)
     /* faces: each block face once (boundary) or twice (between blocks); boundary faces in a patch */
     int nf = 0, cap = m->nb * 6;
     int (*keys)[4] = malloc(sizeof(int) * 4 * (size_t)cap);
-    int *count = calloc((size_t)cap, sizeof(int)), *owner = malloc(sizeof(int) * (size_t)cap), *ownFace = malloc(sizeof(int) * (size_t)cap);
+    int *count = calloc((size_t)cap, sizeof(int)), *owner = malloc(sizeof(int) * (size_t)cap);
     int *inPatch = calloc((size_t)cap, sizeof(int));
     for (int i = 0; i < m->nb; i++)
         for (int fc = 0; fc < 6; fc++) {
@@ -810,16 +846,20 @@ int bm_check(const BmModel *m, BmIssue *out, int max)
             if (face_key(f, key) < 3) continue;
             int j = 0;
             while (j < nf && memcmp(keys[j], key, sizeof key)) j++;
-            if (j == nf) { memcpy(keys[nf], key, sizeof key); owner[nf] = i; ownFace[nf] = fc; nf++; }
+            if (j == nf) { memcpy(keys[nf], key, sizeof key); owner[nf] = i; nf++; }
             else if (count[j] == 1) {
-                /* the cells must match across it: the two directions along the face, as counts */
-                int ao = owner[j], af = ownFace[j];
-                int da = af / 2, db = fc / 2;                 /* the direction normal to each face */
-                int a1 = m->b[ao].n[(da + 1) % 3], a2 = m->b[ao].n[(da + 2) % 3];
-                int b1 = m->b[i].n[(db + 1) % 3], b2 = m->b[i].n[(db + 2) % 3];
-                if (!((a1 == b1 && a2 == b2) || (a1 == b2 && a2 == b1)))
-                    n = add_issue(out, max, n, 2, "Blocks %d and %d share a face but not their cells across it (%d x %d against %d x %d): blockMesh "
-                                                 "would leave a seam. Give them the same counts along the shared face.", ao, i, a1, a2, b1, b2);
+                /* the cells must match across it, edge by edge: each side of the face is an edge of both blocks */
+                int ao = owner[j];
+                for (int s = 0; s < 4; s++) {
+                    int va = f[s], vb = f[(s + 1) % 4];
+                    if (va == vb) continue;                   /* a collapsed side */
+                    int ca = edge_cells(&m->b[ao], va, vb), cb = edge_cells(&m->b[i], va, vb);
+                    if (ca > 0 && cb > 0 && ca != cb) {
+                        n = add_issue(out, max, n, 2, "Blocks %d and %d share a face but not its cells: %d against %d along the edge %d to %d. blockMesh "
+                                                     "would leave a seam: give them the same count along that edge.", ao, i, ca, cb, va, vb);
+                        break;
+                    }
+                }
             }
             count[j]++;
         }
@@ -853,7 +893,7 @@ int bm_check(const BmModel *m, BmIssue *out, int max)
     for (int j = 0; j < nf; j++) if (count[j] == 1 && !inPatch[j]) loose++;
     if (loose) n = add_issue(out, max, n, 1, "%d outside face%s %s in no patch: blockMesh puts %s in %s (%s).", loose, loose == 1 ? "" : "s", loose == 1 ? "is" : "are",
                              loose == 1 ? "it" : "them", m->defaultName[0] ? m->defaultName : "defaultFaces", m->defaultType[0] ? m->defaultType : "empty");
-    free(keys); free(count); free(owner); free(ownFace); free(inPatch);
+    free(keys); free(count); free(owner); free(inPatch);
     /* edges */
     for (int i = 0; i < m->ne; i++) {
         const BmEdge *e = &m->e[i];
@@ -965,10 +1005,9 @@ double bm_ratio_for_first(double L, int n, double d1)
 {
     if (!(d1 > 0) || n <= 1 || !(L > 0)) return 1;
     double even = L / n;
-    if (fabs(d1 - even) < 1e-12 * L) return 1;
-    double lo, hi;
-    if (d1 < even) { lo = 1; hi = 2; while (first_cell(L, n, hi) > d1 && hi < 1e6) hi *= 2; }
-    else { lo = 0.5; hi = 1; while (first_cell(L, n, lo) < d1 && lo > 1e-6) lo /= 2; }
+    if (d1 >= even * (1 - 1e-12)) return 1;                      /* a "first cell" as big as even ones: even cells, not coarser at the wall */
+    double lo = 1, hi = 2;
+    while (first_cell(L, n, hi) > d1 && hi < 1e6) hi *= 2;
     for (int i = 0; i < 200; i++) {
         double mid = 0.5 * (lo + hi);
         if (first_cell(L, n, mid) > d1) lo = mid; else hi = mid;
@@ -1089,7 +1128,9 @@ static void naca(double t, double m, double p, double xc, int s, double *x, doub
 bool bm_template(int t, const double *val, BmModel *m, char *err, int cap)
 {
     bm_init(m);
-    if (err) err[0] = 0;
+    char spare[8];
+    if (!err) { err = spare; cap = sizeof spare; }
+    err[0] = 0;
     if (t < 0 || t >= BT__N) { snprintf(err, (size_t)cap, "No such template"); return false; }
     const BmTemplate *T = &BM_TEMPLATES[t];
     double v[BT_MAXPAR];
@@ -1327,11 +1368,8 @@ bool bm_template(int t, const double *val, BmModel *m, char *err, int cap)
         face(m, wl, w0, w1, e1, e0);
         face(m, bk, a0, a1, w1, w0); face(m, fr, a0, e0, e1, a1);
         face(m, ax, a0, a1, a1, a0);
-        edge_arc(m, w0, e0, R, 0, 0);
-        edge_arc(m, w1, e1, R, 0, 0);
-        /* the arcs pass through (x, R, 0) */
-        m->e[m->ne - 2].p[0][0] = 0; m->e[m->ne - 2].p[0][1] = R;
-        m->e[m->ne - 1].p[0][0] = L; m->e[m->ne - 1].p[0][1] = R;
+        edge_arc(m, w0, e0, 0, R, 0);                             /* the arcs through (x, R, 0), on the plane between the sides */
+        edge_arc(m, w1, e1, L, R, 0);
         break;
     }
     }

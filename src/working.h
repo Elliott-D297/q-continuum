@@ -19,7 +19,7 @@ typedef struct {
     char what[160];      /* EQ: what the equation is                       */
 } WkLine;
 
-#define WK_MAX 24
+#define WK_MAX 40           /* the wall-spacing working with every input given is 30 lines */
 typedef struct { char title[96]; WkLine l[WK_MAX]; int n; } Working;
 
 void wk_init(Working *w, const char *title);

@@ -144,7 +144,7 @@ static bool num_in(const char *id, float x, float *y, float w, const char *label
     if (ui_input(ui_id(id), (Rectangle){ r.x, r.y, r.width - uw, r.height }, b, sizeof b, NULL, INPUT_MONO | INPUT_NUMERIC)) {
         char *e; double d = strtod(b, &e);
         while (e && *e == ' ') e++;
-        if (e == b || (e && *e) || d < lo || d > hi) ui_toast(TOAST_ERR, "Give a number from %g to %g", lo, hi);
+        if (e == b || (e && *e) || !isfinite(d) || d < lo || d > hi) ui_toast(TOAST_ERR, "Give a number from %g to %g", lo, hi);   /* NaN passes < and > */
         else { *v = d; ch = true; }
     }
     *y += 42;

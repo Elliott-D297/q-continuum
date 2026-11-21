@@ -73,14 +73,15 @@ char *bm_write(const BmModel *m, const char *note);
 /* the model into an existing file: vertices, blocks, edges, boundary and scale replaced, everything else kept */
 bool bm_apply(FDFile *f, const BmModel *m);
 
-/* ---- pieces as the builder's tables show them: text in, text out (false: it doesn't parse; the model is unchanged) */
-void bm_grading_text(const BmBlock *b, char *out, int cap);          /* "1 4 1" or "1 ((0.5 0.5 4) (0.5 0.5 0.25)) 1"   */
+/* ---- pieces as the builder's tables show them: text in, text out (false: it doesn't parse; the model is unchanged). The
+   _text ones return the length the whole text needs: at cap or more, out holds only its start */
+int  bm_grading_text(const BmBlock *b, char *out, int cap);          /* "1 4 1" or "1 ((0.5 0.5 4) (0.5 0.5 0.25)) 1"   */
 bool bm_grading_parse(const char *text, BmBlock *b);                 /* 3 items: simpleGrading; 12: edgeGrading          */
-void bm_ints_text(const int *v, int n, char *out, int cap);          /* "0 1 2 3"                                        */
+int  bm_ints_text(const int *v, int n, char *out, int cap);          /* "0 1 2 3"                                        */
 bool bm_ints_parse(const char *text, int *v, int n);                 /* exactly n whole numbers, brackets ignored         */
-void bm_faces_text(const BmPatch *p, char *out, int cap);            /* "(0 4 7 3) (2 6 5 1)"                            */
+int  bm_faces_text(const BmPatch *p, char *out, int cap);            /* "(0 4 7 3) (2 6 5 1)"                            */
 bool bm_faces_parse(const char *text, BmPatch *p);
-void bm_points_text(const BmEdge *e, char *out, int cap);            /* "(0.5 1.1 0) ..."                                */
+int  bm_points_text(const BmEdge *e, char *out, int cap);            /* "(0.5 1.1 0) ..."                                */
 bool bm_points_parse(const char *text, BmEdge *e);
 
 /* ---- checks: what blockMesh would refuse, and what it would accept but meant a mistake */
@@ -97,6 +98,8 @@ void bm_draw_build(const BmModel *m, BmDraw *d);
 void bm_draw_free(BmDraw *d);
 /* a point along block b's edge k (0..11, blockMesh's numbering) at t in [0, 1], curved edges followed */
 void bm_edge_point(const BmModel *m, int b, int k, double t, double out[3]);
+/* block b's edge k (blockMesh's numbering) as its two vertex numbers; false when b or k is out of range */
+bool bm_block_edge(const BmModel *m, int b, int k, int *a, int *c);
 /* the cell boundaries of a grading along a unit length with n cells: out[0] = 0 ... out[n] = 1 */
 void bm_grade_points(const BmGrade *g, int n, double *out);
 

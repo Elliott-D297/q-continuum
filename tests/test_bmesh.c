@@ -100,6 +100,39 @@ static void unit(void)
     CHECK(!errors(two, "share a face but not"), "matching blocks pass");
     two->b[1].n[1] = 7;
     CHECK(errors(two, "share a face but not"), "mismatched counts caught");
+    /* review fixes (2026-11-21): what used to slip through */
+    CHECK(!bm_read_text("vertices ( (nan 0 0) ); blocks ( );", &M, why, sizeof why), "a nan coordinate refused");
+    CHECK(!bm_read_text("vertices ( (0 0 0) ); blocks ( hex (0 0 0 0 0 0 0 0) (1e20 1 1) simpleGrading (1 1 1) );", &M, why, sizeof why), "a cell count past int refused");
+    {   /* a patch with more settings than the model keeps: refused, not cut short */
+        char big[2048]; int k = snprintf(big, sizeof big, "vertices ( (0 0 0) ); blocks ( );\nboundary ( p { type cyclicAMI; transform { ");
+        for (int i = 0; i < 40 && k < 1800; i++) k += snprintf(big + k, sizeof big - (size_t)k, "key%d value%d; ", i, i);
+        snprintf(big + k, sizeof big - (size_t)k, "} faces ( ); } );");
+        CHECK(!bm_read_text(big, &M, why, sizeof why) && strstr(why, "more settings"), "long patch settings refused: %s", why);
+    }
+    CHECK(bm_read_text("geometry { }\nvertices ( (0 0 0) ); blocks ( );", &M, why, sizeof why), "an empty geometry dictionary is harmless: %s", why);
+    BmBlock gb; memset(&gb, 0, sizeof gb);
+    CHECK(!bm_grading_parse("((0 1 2)) 1 1", &gb) && !bm_grading_parse("((0.5 -1 2) (0.5 2 1)) 1 1", &gb), "zero or negative grading shares refused");
+    CHECK(bm_ratio_for_first(1, 10, 0.5) == 1, "a first cell bigger than the even ones: even cells");
+    bm_read_text(CAVITY, &M, why, sizeof why);
+    M.b[0].v[3] = 600; double q[3] = { 9, 9, 9 };
+    bm_edge_point(&M, 0, 1, 0.5, q);                             /* used to read outside the vertex list */
+    CHECK(q[0] == 0 && q[1] == 0 && q[2] == 0, "edge point of a block with a bad vertex: zero, no crash");
+    bm_edge_point(&M, 5, 0, 0.5, q);
+    char sm[8]; BmEdge le; memset(&le, 0, sizeof le); le.kind = BE_SPLINE; le.np = 3;
+    CHECK(bm_points_text(&le, sm, sizeof sm) > (int)sizeof sm - 1, "points text reports the length it needs");
+    {   /* two blocks sharing a face crosswise: 10 x 20 against 20 x 10 along the same edges */
+        BmModel *cw = &M2; bm_init(cw);
+        double P2[12][3] = { { 0, 0, 0 }, { 1, 0, 0 }, { 2, 0, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 0, 0, 1 }, { 1, 0, 1 }, { 2, 0, 1 }, { 0, 1, 1 }, { 1, 1, 1 }, { 2, 1, 1 } };
+        memcpy(cw->v, P2, sizeof P2); cw->nv = 12;
+        int c0[8] = { 0, 1, 4, 3, 6, 7, 10, 9 }, c1[8] = { 1, 2, 5, 4, 7, 8, 11, 10 };
+        memcpy(cw->b[0].v, c0, sizeof c0); memcpy(cw->b[1].v, c1, sizeof c1);
+        for (int i = 0; i < 2; i++) for (int k = 0; k < 3; k++) { cw->b[i].g[k].n = 1; cw->b[i].g[k].len[0] = cw->b[i].g[k].cells[0] = cw->b[i].g[k].ratio[0] = 1; }
+        cw->b[0].n[0] = 5; cw->b[0].n[1] = 10; cw->b[0].n[2] = 20;   /* the shared face: 10 along y, 20 along z */
+        cw->b[1].n[0] = 5; cw->b[1].n[1] = 20; cw->b[1].n[2] = 10;   /* 20 along y, 10 along z: the same numbers, crossed */
+        cw->nb = 2;
+        CHECK(errors(cw, "share a face but not"), "crossed counts across a shared face caught");
+    }
+
     /* grading points: 10 cells, ratio 10: first and last as the calculator has them; multi-grading symmetric */
     BmGrade g = { 1, { 1 }, { 1 }, { 10 } };
     double pts[64];

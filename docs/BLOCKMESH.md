@@ -59,7 +59,10 @@ scrolls past it.
 **Saving keeps the rest of the file.** The tables put `vertices`, `blocks`, `edges`, `boundary` and `scale` (or
 `convertToMeters`) back through foamdict. Comments, `mergePatchPairs`, `defaultPatch`, patch entries such as `inGroups`
 or `neighbourPatch`, and any other keys stay as they were. A template replaces the whole file, keeping the old one as
-`blockMeshDict.orig`, and records its settings in `mesher/blocks.ini`.
+`blockMeshDict.bak` (and the very first as `blockMeshDict.orig`), and records its settings in `mesher/blocks.ini`. If the
+file changed on disk since the builder read it, the first Save only says so; the second writes over it. Unsaved table
+edits are replaced by a template only on a second click. A cell whose text is too long to edit safely (a very long spline,
+many multi-graded edges) shows read-only rather than writing back a cut-off copy.
 
 **What the builder won't touch.** A blockMeshDict using `$macros`, `#eval` / `#calc` / `#include`, named vertices,
 projected geometry or faces, the old `patches` form, or the origin / angle forms of arc shows read-only, with the reason
@@ -78,8 +81,11 @@ Under the blocks, for any meshed case:
 - **Extrude a patch** adds cells beyond a patch (`constructFrom mesh`): straight out along the faces' normals, in one
   direction, or round an axis (sector), in layers with a growth ratio.
 
-The mesh before is kept in `constant/polyMesh.before-extrude`. The extrusion is part of the case's mesh recipe
-(`mesher/extrude.ini`), so every Generate mesh repeats it until *Stop extruding*.
+The mesh before is kept in `constant/polyMesh.before-extrude`. Once extrudeMesh has succeeded, the job records the
+extrusion in the case's mesh recipe (`mesher/extrude.ini`; a failed one is not recorded), and every Generate mesh repeats
+it until *Stop extruding*: blockMesh's, the STL mesher's and the SALOME import's. The recipe holds one extrusion; starting
+another replaces it (the page says so). The wedge's patches are `front` and `back`, or `wedgeFront` / `wedgeBack` when the
+case already has a patch with either name.
 
 Found with v2606 and handled:
 - extrudeMesh turns the patch along its *outward* normal. For the wedge the axis must be r × n (r from the axis toward the

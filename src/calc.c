@@ -126,6 +126,7 @@ bool calc_wall(const CalcWallIn *in, CalcWallOut *o, Working *wk)
     } else {
         wk_eq(wk, "Cf = 0.026 Re^(-1/7)", "local skin friction at x = L, turbulent flat plate (White)");
         wk_eq(wk, "τw = ½ ρ U² Cf", NULL);
+        wk_eq(wk, o->laminar ? "δ = 4.91 L / √Re" : "δ = 0.37 L Re^(-1/5)", o->laminar ? "boundary layer thickness, laminar (Blasius)" : "boundary layer thickness, turbulent");
     }
     wk_eq(wk, "u_τ = √(τw / ρ)", "[[friction-velocity]]: the velocity scale of the flow next to the wall");
     wk_eq(wk, "y = y+ ν / u_τ,  h₁ = 2 y", "y+ is measured at the cell centre, half way up the first cell");
@@ -144,8 +145,7 @@ bool calc_wall(const CalcWallIn *in, CalcWallOut *o, Working *wk)
     wk_step(wk, "u_τ = √(%s / %s) = %s m/s", num(o->tauw), num(in->rho), num(o->utau));
     wk_step(wk, "y = %s × %s / %s = %s,  h₁ = %s", num(in->yplus), num(o->nu), num(o->utau), len(o->y), len(o->h1));
 
-    wk_result(wk, "Re", o->Re, "", o->laminar ? (pipe ? "laminar (under 2300)" : "laminar on a smooth plate (under 5 × 10⁵)") :
-                                                (pipe ? "turbulent" : "turbulent"));
+    wk_result(wk, "Re", o->Re, "", o->laminar ? (pipe ? "laminar (under 2300)" : "laminar on a smooth plate (under 5 × 10⁵)") : "turbulent");
     wk_result(wk, "u_τ", o->utau, "m/s", "friction velocity");
     result_len(wk, "h₁", o->h1, "first cell height: the first prism layer");
     result_len(wk, pipe ? "R" : "δ", o->delta, pipe ? "pipe radius" : "boundary layer thickness at x = L");
@@ -200,7 +200,7 @@ bool calc_grading(const CalcGradeIn *in, CalcGradeOut *o, Working *wk)
     if (!(L > 0)) { if (wk) wk_note(wk, "Needs the edge length."); return false; }
     if (in->mode == CG_N_RATIO) {
         if (in->N < 1 || !(in->R > 0)) { if (wk) wk_note(wk, "Needs the number of cells and the expansion ratio."); return false; }
-        o->N = in->N; o->R = in->R;
+        o->N = in->N; o->R = o->N > 1 ? in->R : 1;               /* one cell has no grading */
         o->r = o->N > 1 ? pow(o->R, 1.0 / (o->N - 1)) : 1;
         o->d1 = first_of(L, o->N, o->r);
         o->dn = o->d1 * pow(o->r, o->N - 1);
@@ -301,7 +301,7 @@ bool calc_cost(const CalcCostIn *in, CalcCostOut *o, Working *wk)
     int P = in->procs > 0 ? in->procs : 1;
     bool tr = s == CS_TRANSIENT || s == CS_FREESURFACE;
     int nO = tr && in->nOuter > 0 ? in->nOuter : 1;
-    double steps = in->steps > 0 ? in->steps : tr ? 1000 : 1000;
+    double steps = in->steps > 0 ? in->steps : 1000;
     o->meshMB = calc_mesh_mb(in->cells);
     o->solveMB = 150.0 * P + in->cells * KB_CELL[s] / 1024.0;
     o->speedup = P * pow(PAR_EFF, log2(P));

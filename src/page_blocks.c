@@ -39,7 +39,9 @@ static struct {
     bool      dragging, panning; Vector2 last; double lastClick;
     bool      active;                 /* clicked: the wheel zooms it (else it scrolls the page past it) */
     bool      labels;
-} B = { .tmpl = -1, .selKind = -1, .sel = -1, .labels = true };
+    bool      overwriteOk;            /* the file changed outside since read, and Save was pressed once: the next Save writes */
+    int       tmplArmed;              /* unsaved hand edits: the template clicked once (a second click replaces them) */
+} B = { .tmplArmed = -1, .tmpl = -1, .selKind = -1, .sel = -1, .labels = true };
 
 static void defaults(void)
 {
@@ -78,7 +80,7 @@ static void ini_save(const char *casePath)
     str_cat(&o, "# Q-Continuum, Mesh > Block builder: the template system/blockMeshDict was written from (custom: edited by hand)\n");
     if (B.tmpl >= 0) {
         str_catf(&o, "template = %s\n", BM_TEMPLATES[B.tmpl].key);
-        for (int i = 0; i < BM_TEMPLATES[B.tmpl].nPar; i++) str_catf(&o, "%s = %.10g\n", BM_TEMPLATES[B.tmpl].par[i].key, B.par[B.tmpl][i]);
+        for (int i = 0; i < BM_TEMPLATES[B.tmpl].nPar; i++) str_catf(&o, "%s = %.17g\n", BM_TEMPLATES[B.tmpl].par[i].key, B.par[B.tmpl][i]);   /* exact: reloading compares the files */
     } else str_cat(&o, "template = custom\n");
     pl_write_file(p, o.s, (size_t)o.len);
     str_free(&o);
@@ -140,18 +142,32 @@ static bool save(Case *c, bool mesh)
     for (int i = 0; i < B.nIs; i++) if (B.is[i].level >= 2) errs++;
     if (errs) { ui_toast(TOAST_ERR, "%d problem%s to fix first (the list under the tables)", errs, errs == 1 ? "" : "s"); return false; }
     char p[PL_PATH]; pl_join(p, sizeof p, c->s.path, "system/blockMeshDict");
+    /* changed on disk since it was read (an editor, a script): say so once; the second Save writes over it */
+    if (B.sig && pl_is_file(p) && file_sig(p) != B.sig && !B.overwriteOk) {
+        B.overwriteOk = true;
+        ui_toast(TOAST_WARN, "system/blockMeshDict changed outside Q-Continuum since it was read: Save again to write over it, or Revert to see it");
+        return false;
+    }
+    B.overwriteOk = false;
     bool ok;
     FDFile *f = pl_is_file(p) ? fd_load(p) : NULL;
     if (f && B.tmpl < 0 && !B.readOnly) {
         /* the tables: put the model back, the rest of the file as it was */
-        BmModel *chk = malloc(sizeof *chk); char w[200];
+        BmModel *chk = malloc(sizeof *chk); char w[420];
         bool readable = bm_read(f, chk, w, sizeof w);
         free(chk);
-        ok = readable && bm_apply(f, B.m) && fd_save(f);
+        if (!readable) {
+            ui_toast(TOAST_ERR, "Not saved: the file on disk can't be edited here any more (%s)", w);
+            fd_free(f);
+            return false;
+        }
+        ok = bm_apply(f, B.m) && fd_save(f);
     } else {
-        if (f) {                                       /* a template replaces the file: the old one kept */
+        if (f) {                                       /* a template replaces the file: the first one kept as .orig, the last as .bak */
             char o[PL_PATH + 8]; snprintf(o, sizeof o, "%s.orig", p);
             if (!pl_is_file(o)) pl_write_file(o, f->text, (size_t)f->len);
+            snprintf(o, sizeof o, "%s.bak", p);
+            pl_write_file(o, f->text, (size_t)f->len);
         }
         char note[600] = "";
         if (B.tmpl >= 0) {
@@ -285,6 +301,29 @@ static void redraw(Rectangle r)
                 rlVertex3f((float)(p1[0] * sc), (float)(p1[1] * sc), (float)(p1[2] * sc));
             }
     }
+    /* the selected curved edge, bright */
+    if (B.selKind == 2 && B.sel >= 0 && B.sel < m->ne) {
+        const BmEdge *e = &m->e[B.sel];
+        if (e->a >= 0 && e->a < m->nv && e->b >= 0 && e->b < m->nv) {
+            /* drawn through any block that uses it, so the curve shows as blockMesh will make it */
+            bool drawn = false;
+            for (int b = 0; b < m->nb && !drawn; b++)
+                for (int k = 0; k < 12 && !drawn; k++) {
+                    int va, vb;
+                    if (!bm_block_edge(m, b, k, &va, &vb) || !((va == e->a && vb == e->b) || (va == e->b && vb == e->a))) continue;
+                    drawn = true;
+                    Color c = TH.warn;
+                    rlColor4ub(c.r, c.g, c.b, 255);
+                    double sc = m->scale > 0 ? m->scale : 1;
+                    for (int sgm = 0; sgm < 32; sgm++) {
+                        double p0[3], p1[3];
+                        bm_edge_point(m, b, k, sgm / 32.0, p0); bm_edge_point(m, b, k, (sgm + 1) / 32.0, p1);
+                        rlVertex3f((float)(p0[0] * sc), (float)(p0[1] * sc), (float)(p0[2] * sc));
+                        rlVertex3f((float)(p1[0] * sc), (float)(p1[1] * sc), (float)(p1[2] * sc));
+                    }
+                }
+        }
+    }
     rlEnd();
     rlDrawRenderBatchActive();
     rlEnableBackfaceCulling();
@@ -374,7 +413,7 @@ static bool num_row(const char *id, float x, float y, float lw, float fw, const 
     if (!ui_input(ui_id(id), r, b, sizeof b, NULL, INPUT_MONO | INPUT_NUMERIC)) return false;
     char *e; double d = strtod(b, &e);
     while (e && *e == ' ') e++;
-    if (e == b || (e && *e) || d < lo || d > hi) { ui_toast(TOAST_ERR, "Give a number from %g to %g", lo, hi); return false; }
+    if (e == b || (e && *e) || !isfinite(d) || d < lo || d > hi) { ui_toast(TOAST_ERR, "Give a number from %g to %g", lo, hi); return false; }   /* NaN passes < and > */
     *v = d;
     return true;
 }
@@ -417,7 +456,7 @@ static float template_form(Case *c, float x, float y, float w)
     fy += 50;
     char p[PL_PATH]; pl_join(p, sizeof p, c->s.path, "system/blockMeshDict");
     if (pl_is_file(p) && !B.fromFile)
-        fy += ui_text_wrap(F_REG, 12.5f, "Writing replaces system/blockMeshDict; the one there now is kept as blockMeshDict.orig.", (Rectangle){ x, fy, fw, 60 }, 18, TH.text3, true) + 8;
+        fy += ui_text_wrap(F_REG, 12.5f, "Writing replaces system/blockMeshDict; the one there now is kept as blockMeshDict.bak (the very first as .orig).", (Rectangle){ x, fy, fw, 60 }, 18, TH.text3, true) + 8;
     float py = wide ? y : fy + 6, ph = wide ? fmaxf(380, fy - y) : 380;
     preview((Rectangle){ wide ? x + fw + 24 : x, py, wide ? w - fw - 24 : w, ph });
     return fmaxf(fy, py + ph) - y0 + 10;
@@ -427,9 +466,17 @@ static float template_form(Case *c, float x, float y, float w)
 static const char *const PTYPES[] = { "patch", "wall", "symmetryPlane", "symmetry", "empty", "wedge", "cyclic" };
 #define NPTYPES 7
 
-static bool text_cell(UiId id, Rectangle r, const char *text, char *out, int cap)
+/* an editable cell; need: the length the whole text needs (from the bm_*_text functions). Text too long for the cell's
+   buffer shows read-only: editing a cut-off copy would write the cut-off copy back */
+#define CELL_CAP 8192
+static bool text_cell(UiId id, Rectangle r, const char *text, int need, char *out, int cap)
 {
-    char b[8192]; pl_strlcpy(b, text, sizeof b);
+    char b[CELL_CAP]; pl_strlcpy(b, text, sizeof b);
+    if (need >= CELL_CAP - 1) {
+        ui_input(id, r, b, sizeof b, NULL, INPUT_MONO | INPUT_READONLY);
+        ui_tooltip(r, "Too long to edit here: edit system/blockMeshDict in Files");
+        return false;
+    }
     if (!ui_input(id, r, b, sizeof b, NULL, INPUT_MONO)) return false;
     pl_strlcpy(out, b, (size_t)cap);
     return true;
@@ -455,7 +502,7 @@ static float tables(float x, float y, float w)
     ui_tabs(ui_id("bk-tab"), x, y, TAB, 4, &B.table, &th);
     y += th + 10;
     const float rh = 40;
-    char nb[8192];
+    char nb[CELL_CAP];
     int del = -1;
     if (B.table == 0) {
         ui_text(F_REG, 12, "#     x                y                z   (before the scale)", x + 8, y, TH.text3);
@@ -501,23 +548,25 @@ static float tables(float x, float y, float w)
             BmBlock *b = &m->b[i];
             if (!ui_culled(y, y + rh)) {
                 sel_cell(1, i, (Rectangle){ x, y, 44, 32 });
-                char t[512];
-                bm_ints_text(b->v, 8, t, sizeof t);
-                if (text_cell(ui_idn(ui_id("bk-bv"), i), (Rectangle){ x + 50, y, vw, 32 }, t, nb, sizeof nb)) {
+                char t[CELL_CAP];
+                int need = bm_ints_text(b->v, 8, t, sizeof t);
+                if (text_cell(ui_idn(ui_id("bk-bv"), i), (Rectangle){ x + 50, y, vw, 32 }, t, need, nb, sizeof nb)) {
                     if (bm_ints_parse(nb, b->v, 8)) hand_edit(); else ui_toast(TOAST_ERR, "Eight vertex numbers");
                 }
-                bm_ints_text(b->n, 3, t, sizeof t);
-                if (text_cell(ui_idn(ui_id("bk-bn"), i), (Rectangle){ x + 58 + vw, y, nw, 32 }, t, nb, sizeof nb)) {
+                need = bm_ints_text(b->n, 3, t, sizeof t);
+                if (text_cell(ui_idn(ui_id("bk-bn"), i), (Rectangle){ x + 58 + vw, y, nw, 32 }, t, need, nb, sizeof nb)) {
                     int n[3];
                     if (bm_ints_parse(nb, n, 3) && n[0] > 0 && n[1] > 0 && n[2] > 0) { memcpy(b->n, n, sizeof n); hand_edit(); }
                     else ui_toast(TOAST_ERR, "Three cell counts, each at least 1");
                 }
-                bm_grading_text(b, t, sizeof t);
-                if (text_cell(ui_idn(ui_id("bk-bg"), i), (Rectangle){ x + 66 + vw + nw, y, fmaxf(120, gw), 32 }, t, nb, sizeof nb)) {
+                need = bm_grading_text(b, t, sizeof t);
+                if (text_cell(ui_idn(ui_id("bk-bg"), i), (Rectangle){ x + 66 + vw + nw, y, fmaxf(120, gw), 32 }, t, need, nb, sizeof nb)) {
                     if (bm_grading_parse(nb, b)) hand_edit(); else ui_toast(TOAST_ERR, "Three or twelve gradings: numbers above 0, or ((length cells ratio) ...)");
                 }
-                if (text_cell(ui_idn(ui_id("bk-bz"), i), (Rectangle){ x + w - 186, y, 140, 32 }, b->zone, nb, sizeof nb)) {
-                    pl_strlcpy(b->zone, nb, sizeof b->zone); pl_trim_inplace(b->zone); hand_edit();
+                if (text_cell(ui_idn(ui_id("bk-bz"), i), (Rectangle){ x + w - 186, y, 140, 32 }, b->zone, (int)strlen(b->zone), nb, sizeof nb)) {
+                    pl_trim_inplace(nb);
+                    if (strpbrk(nb, " \t(){};\"$#")) ui_toast(TOAST_ERR, "A zone name is one word (or empty: no zone)");
+                    else { pl_strlcpy(b->zone, nb, sizeof b->zone); hand_edit(); }
                 }
                 if (ui_button(ui_idn(ui_id("bk-bdel"), i), (Rectangle){ x + w - 36, y, 32, 32 }, ICON_TRASH_2, NULL, BTN_ICON)) del = i;
             }
@@ -546,13 +595,13 @@ static float tables(float x, float y, float w)
                     if (k == BE_ARC && e->np > 1) e->np = 1;
                     hand_edit();
                 }
-                int ab[2] = { e->a, e->b }; char t[4096];
-                bm_ints_text(ab, 2, t, sizeof t);
-                if (text_cell(ui_idn(ui_id("bk-eab"), i), (Rectangle){ x + 188, y, 90, 32 }, t, nb, sizeof nb)) {
+                int ab[2] = { e->a, e->b }; char t[CELL_CAP];
+                int need = bm_ints_text(ab, 2, t, sizeof t);
+                if (text_cell(ui_idn(ui_id("bk-eab"), i), (Rectangle){ x + 188, y, 90, 32 }, t, need, nb, sizeof nb)) {
                     if (bm_ints_parse(nb, ab, 2)) { e->a = ab[0]; e->b = ab[1]; hand_edit(); } else ui_toast(TOAST_ERR, "Two vertex numbers");
                 }
-                bm_points_text(e, t, sizeof t);
-                if (text_cell(ui_idn(ui_id("bk-ep"), i), (Rectangle){ x + 286, y, w - 286 - 44, 32 }, t, nb, sizeof nb)) {
+                need = bm_points_text(e, t, sizeof t);
+                if (text_cell(ui_idn(ui_id("bk-ep"), i), (Rectangle){ x + 286, y, w - 286 - 44, 32 }, t, need, nb, sizeof nb)) {
                     if (bm_points_parse(nb, e)) hand_edit(); else ui_toast(TOAST_ERR, e->kind == BE_ARC ? "One point (x y z) the arc passes through" : "Points as (x y z) (x y z) ...");
                 }
                 if (ui_button(ui_idn(ui_id("bk-edel"), i), (Rectangle){ x + w - 36, y, 32, 32 }, ICON_TRASH_2, NULL, BTN_ICON)) del = i;
@@ -576,9 +625,9 @@ static float tables(float x, float y, float w)
             BmPatch *p = &m->p[i];
             if (!ui_culled(y, y + rh)) {
                 sel_cell(3, i, (Rectangle){ x, y, 44, 32 });
-                if (text_cell(ui_idn(ui_id("bk-pn"), i), (Rectangle){ x + 50, y, 170, 32 }, p->name, nb, sizeof nb)) {
+                if (text_cell(ui_idn(ui_id("bk-pn"), i), (Rectangle){ x + 50, y, 170, 32 }, p->name, (int)strlen(p->name), nb, sizeof nb)) {
                     pl_trim_inplace(nb);
-                    if (!nb[0] || strpbrk(nb, " \t(){};\"")) ui_toast(TOAST_ERR, "A patch name is one word"); else { pl_strlcpy(p->name, nb, sizeof p->name); hand_edit(); }
+                    if (!nb[0] || strpbrk(nb, " \t(){};\"$#")) ui_toast(TOAST_ERR, "A patch name is one word"); else { pl_strlcpy(p->name, nb, sizeof p->name); hand_edit(); }
                 }
                 int k = -1;
                 for (int j = 0; j < NPTYPES; j++) if (!strcmp(p->type, PTYPES[j])) k = j;
@@ -586,9 +635,9 @@ static float tables(float x, float y, float w)
                 if (ui_select_ph(ui_idn(ui_id("bk-pt"), i), (Rectangle){ x + 228, y, 150, 32 }, PTYPES, NPTYPES, &k, p->type) && k != was && k >= 0) {
                     snprintf(p->type, sizeof p->type, "%s", PTYPES[k]); hand_edit();
                 }
-                char t[BM_MAXF * 32];
-                bm_faces_text(p, t, sizeof t);
-                if (text_cell(ui_idn(ui_id("bk-pf"), i), (Rectangle){ x + 386, y, w - 386 - 44, 32 }, t, nb, sizeof nb)) {
+                char t[CELL_CAP];
+                int need = bm_faces_text(p, t, sizeof t);
+                if (text_cell(ui_idn(ui_id("bk-pf"), i), (Rectangle){ x + 386, y, w - 386 - 44, 32 }, t, need, nb, sizeof nb)) {
                     if (bm_faces_parse(nb, p)) hand_edit(); else ui_toast(TOAST_ERR, "Faces as (a b c d) (a b c d) ...");
                 }
                 if (p->extra[0]) ui_tooltip((Rectangle){ x + 50, y, 170, 32 }, p->extra);
@@ -639,32 +688,41 @@ static int extrude_kind(const char *casePath)        /* 0 none, 1 axisymmetric, 
     return k;
 }
 
+static void extrude_steps(Job *j, int k);
 bool extrude_add_steps(Case *c, Job *j)
 {
     int k = extrude_kind(c->s.path);
     if (!k) return false;
-    if (k == 1) {
-        job_add(j, "axi-sets", "topoSet: the 2-D mesh's front and back faces", "topoSet -dict system/topoSetDict.axi", "log.topoSet.axi", false);
-        job_add(j, "axi-patches", "createPatch: them as the front and back patches", "createPatch -dict system/createPatchDict.axi -overwrite", "log.createPatch.axi", false);
-    }
-    job_add(j, "extrudeMesh", k == 1 ? "extrudeMesh: the wedge" : "extrudeMesh", EX_PREC "extrudeMesh" EX_UNPREC, "log.extrudeMesh", false);
+    extrude_steps(j, k);
     return true;
 }
 
 static struct { int axisDir; double axisAt, angle; ExtrudeCfg x; char err[300]; bool init; char path[PL_PATH]; } X;
 
-static void extrude_run(Case *c, int kind, const char *ini)
+/* the extrusion steps of a kind (1 axisymmetric, 2 a patch) */
+static void extrude_steps(Job *j, int k)
+{
+    if (k == 1) {
+        job_add(j, "axi-sets", "topoSet: the 2-D mesh's front and back faces", "topoSet -dict system/topoSetDict.axi", "log.topoSet.axi", false);
+        job_add(j, "axi-patches", "createPatch: them as the front and back patches", "createPatch -dict system/createPatchDict.axi -overwrite", "log.createPatch.axi", false);
+    }
+    job_add(j, "extrudeMesh", k == 1 ? "extrudeMesh: the wedge" : "extrudeMesh", EX_PREC "extrudeMesh" EX_UNPREC, "log.extrudeMesh", false);
+}
+
+static void extrude_run(Case *c, int kind)
 {
     if (!app_require_foam() || !app_can_start()) return;
-    char d[PL_PATH], p[PL_PATH]; pl_join(d, sizeof d, c->s.path, "mesher"); pl_mkdirs(d); pl_join(p, sizeof p, d, "extrude.ini");
-    pl_write_file(p, ini, strlen(ini));
     app_save_all(true);
     job_reset(A.cj, "Mesh");
     job_add(A.cj, "backup", "Keep the mesh as it was (constant/polyMesh.before-extrude)",
             "rm -rf constant/polyMesh.before-extrude && cp -r constant/polyMesh constant/polyMesh.before-extrude && echo kept", "log.extrudeBackup", false);
-    extrude_add_steps(c, A.cj);
+    extrude_steps(A.cj, kind);
+    /* part of the mesh's recipe once it has worked (a failed extrusion isn't repeated by every Generate mesh) */
+    job_add(A.cj, "extrude-record", "Generate mesh repeats it from now on (mesher/extrude.ini)",
+            kind == 1 ? "mkdir -p mesher && printf '# Q-Continuum: Generate mesh extrudes after meshing (Mesh > Block builder, Extrude)\\nkind = axisymmetric\\n' > mesher/extrude.ini && echo recorded"
+                      : "mkdir -p mesher && printf '# Q-Continuum: Generate mesh extrudes after meshing (Mesh > Block builder, Extrude)\\nkind = patch\\n' > mesher/extrude.ini && echo recorded",
+            "log.extrudeRecord", false);
     job_add(A.cj, "checkMesh", "checkMesh", "checkMesh", "log.checkMesh", false);
-    (void)kind;
     if (job_start(A.cj, c->s.path, app_bashrc(), GetTime())) ui_toast(TOAST_INFO, "Extruding: every Generate mesh repeats it from now on");
     else ui_toast(TOAST_ERR, "Could not start extrudeMesh");
 }
@@ -691,6 +749,8 @@ static float extrude_section(Case *c, float x, float y, float w)
             ui_toast(TOAST_OK, "Generate mesh won't extrude any more: generate again for the mesh without it");
         }
         y += 46;
+        y += ui_text_wrap(F_REG, 12.5f, "Generate mesh repeats one extrusion: starting another below replaces this one in the recipe.",
+                          (Rectangle){ x, y - 6, w, 40 }, 18, TH.text3, true) + 4;
     }
     /* which way is thin, and which patches are empty: a 2-D mesh */
     double lo[3], hi[3];
@@ -740,6 +800,9 @@ static float extrude_section(Case *c, float x, float y, float w)
         if (ui_button(ui_id("ex-axi"), (Rectangle){ ax, ay, bw, 36 }, ICON_ROTATE_CCW, "Make it axisymmetric", BTN_PRIMARY)) {
             AxiCfg a = { .thin = thin, .axisDir = X.axisDir, .axisAt = X.axisAt, .angle = X.angle };
             memcpy(a.lo, lo, sizeof lo); memcpy(a.hi, hi, sizeof hi);
+            bool taken = false;                              /* createPatch would add the faces to a patch already called front / back */
+            for (int i = 0; i < c->nPatches; i++) if (!strcmp(c->patches[i].name, "front") || !strcmp(c->patches[i].name, "back")) taken = true;
+            if (taken) { pl_strlcpy(a.front, "wedgeFront", sizeof a.front); pl_strlcpy(a.back, "wedgeBack", sizeof a.back); }
             pl_strlcpy(a.empties, empties, sizeof a.empties);
             char *ts, *cp, *ex, why[300];
             if (!ex_axi_dicts(&a, &ts, &cp, &ex, why, sizeof why)) ui_toast(TOAST_ERR, "%s", why);
@@ -749,8 +812,7 @@ static float extrude_section(Case *c, float x, float y, float w)
                 pl_join(p, sizeof p, c->s.path, "system/createPatchDict.axi"); pl_write_file(p, cp, strlen(cp));
                 pl_join(p, sizeof p, c->s.path, "system/extrudeMeshDict"); pl_write_file(p, ex, strlen(ex));
                 free(ts); free(cp); free(ex);
-                char ini[200]; snprintf(ini, sizeof ini, "# Q-Continuum: Generate mesh extrudes after meshing (Mesh > Block builder, Extrude)\nkind = axisymmetric\n");
-                extrude_run(c, 1, ini);
+                extrude_run(c, 1);
             }
         }
         ui_disable(false);
@@ -804,8 +866,7 @@ static float extrude_section(Case *c, float x, float y, float w)
         if (!d) ui_toast(TOAST_ERR, "%s", why);
         else {
             char p[PL_PATH]; pl_join(p, sizeof p, c->s.path, "system/extrudeMeshDict"); pl_write_file(p, d, strlen(d)); free(d);
-            char ini[200]; snprintf(ini, sizeof ini, "# Q-Continuum: Generate mesh extrudes after meshing (Mesh > Block builder, Extrude)\nkind = patch\n");
-            extrude_run(c, 2, ini);
+            extrude_run(c, 2);
         }
     }
     ui_disable(false);
@@ -835,9 +896,14 @@ static float blocks_body(Case *c, float x, float y, float w)
         Rectangle r = { x + (t % cols) * (cw + gap), y + (t / cols) * (ch + gap), cw, ch };
         bool sel = B.tmpl == t;
         if (ui_row(ui_idn(ui_id("bk-t"), t), r, sel)) {
-            if (B.dirty && B.tmpl != t && B.tmpl < 0) ui_toast(TOAST_INFO, "The hand edits not written yet were replaced by the template");
-            B.touched = false;
-            use_template(t);
+            if (B.dirty && B.tmpl < 0 && B.tmplArmed != t) {   /* unsaved hand edits: ask (a second click) before replacing them */
+                B.tmplArmed = t;
+                ui_toast(TOAST_WARN, "The tables have changes not saved yet: click %s again to replace them with the template", BM_TEMPLATES[t].name);
+            } else {
+                B.tmplArmed = -1;
+                B.touched = false;
+                use_template(t);
+            }
         }
         ui_register(ui_idn(ui_id("bk-t"), t), r, BM_TEMPLATES[t].name);
         if (!sel) ui_rect_lines(r, TH.lcars ? 14 : 8, 1, TH.lineSoft);

@@ -568,6 +568,7 @@ static void generate(Case *c)
     snprintf(cm, sizeof cm, "checkMesh%s%s%s %s", mo_cmd_flag(&ov, "checkMesh", "-allGeometry", false) ? " -allGeometry" : "",
              mo_cmd_flag(&ov, "checkMesh", "-allTopology", false) ? " -allTopology" : "",
              mo_cmd_flag(&ov, "checkMesh", "-meshQuality", false) ? " -meshQuality" : "", mo_cmd_extra(&ov, "checkMesh"));
+    extrude_add_steps(c, A.cj);                            /* an extrusion in the mesh's recipe (Block builder > Extrude) */
     job_add(A.cj, "checkMesh", "checkMesh", cm, "log.checkMesh", false);
     mo_free(&ov);
     if (job_start(A.cj, c->s.path, app_bashrc(), GetTime())) ui_toast(TOAST_INFO, "Meshing %s: the Run page shows the log", pl_basename(T.m.cad[0] ? T.m.cad : T.m.stl));

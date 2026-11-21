@@ -48,6 +48,7 @@ set(QC_FONTS
   ${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/IBMPlexMono-Regular.ttf
   ${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/IBMPlexMono-Medium.ttf
   ${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/lucide.ttf
+  ${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/DejaVuSans-Symbols.ttf
   ${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/Antonio-Regular.ttf
   ${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/Antonio-Medium.ttf
   ${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/Antonio-Bold.ttf

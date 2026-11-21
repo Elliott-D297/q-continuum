@@ -1,0 +1,54 @@
+# Mesh overhaul plan step 6: Mesh > Block builder > Extrude. A 2-D channel (the template, y from 0 to 0.1) made axisymmetric
+# about the x axis: checkMesh OK, wedge patches; Generate mesh repeats it; Stop extruding; then the outlet extruded 0.1 m in
+# 10 layers onto the mesh (2000 cells to 2200).
+budget p95 120 max 900
+shell mkdir -p $SB/ws/ex/system && cp "${FOAM_TUTORIALS:-/usr/lib/openfoam/openfoam2606/tutorials}"/incompressible/icoFoam/cavity/cavity/system/{controlDict,fvSchemes,fvSolution} $SB/ws/ex/system/ && mkdir -p $SB/ws/ex/mesher && echo 'template = custom' > $SB/ws/ex/mesher/blocks.ini
+open $SB/ws/ex
+click nav:mesh
+wait-until page Mesh
+click bk-t#1
+wait 5
+click bk-mesh
+wait-until job running timeout 20
+wait-until job finished timeout 120
+assert log log.checkMesh Mesh OK.
+wait 10
+assert text Make it axisymmetric
+click ex-axi
+wait-until job running timeout 20
+wait-until job finished timeout 120
+assert log log.checkMesh Mesh OK.
+assert log log.checkMesh Wedge front with angle 2.5
+assert log constant/polyMesh/boundary wedge
+assert log mesher/extrude.ini kind = axisymmetric
+assert file constant/polyMesh.before-extrude/points
+wait 10
+screenshot $OUT/1_axisymmetric.png
+assert text Every Generate mesh makes this mesh axisymmetric
+assert text This mesh is axisymmetric already
+# Generate mesh makes it again, the wedge with it
+click mesh-gen
+wait-until job running timeout 20
+wait-until job finished timeout 120
+assert log log.checkMesh Wedge front with angle 2.5
+assert log log.extrudeMesh End
+click ex-stop
+wait 5
+assert not file mesher/extrude.ini
+click mesh-gen
+wait-until job running timeout 20
+wait-until job finished timeout 120
+assert log log.checkMesh cells:            2000
+# a patch: the outlet, 10 layers, 0.1 m
+wait 10
+click ex-patch
+wait 3
+click text:outlet
+wait 3
+click ex-go
+wait-until job running timeout 20
+wait-until job finished timeout 120
+assert log log.checkMesh Mesh OK.
+assert log log.checkMesh cells:            2200
+assert log mesher/extrude.ini kind = patch
+screenshot $OUT/2_patch.png

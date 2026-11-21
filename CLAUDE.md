@@ -12,6 +12,7 @@ made and a progress log. Keep its progress log current. The user approves one st
 **CalculiX part studies** (STL, STEP, SALOME meshes; faces picked in 3-D for fixtures and loads): read `docs/FEA_PLAN.md`
 before touching `page_fea.c`, `femesh.c`, `festudy.c` or `assets/salome/fea_mesh.py`.
 
+- `docs/BLOCKMESH.md`: the block builder, its templates and extrusion (plan steps 5-6): what it reads and refuses, v2606 facts.
 - `docs/CALCULATORS.md`: the calculators, pre-flight checks and quality explainer (plan steps 2-4): worked examples, calibration.
 - `docs/MESH_AUDIT.md`: what the mesh system has, what works, what is broken.
 - `docs/FEATURE_GAPS.md`: gaps ranked for the learner and the expert, with effort.

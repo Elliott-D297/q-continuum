@@ -13,6 +13,8 @@
 #include <string.h>
 #include "app.h"
 #include "bmesh.h"
+#include "extrude.h"
+#include "precheck.h"
 #include "orbit.h"
 #include "rlgl.h"
 
@@ -35,6 +37,7 @@ static struct {
     Orbit     O; bool fitted, touched; float aspect;
     RenderTexture2D rt; bool rtOk; int rtW, rtH; bool viewDirty;
     bool      dragging, panning; Vector2 last; double lastClick;
+    bool      active;                 /* clicked: the wheel zooms it (else it scrolls the page past it) */
     bool      labels;
 } B = { .tmpl = -1, .selKind = -1, .sel = -1, .labels = true };
 
@@ -303,7 +306,9 @@ static float preview(Rectangle view)
     Rectangle turnR = { view.x + 12, view.y + 10, orbit_tools_w(false) + 16, 40 };
     bool hov = ui_hovered(view) && !ui_hovered(turnR) && A.modal == MD_NONE;
     Vector2 mp = ui_mouse();
+    if (!ui_hovered(view) && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) B.active = false;   /* a click elsewhere lets the wheel go */
     if (hov && ui_pressed(view)) {
+        B.active = true;
         if (ui_time() - B.lastClick < 0.35) { B.touched = false; fit(); B.lastClick = 0; }
         else B.lastClick = ui_time();
         bool shift = inp_key_down(KEY_LEFT_SHIFT) || inp_key_down(KEY_RIGHT_SHIFT);
@@ -326,7 +331,7 @@ static float preview(Rectangle view)
     }
     if (hov) {
         if (orbit_keys(&B.O)) B.viewDirty = true;
-        float wh = ui_take_wheel();
+        float wh = B.active ? ui_take_wheel() : 0;            /* the page scrolls past an untouched preview */
         if (wh != 0) { B.O.dist *= powf(0.88f, wh); B.viewDirty = true; B.touched = true; }
         ui_cursor(B.panning ? MOUSE_CURSOR_RESIZE_ALL : MOUSE_CURSOR_POINTING_HAND);
     }
@@ -351,7 +356,8 @@ static float preview(Rectangle view)
     ui_register(ui_id("bk-view"), view, "Block preview");
     ui_rect(turnR, 9, ui_alpha(TH.surface, 0.82f));
     if (orbit_tools(&B.O, "bk", turnR.x + 8, turnR.y + 5, false)) B.viewDirty = true;
-    const char *how = "Drag to turn  ·  right-drag or Shift+drag to move  ·  wheel to zoom  ·  double-click to fit";
+    const char *how = B.active ? "Drag to turn  ·  right-drag or Shift+drag to move  ·  wheel to zoom  ·  double-click to fit"
+                               : "Drag to turn  ·  right-drag or Shift+drag to move  ·  click, then wheel to zoom  ·  double-click to fit";
     ui_text_clip(F_REG, 12, how, view.x + 96, view.y + view.height - 22, view.width - 110, TH.dark ? (Color){ 200, 210, 230, 160 } : (Color){ 60, 70, 90, 170 });
     return view.height;
 }
@@ -619,8 +625,203 @@ static float issues(float x, float y, float w)
     return y - y0 + 4;
 }
 
+/* ================================================================ extrusion (mesh overhaul plan step 6) */
+/* the steps that extrude the mesh, from the dictionaries in system/: also every Generate mesh's, after blockMesh, while
+   mesher/extrude.ini says so. The precision goes up while extrudeMesh writes (else the wedge faces load as "not planar") */
+#define EX_PREC "cp system/controlDict system/controlDict.qc-precision && foamDictionary -entry writePrecision -set 15 system/controlDict > /dev/null && "
+#define EX_UNPREC "; rc=$?; mv -f system/controlDict.qc-precision system/controlDict; exit $rc"
+static int extrude_kind(const char *casePath)        /* 0 none, 1 axisymmetric, 2 a patch */
+{
+    char p[PL_PATH]; pl_join(p, sizeof p, casePath, "mesher/extrude.ini");
+    char *t = pl_read_file(p, NULL);
+    int k = !t ? 0 : strstr(t, "kind = axisymmetric") ? 1 : strstr(t, "kind = patch") ? 2 : 0;
+    free(t);
+    return k;
+}
+
+bool extrude_add_steps(Case *c, Job *j)
+{
+    int k = extrude_kind(c->s.path);
+    if (!k) return false;
+    if (k == 1) {
+        job_add(j, "axi-sets", "topoSet: the 2-D mesh's front and back faces", "topoSet -dict system/topoSetDict.axi", "log.topoSet.axi", false);
+        job_add(j, "axi-patches", "createPatch: them as the front and back patches", "createPatch -dict system/createPatchDict.axi -overwrite", "log.createPatch.axi", false);
+    }
+    job_add(j, "extrudeMesh", k == 1 ? "extrudeMesh: the wedge" : "extrudeMesh", EX_PREC "extrudeMesh" EX_UNPREC, "log.extrudeMesh", false);
+    return true;
+}
+
+static struct { int axisDir; double axisAt, angle; ExtrudeCfg x; char err[300]; bool init; char path[PL_PATH]; } X;
+
+static void extrude_run(Case *c, int kind, const char *ini)
+{
+    if (!app_require_foam() || !app_can_start()) return;
+    char d[PL_PATH], p[PL_PATH]; pl_join(d, sizeof d, c->s.path, "mesher"); pl_mkdirs(d); pl_join(p, sizeof p, d, "extrude.ini");
+    pl_write_file(p, ini, strlen(ini));
+    app_save_all(true);
+    job_reset(A.cj, "Mesh");
+    job_add(A.cj, "backup", "Keep the mesh as it was (constant/polyMesh.before-extrude)",
+            "rm -rf constant/polyMesh.before-extrude && cp -r constant/polyMesh constant/polyMesh.before-extrude && echo kept", "log.extrudeBackup", false);
+    extrude_add_steps(c, A.cj);
+    job_add(A.cj, "checkMesh", "checkMesh", "checkMesh", "log.checkMesh", false);
+    (void)kind;
+    if (job_start(A.cj, c->s.path, app_bashrc(), GetTime())) ui_toast(TOAST_INFO, "Extruding: every Generate mesh repeats it from now on");
+    else ui_toast(TOAST_ERR, "Could not start extrudeMesh");
+}
+
+static float extrude_section(Case *c, float x, float y, float w)
+{
+    float y0 = y;
+    if (!c->s.meshed || c->s.nRegions) return 0;
+    if (!X.init || strcmp(X.path, c->s.path)) {
+        memset(&X, 0, sizeof X); X.init = true; pl_strlcpy(X.path, c->s.path, sizeof X.path);
+        X.angle = 5; X.x.model = EX_LINEAR_NORMAL; X.x.nLayers = 10; X.x.expansion = 1; X.x.thickness = 0.1;
+        X.x.axis[0] = 1; X.x.angle = 90; X.x.dir[0] = 1;
+        for (int i = 0; i < c->nPatches; i++) if (strcmp(c->patches[i].type, "empty") && strcmp(c->patches[i].type, "processor")) { pl_strlcpy(X.x.patch, c->patches[i].name, sizeof X.x.patch); break; }
+    }
+    y += section_head(x, y + 10, w, "Extrude", "Grow the mesh from one of its patches (more cells beyond an outlet, say), or turn a 2-D mesh "
+                                              "into an axisymmetric [[wedge]]: one thin slice of a round flow, far cheaper than 3-D.") + 10;
+    int k = extrude_kind(c->s.path);
+    if (k) {
+        const char *t = k == 1 ? "Every Generate mesh makes this mesh axisymmetric (system/extrudeMeshDict)" : "Every Generate mesh extrudes a patch (system/extrudeMeshDict)";
+        float bw = ui_button_width(ICON_TRASH_2, "Stop extruding");
+        ui_text_wrap(F_REG, 13, t, (Rectangle){ x, y + 8, w - bw - 16, 40 }, 19, TH.text2, true);
+        if (ui_button(ui_id("ex-stop"), (Rectangle){ x + w - bw, y, bw, 34 }, ICON_TRASH_2, "Stop extruding", BTN_GHOST)) {
+            char p[PL_PATH]; pl_join(p, sizeof p, c->s.path, "mesher/extrude.ini"); remove(p);
+            ui_toast(TOAST_OK, "Generate mesh won't extrude any more: generate again for the mesh without it");
+        }
+        y += 46;
+    }
+    /* which way is thin, and which patches are empty: a 2-D mesh */
+    double lo[3], hi[3];
+    bool bounds = mesh_bounds(c->s.path, lo, hi);
+    char empties[256] = "";
+    for (int i = 0; i < c->nPatches; i++)
+        if (!strcmp(c->patches[i].type, "empty") && c->patches[i].nFaces > 0) {
+            size_t n = strlen(empties); snprintf(empties + n, sizeof empties - n, "%s%s", n ? " " : "", c->patches[i].name);
+        }
+    int thin = -1;
+    if (bounds) { double L[3] = { hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2] }; thin = L[0] <= L[1] && L[0] <= L[2] ? 0 : L[1] <= L[2] ? 1 : 2; }
+    bool twoD = empties[0] && thin >= 0;
+    float half = w >= 900 ? (w - 20) / 2 : w, lw = 170;
+    float ax = x, ay = y, bx = w >= 900 ? x + half + 20 : x, by = y;
+    /* ---- axisymmetric */
+    ui_text(F_SEMI, 15, "Make it axisymmetric", ax, ay, TH.text); ay += 26;
+    int nWedge = 0;
+    for (int i = 0; i < c->nPatches; i++) if (!strcmp(c->patches[i].type, "wedge") && c->patches[i].nFaces > 0) nWedge++;
+    if (!twoD && nWedge >= 2) {
+        ay += ui_text_wrap(F_REG, 13, "This mesh is axisymmetric already: it has wedge patches. Mesh > Quality has the wedge angle checkMesh measured.",
+                           (Rectangle){ ax, ay, half, 80 }, 19, TH.text2, true) + 10;
+    } else if (!twoD) {
+        ay += ui_text_wrap(F_REG, 13, "For a 2-D mesh (one cell thick, front and back on empty patches): the radius one way in its plane, the axis along the other.",
+                           (Rectangle){ ax, ay, half, 80 }, 19, TH.text3, true) + 10;
+    } else {
+        int in[2] = { (thin + 1) % 3, (thin + 2) % 3 };
+        if (X.axisDir == thin) X.axisDir = in[0];
+        static const char *AXN[3] = { "Along x", "Along y", "Along z" };
+        const char *items[2] = { AXN[in[0]], AXN[in[1]] };
+        int sel = X.axisDir == in[1];
+        ui_text(F_REG, 13, "The axis", ax, ay + 9, TH.text2);
+        if (ui_segmented(ui_id("ex-axdir"), (Rectangle){ ax + lw, ay, fminf(240, half - lw), 34 }, items, 2, &sel)) X.axisDir = in[sel];
+        ay += 42;
+        int j = 3 - thin - X.axisDir;
+        char lab[48]; snprintf(lab, sizeof lab, "The axis at %c =", "xyz"[j]);
+        num_row("ex-axat", ax, ay, lw, fminf(170, half - lw), lab, "m", &X.axisAt, -1e9, 1e9);
+        ay += 40;
+        num_row("ex-angle", ax, ay, lw, fminf(170, half - lw), "Wedge angle", "°", &X.angle, 0.1, 10);
+        ay += 42;
+        char t[300];
+        pl_fmt_ui(t, sizeof t, "The mesh runs from %c = %.4g to %.4g: %s", "xyz"[j], lo[j], hi[j],
+                  lo[j] < X.axisAt - 1e-12 && hi[j] > X.axisAt + 1e-12 ? "it crosses this axis; move the axis to its edge." :
+                  "the radius runs from the axis out to its far side. The faces on the axis close up into thin prisms.");
+        ay += ui_text_wrap(F_REG, 12.5f, t, (Rectangle){ ax, ay, half, 80 }, 18, TH.text3, true) + 8;
+        float bw = ui_button_width(ICON_ROTATE_CCW, "Make it axisymmetric");
+        ui_disable(A.cj->active);
+        if (ui_button(ui_id("ex-axi"), (Rectangle){ ax, ay, bw, 36 }, ICON_ROTATE_CCW, "Make it axisymmetric", BTN_PRIMARY)) {
+            AxiCfg a = { .thin = thin, .axisDir = X.axisDir, .axisAt = X.axisAt, .angle = X.angle };
+            memcpy(a.lo, lo, sizeof lo); memcpy(a.hi, hi, sizeof hi);
+            pl_strlcpy(a.empties, empties, sizeof a.empties);
+            char *ts, *cp, *ex, why[300];
+            if (!ex_axi_dicts(&a, &ts, &cp, &ex, why, sizeof why)) ui_toast(TOAST_ERR, "%s", why);
+            else {
+                char p[PL_PATH];
+                pl_join(p, sizeof p, c->s.path, "system/topoSetDict.axi"); pl_write_file(p, ts, strlen(ts));
+                pl_join(p, sizeof p, c->s.path, "system/createPatchDict.axi"); pl_write_file(p, cp, strlen(cp));
+                pl_join(p, sizeof p, c->s.path, "system/extrudeMeshDict"); pl_write_file(p, ex, strlen(ex));
+                free(ts); free(cp); free(ex);
+                char ini[200]; snprintf(ini, sizeof ini, "# Q-Continuum: Generate mesh extrudes after meshing (Mesh > Block builder, Extrude)\nkind = axisymmetric\n");
+                extrude_run(c, 1, ini);
+            }
+        }
+        ui_disable(false);
+        ay += 48;
+    }
+    /* ---- a patch */
+    if (w < 900) by = ay + 10;
+    ui_text(F_SEMI, 15, "Extrude a patch", bx, by, TH.text); by += 26;
+    const char *pn[64]; int np = 0, psel = -1;
+    for (int i = 0; i < c->nPatches && np < 64; i++) {
+        if (!strcmp(c->patches[i].type, "empty") || !strcmp(c->patches[i].type, "processor")) continue;
+        if (!strcmp(c->patches[i].name, X.x.patch)) psel = np;
+        pn[np++] = c->patches[i].name;
+    }
+    ui_text(F_REG, 13, "Patch", bx, by + 9, TH.text2);
+    if (ui_select_ph(ui_id("ex-patch"), (Rectangle){ bx + lw, by, fminf(220, half - lw), 34 }, pn, np, &psel, "a patch") && psel >= 0) pl_strlcpy(X.x.patch, pn[psel], sizeof X.x.patch);
+    by += 42;
+    static const char *MOD[3] = { "Straight out", "One direction", "Round an axis" };
+    static const int MODK[3] = { EX_LINEAR_NORMAL, EX_LINEAR_DIRECTION, EX_SECTOR };
+    int ms = X.x.model == EX_LINEAR_DIRECTION ? 1 : X.x.model == EX_SECTOR ? 2 : 0;
+    if (ui_segmented(ui_id("ex-model"), (Rectangle){ bx, by, fminf(420, half), 34 }, MOD, 3, &ms)) X.x.model = MODK[ms];
+    by += 42;
+    double nl = X.x.nLayers;
+    if (num_row("ex-layers", bx, by, lw, fminf(170, half - lw), "Layers", NULL, &nl, 1, 10000)) X.x.nLayers = (int)nl;
+    by += 40;
+    num_row("ex-exp", bx, by, lw, fminf(170, half - lw), "Growth per layer", NULL, &X.x.expansion, 0.01, 100);
+    by += 40;
+    if (X.x.model != EX_SECTOR) { num_row("ex-thick", bx, by, lw, fminf(170, half - lw), "Thickness", "m", &X.x.thickness, 1e-12, 1e9); by += 40; }
+    if (X.x.model == EX_LINEAR_DIRECTION) {
+        ui_text(F_REG, 13, "Direction", bx, by + 9, TH.text2);
+        for (int q = 0; q < 3; q++) { char id[24]; snprintf(id, sizeof id, "ex-dir%d", q); num_row(id, bx + lw + q * 72, by, 0, 64, "", NULL, &X.x.dir[q], -1e9, 1e9); }
+        by += 40;
+    }
+    if (X.x.model == EX_SECTOR) {
+        ui_text(F_REG, 13, "Point on the axis", bx, by + 9, TH.text2);
+        for (int q = 0; q < 3; q++) { char id[24]; snprintf(id, sizeof id, "ex-pt%d", q); num_row(id, bx + lw + q * 72, by, 0, 64, "", NULL, &X.x.point[q], -1e9, 1e9); }
+        by += 40;
+        ui_text(F_REG, 13, "Axis direction", bx, by + 9, TH.text2);
+        for (int q = 0; q < 3; q++) { char id[24]; snprintf(id, sizeof id, "ex-ax%d", q); num_row(id, bx + lw + q * 72, by, 0, 64, "", NULL, &X.x.axis[q], -1e9, 1e9); }
+        by += 40;
+        num_row("ex-sang", bx, by, lw, fminf(170, half - lw), "Angle", "°", &X.x.angle, 0.1, 360);
+        by += 40;
+    }
+    ui_checkbox(ui_id("ex-flip"), (Rectangle){ bx, by + 4, 260, 22 }, &X.x.flip, "The other way (into the mesh's side)");
+    by += 34;
+    float bw = ui_button_width(ICON_PLAY, "Extrude");
+    ui_disable(A.cj->active || psel < 0);
+    if (ui_button(ui_id("ex-go"), (Rectangle){ bx, by, bw, 36 }, ICON_PLAY, "Extrude", BTN_SECONDARY)) {
+        char why[300];
+        char *d = ex_patch_dict(&X.x, why, sizeof why);
+        if (!d) ui_toast(TOAST_ERR, "%s", why);
+        else {
+            char p[PL_PATH]; pl_join(p, sizeof p, c->s.path, "system/extrudeMeshDict"); pl_write_file(p, d, strlen(d)); free(d);
+            char ini[200]; snprintf(ini, sizeof ini, "# Q-Continuum: Generate mesh extrudes after meshing (Mesh > Block builder, Extrude)\nkind = patch\n");
+            extrude_run(c, 2, ini);
+        }
+    }
+    ui_disable(false);
+    by += 48;
+    return fmaxf(ay, by) - y0;
+}
+
 /* ================================================================ the page */
+static float blocks_body(Case *c, float x, float y, float w);
 float blocks_page(Case *c, float x, float y, float w)
+{
+    float h = blocks_body(c, x, y, w);
+    return h + extrude_section(c, x, y + h, w);
+}
+
+static float blocks_body(Case *c, float x, float y, float w)
 {
     float y0 = y;
     char p[PL_PATH]; pl_join(p, sizeof p, c->s.path, "system/blockMeshDict");

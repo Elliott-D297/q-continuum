@@ -919,6 +919,10 @@ void draw_modals(void)
         break;
     case MD_WHATS_NEW: {
         static const char *const NEWS[][2] = {
+            { "Block builder and extrusion", "Mesh > Block builder: a mesh from a template in sizes you know (cavity, channel, backward step, "
+              "flat plate, pipe, cylinder, airfoil, axisymmetric pipe), the wall's first cell from the y+ calculator, seen in 3-D before it is "
+              "written; or system/blockMeshDict edited as tables of vertices, blocks, curved edges and patches, checked as blockMesh would. "
+              "Extrude: a 2-D mesh made axisymmetric, or cells added beyond a patch, repeated by every Generate mesh." },
             { "Calculators, pre-flight checks, quality explained", "Calculators (palette, or First layer from y+ on the STL mesher): the "
               "first cell height from y+ for a plate or a pipe, with liquid nitrogen, oxygen and hydrogen; cell grading; memory and run time "
               "measured on this machine; Reynolds, Mach, Prandtl, Rayleigh and the rest with what each means for the setup. Generate says "

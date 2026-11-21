@@ -68,6 +68,7 @@ void app_generate_mesh(void)
         if (pl_is_file(p)) job_add(A.cj, "surfaceFeatureExtract", "surfaceFeatureExtract", "surfaceFeatureExtract", "log.surfaceFeatureExtract", false);
         job_add(A.cj, "snappyHexMesh", "snappyHexMesh", SNAPPY_CMD, "log.snappyHexMesh", false);
     }
+    extrude_add_steps(A.cs, A.cj);                         /* an extrusion on the mesh: every time it is made (plan step 6) */
     job_add(A.cj, "checkMesh", "checkMesh", "checkMesh", "log.checkMesh", false);
     CaseSummary *cs = &A.cs->s;
     if (cs->nRegions > 0) {
@@ -765,7 +766,8 @@ void page_mesh(Rectangle r)
         dictCells = nb ? 0 : -1;
         for (int i = 0; i < nb && dictCells >= 0; i++) dictCells = blk[i].cells >= 0 ? dictCells + blk[i].cells : -1;
     }
-    bool countOff = c->s.meshed && dictCells > 0 && c->s.nCells > 0 && dictCells != c->s.nCells;
+    char exi[PL_PATH]; pl_join(exi, sizeof exi, c->s.path, "mesher/extrude.ini");
+    bool countOff = c->s.meshed && dictCells > 0 && c->s.nCells > 0 && dictCells != c->s.nCells && !pl_is_file(exi);   /* extruded: more cells */
     if (!meshJob && (c->s.meshStale || countOff || (bmd && bmd->dirty && c->s.meshed))) {
         char body[400], a[32], b[32];
         fmt_count(a, sizeof a, c->s.nCells); fmt_count(b, sizeof b, dictCells);

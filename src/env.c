@@ -497,7 +497,7 @@ void notify_desktop(const Env *e, const char *title, const char *body, bool soun
         return;
     }
     if (pl_which("notify-send", NULL, 0)) {
-        char qt[300], qb[700], cmd[1200];
+        char qt[600], qb[2400], cmd[3200];                 /* (a quote that doesn't fit is empty now: room for long bodies) */
         pl_shell_quote(qt, sizeof qt, title);
         pl_shell_quote(qb, sizeof qb, body);
         snprintf(cmd, sizeof cmd, "notify-send -a Q-Continuum %s %s%s", qt, qb,

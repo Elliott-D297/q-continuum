@@ -160,6 +160,7 @@ static double *read_points(const char *path, long *n)
 /* faces as one flat list of point labels plus offsets (faceList or faceCompactList, ASCII or binary) */
 static bool read_faces(const char *path, long **off, long **idx, long *nFaces)
 {
+    *off = *idx = NULL;                                     /* (a failure frees both: never a caller's unset pointer) */
     FList f;
     if (!fl_open(&f, path)) return false;
     bool ok = false;
@@ -286,6 +287,17 @@ static int read_boundary(const char *path, BPatch *out, int max)
     return k;
 }
 
+/* a mesh whose files don't agree (owner shorter than faces, a face naming a point that isn't there) is refused rather than
+   read past its arrays (sweep 2026-11-21) */
+#define DISAGREE "The mesh files don't agree with each other (owner, faces and points): run checkMesh, or make the mesh again."
+static bool mesh_agrees(long np, long nf, long no, const long *off, const long *idx, const long *own)
+{
+    if (no < nf || off[0] < 0) return false;
+    for (long fi = 0; fi < nf; fi++) if (own[fi] < 0 || off[fi] > off[fi + 1]) return false;
+    for (long k = 0; k < off[nf]; k++) if (idx[k] < 0 || idx[k] >= np) return false;
+    return true;
+}
+
 /* ============================================================================ the cross section */
 bool xs_is_2d(const char *casePath)
 {
@@ -332,6 +344,11 @@ bool xs_load(XSection *x, const char *casePath)
     long *own = fok ? read_label_list(p, &no) : NULL;
     if (!pt || !fok || !own) {
         unread_reason(x->err, sizeof x->err, d, pt, fok, own);
+        free(pt); free(off); free(idx); free(own);
+        return false;
+    }
+    if (!mesh_agrees(np, nf, no, off, idx, own)) {
+        snprintf(x->err, sizeof x->err, "%s", DISAGREE);
         free(pt); free(off); free(idx); free(own);
         return false;
     }
@@ -498,6 +515,11 @@ bool ms_load(MeshSurf *m, const char *dir, long maxEdges)
         free(pt); free(off); free(idx); free(own);
         return false;
     }
+    if (!mesh_agrees(np, nf, no, off, idx, own)) {
+        snprintf(m->err, sizeof m->err, "%s", DISAGREE);
+        free(pt); free(off); free(idx); free(own);
+        return false;
+    }
     m->nPoints = np; m->nFaces = nf;
     long maxCell = -1; for (long i = 0; i < no; i++) if (own[i] > maxCell) maxCell = own[i];
     m->nCells = maxCell + 1;
@@ -590,6 +612,7 @@ static bool slice_mesh(const char *dir, char *err, int cap)
         sm_free();
         return false;
     }
+    if (!mesh_agrees(SM.np, SM.nf, SM.nOwn, SM.off, SM.idx, SM.own)) { snprintf(err, (size_t)cap, "%s", DISAGREE); sm_free(); return false; }
     pl_strlcpy(SM.dir, dir, sizeof SM.dir); SM.mt = mt;
     return true;
 }

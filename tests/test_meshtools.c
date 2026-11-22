@@ -77,6 +77,10 @@ static int unit(const char *scratch)
     in = base(MT_MERGE); CHECK(mt_script(&in, cmd, sizeof cmd, rel, sizeof rel, dict, sizeof dict, err, sizeof err) && strstr(dict, "patches         (movingWall fixedWalls)"), "merge");
     in = base(MT_MERGE); snprintf(in.type, sizeof in.type, "cyclic"); CHECK(!mt_script(&in, cmd, sizeof cmd, rel, sizeof rel, dict, sizeof dict, err, sizeof err), "merge: an unsupported type refused");
     in = base(MT_BAFFLES); CHECK(mt_script(&in, cmd, sizeof cmd, rel, sizeof rel, dict, sizeof dict, err, sizeof err) && strstr(dict, "plate_master"), "baffles");
+    /* pl_shell_quote (sweep 2026-11-21): whole or nothing, never a cut-off path */
+    { char q[18]; pl_shell_quote(q, sizeof q, "a'b c"); CHECK(!strcmp(q, "'a'\\''b c'"), "quote with an apostrophe: %s", q);
+      pl_shell_quote(q, sizeof q, "/home/user/case"); CHECK(!strcmp(q, "'/home/user/case'"), "exactly fits: %s", q);
+      pl_shell_quote(q, sizeof q, "/home/user/cases"); CHECK(!strcmp(q, "''"), "too long: empty, not cut: %s", q); }
     if (fails) { fprintf(stderr, "%d failures\n", fails); return 1; }
     printf("meshtools: all checks passed\n");
     return 0;

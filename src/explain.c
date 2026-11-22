@@ -508,7 +508,7 @@ static bool region_mesh(const char *casePath, const char *msg, Explanation *x)
 {
     const char *d = strstr(msg, "in directory \"");
     if (!d) return false;
-    char dir[160]; sscanf(d + 14, "%159[^\"]", dir);
+    char dir[160] = ""; sscanf(d + 14, "%159[^\"]", dir);   /* (an empty name left dir unset) */
     char *pm = strstr(dir, "/polyMesh");
     if (!pm) return false;
     *pm = 0;

@@ -285,10 +285,12 @@ static void check_mesh_stale(CaseSummary *s)
 {
     if (!s->meshTime) return;
     /* a mesh imported after the last blockMesh/snappy run (SALOME tab) doesn't come from those dictionaries */
-    const char *logs[] = { "log.ideasUnvToFoam", "log.blockMesh", "log.snappyHexMesh" };
-    time_t lt[3];
-    for (int i = 0; i < 3; i++) { char p[PL_PATH]; pl_join(p, sizeof p, s->path, logs[i]); lt[i] = pl_is_file(p) ? pl_mtime(p) : 0; }
-    if (lt[0] && lt[0] > lt[1] && lt[0] > lt[2]) return;
+    /* (any importer: SALOME's UNV, Gmsh, Fluent, STAR-CD -- sweep 2026-11-21: only the UNV one was known) */
+    const char *logs[] = { "log.ideasUnvToFoam", "log.gmshToFoam", "log.fluentMeshToFoam", "log.star4ToFoam", "log.blockMesh", "log.snappyHexMesh" };
+    time_t lt[6], imp = 0;
+    for (int i = 0; i < 6; i++) { char p[PL_PATH]; pl_join(p, sizeof p, s->path, logs[i]); lt[i] = pl_is_file(p) ? pl_mtime(p) : 0; }
+    for (int i = 0; i < 4; i++) if (lt[i] > imp) imp = lt[i];
+    if (imp && imp > lt[4] && imp > lt[5]) return;
     const char *dicts[] = { "system/blockMeshDict", "system/snappyHexMeshDict", NULL };
     for (int i = 0; dicts[i]; i++) {
         char p[PL_PATH]; pl_join(p, sizeof p, s->path, dicts[i]);
@@ -892,7 +894,12 @@ int case_trash_results(Case *c, int what, bool permanent, const char *reason, ch
         char bm[PL_PATH], pm[PL_PATH];
         pl_join(bm, sizeof bm, c->s.path, "system/blockMeshDict");
         pl_join(pm, sizeof pm, c->s.path, "constant/polyMesh");
-        if (pl_is_file(bm) && pl_is_dir(pm)) names_add(&take, "constant/polyMesh");   /* only regenerable meshes */
+        /* only a mesh blockMesh made can be made again (sweep 2026-11-21: an imported mesh beside a leftover blockMeshDict went) */
+        time_t imp = 0, blk = 0;
+        static const char *const IMP[] = { "log.ideasUnvToFoam", "log.gmshToFoam", "log.fluentMeshToFoam", "log.star4ToFoam", "log.meshImport" };
+        for (int i = 0; i < 5; i++) { char lp[PL_PATH]; pl_join(lp, sizeof lp, c->s.path, IMP[i]); time_t m = pl_is_file(lp) ? pl_mtime(lp) : 0; if (m > imp) imp = m; }
+        { char lp[PL_PATH]; pl_join(lp, sizeof lp, c->s.path, "log.blockMesh"); blk = pl_is_file(lp) ? pl_mtime(lp) : 0; }
+        if (pl_is_file(bm) && pl_is_dir(pm) && !(imp && imp >= blk)) names_add(&take, "constant/polyMesh");
     }
     int removed = 0;
     if (permanent) {

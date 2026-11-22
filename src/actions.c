@@ -77,6 +77,7 @@ static void a_computer(void) { palette_open(); }
 static void a_news(void) { A.modal = MD_WHATS_NEW; }
 static void a_glossary(void) { teach_glossary_open(NULL); }
 static void a_calc(void) { calc_open(-1); }
+static void a_meshq(void) { meshq_open(); }
 static void a_tour(void) { tour_start(); }
 static void a_mesh_tour(void) { tour_start_mesh(); }
 static void a_intro(void) { intro_start(); }
@@ -160,6 +161,8 @@ static const Action ACTIONS[] = {
       "The words of CFD and meshing in fluid-mechanics terms, with numbers to know", NULL, a_glossary, false },
     { "help.calc",      "Calculators",            NULL,            0,             0,              NULL,           NULL,
       "Wall spacing from y+ (cryogens too), cell grading, memory and run time, the dimensionless numbers, worked out by hand", NULL, a_calc, false },
+    { "help.meshq",     "What mesh do I need?",   NULL,            0,             0,              NULL,           NULL,
+      "A few questions about the flow and the geometry: the way to mesh it (block builder, STL mesher, SALOME, import) and why", NULL, a_meshq, false },
     { "help.tour",      "Take the tour",          NULL,            0,             0,              "set-tour",     NULL,
       "A walk through every page: what it is for and how to work it", NULL, a_tour, false },
     { "help.meshtour",  "Meshing tutorial",       NULL,            0,             0,              "set-meshtour", NULL,

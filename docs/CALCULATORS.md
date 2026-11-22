@@ -164,3 +164,56 @@ so a fixed mesh shows none), gathers every flagged face and cell into one cellSe
 system/topoSetDict.quality`; only checkMesh's own sets, never the case's zone sets), writes it with `foamToVTK -cellSet
 qualityCells -name postProcessing/quality`, and opens ParaView with `paraview/quality.py`: the flagged cells red inside the
 faint mesh, the flagged faces orange. The cellSet stays for `refineMesh -cellSet qualityCells` or `subsetMesh`.
+
+## 7. What mesh do I need? (step 7)
+
+`src/meshadvice.c`, the dialog `src/page_meshadvice.c` (Mesh > **Which mesh?**, palette `help.meshq`). Questions: what is
+being meshed (a box, pipe, channel, step, plate, cylinder, airfoil, any CAD part, a mesh made elsewhere), 3-D / 2-D /
+axisymmetric, internal or external, what the walls must give, how good an answer, and the speed, size and fluid. The answer
+names one path and says why, step by step:
+
+| Geometry | Path | Why |
+|---|---|---|
+| A shape made of blocks (box, channel, step, plate, cylinder, airfoil) | Block builder, its template | perfect hexahedra lined up with the flow, fewest cells, no size jumps |
+| A pipe, axisymmetric (or asked for in 2-D) | Block builder, wedge template | one 5° slice gives the whole flow |
+| A pipe in 3-D | Block builder, O-grid | no cell squeezed at the centre |
+| A CAD part | STL mesher, snappyHexMesh | passed every check on curved parts (tests/compare_meshers.sh, 2026-11-10) |
+| A 2-D profile with SALOME installed | STL mesher, SALOME triangles | fewest cells for the same wall resolution on the NACA profile |
+| Gmsh, SALOME (UNV, MED) | Mesh > SALOME / import | gmshToFoam, ideasUnvToFoam |
+| Fluent, STAR-CD | the command (fluent3DMeshToFoam, star4ToFoam) | this OpenFOAM has no ccmToFoam |
+
+Walls: nothing asked of them, no layers; pressure drop and forces, wall functions at y+ 50 (30 to 300), 3 to 5 layers; heat
+transfer, separation or exact drag, y+ 1 with 10 to 20 layers. The first cell comes from section 1's formulas (the
+Calculators' own `calc_wall`, pipe for internal ducts, plate otherwise). Cells for the goal: 2-D 5 k / 40 k / 150 k, 3-D
+100 k / 1 M / 3 M (first look / engineering answer / the finest of three for a study), twice that round an external part in
+3-D, 1.5 times with resolved walls, 0.6 times for block meshes in 3-D. These are starting points, not answers: the grid study
+(section 8) is the answer.
+
+## 8. Mesh independence: the Grid Convergence Index (step 8)
+
+`src/gci.c`, shown on Studies for any mesh study ("Is the mesh fine enough?" under the table, the estimate dashed on the
+chart). The procedure is Celik, Ghia, Roache, Freitas, Coleman and Raad (2008), *Procedure for estimation and reporting of
+uncertainty due to discretization in CFD applications*, J. Fluids Eng. 130, 078001.
+
+**Given** (their Table 1, first column): three 2-D meshes of N₁ = 18 000, N₂ = 8 000, N₃ = 4 500 cells; the quantity on
+each φ₁ = 6.063, φ₂ = 5.972, φ₃ = 5.863.
+**Find** the apparent order, the extrapolated value and the fine mesh's GCI.
+
+**Solution.**
+1. Cell sizes h = (1/N)^(1/2): r₂₁ = h₂/h₁ = √(18000/8000) = 1.5, r₃₂ = √(8000/4500) = 1.333.
+2. ε₂₁ = φ₂ - φ₁ = -0.091, ε₃₂ = φ₃ - φ₂ = -0.109; s = sign(ε₃₂/ε₂₁) = +1; R = ε₂₁/ε₃₂ = 0.835: between 0 and 1, monotonic.
+3. Apparent order by fixed point, p = |ln|ε₃₂/ε₂₁| + q(p)| / ln r₂₁ with q(p) = ln((r₂₁ᵖ - s)/(r₃₂ᵖ - s)):
+   ln(0.109/0.091) = 0.1805; at p = 1.53, 1.5¹·⁵³ = 1.860 and 1.333¹·⁵³ = 1.553, q = ln(0.860/0.553) = 0.441,
+   p = (0.1805 + 0.441)/0.4055 = 1.53 (it is settled).
+4. Richardson: φ_ext = (r₂₁ᵖ φ₁ - φ₂)/(r₂₁ᵖ - 1) = (1.860 × 6.063 - 5.972)/0.860 = **6.1685**.
+5. e_a = |φ₁ - φ₂|/φ₁ = 1.50 %, e_ext = |φ_ext - φ₁|/φ_ext = 1.71 %.
+6. GCI_fine = 1.25 e_a/(r₂₁ᵖ - 1) = 1.25 × 0.0150/0.860 = **2.2 %**: the mesh-independent value is 6.063 ± 2.2 %.
+
+The paper prints p = 1.53, φ_ext = 6.1685, e_a 1.5 %, e_ext 1.7 %, GCI 2.2 %; `test_gci` checks these, and journey `t_gci`
+builds the three meshes with blockMesh and reads the same numbers off the page (2.17 %, 6.168, order 1.534).
+
+Two meshes only: p is taken as the schemes' formal order (2) and the safety factor is 3 instead of 1.25 (Roache). With
+three, GCI₃₂/(r₂₁ᵖ GCI₂₁) near 1 says the meshes are in the asymptotic range. Verdict: GCI ≤ 3 % (and in the asymptotic
+range) fine enough; ≤ 10 % close; above, or diverging (R > 1), refine. Oscillating convergence (R < 0) uses |ε₃₂/ε₂₁|
+and says to watch more meshes. The sizes come from each variant's own cell count (2-D when the mesh has an empty or wedge
+patch), else from the refinement factors.

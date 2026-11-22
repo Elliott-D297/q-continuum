@@ -611,8 +611,10 @@ void page_mesh(Rectangle r)
         snprintf(sub, sizeof sub, "No mesh yet: make one on the %s tab first.", mt && !strcmp(mt, "blockMesh") ? "Dictionaries" : "STL mesher");
     else if (A.meshTab == 2) snprintf(sub, sizeof sub, "The mesh in constant/polyMesh: a cross section through it, or its surface in 3-D.");
     else if (A.meshTab == 4) snprintf(sub, sizeof sub, "How good the mesh in constant/polyMesh is: checkMesh's numbers, what each one means and what to do when one fails.");
-    float bw = ui_button_width(ICON_PLAY, "Generate mesh"), bw2 = ui_button_width(ICON_CIRCLE_CHECK, "Check mesh");
-    y += page_header(x, y, w - bw - bw2 - 30, "Mesh", sub);
+    float bw = ui_button_width(ICON_PLAY, "Generate mesh"), bw2 = ui_button_width(ICON_CIRCLE_CHECK, "Check mesh"), bw3 = ui_button_width(ICON_SPARKLES, "Which mesh?");
+    y += page_header(x, y, w - bw - bw2 - bw3 - 40, "Mesh", sub);
+    if (ui_button(ui_id("mesh-which"), (Rectangle){ x + w - bw - bw2 - bw3 - 20, top + 32, bw3, 36 }, ICON_SPARKLES, "Which mesh?", BTN_GHOST)) meshq_open();
+    ui_tooltip((Rectangle){ x + w - bw - bw2 - bw3 - 20, top + 32, bw3, 36 }, "What mesh do I need? A few questions about the flow, the way to mesh it and why");
     y += case_steps(c, x, y, w);                           /* where the case is, on every tab (workflow plan W1) */
     ui_disable(A.cj->active || !mt);
     /* secondary when the steps bar is there: its Next is the page's one primary action (workflow plan W1) */

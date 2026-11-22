@@ -418,6 +418,19 @@ static void poll_picker(void)
 }
 
 void stlmesh_new_case(void) { start_picker(true); }
+
+/* "What mesh do I need?" picks a mesher (and layers) for the open STL case */
+bool stlmesh_suggest(Case *c, int mesher, bool layers)
+{
+    if (!c || mesher < 0 || mesher >= MESHER__N) return false;
+    sync_case(c);
+    if (!T.loaded) return false;                                   /* no part yet: the page asks for one first */
+    T.m.mesher = mesher;
+    if (layers && T.m.layers <= 0) T.m.layers = 5;
+    T.m.prism = layers ? true : T.m.prism;
+    save_cfg();
+    return true;
+}
 void stlmesh_choose(void) { start_picker(false); }
 void stlmesh_tick(void) { poll_picker(); cad_poll(); }
 

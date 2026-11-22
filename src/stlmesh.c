@@ -69,6 +69,8 @@ const MesherInfo MESHERS[MESHER__N] = {
         "Prisms swept from one face of each solid to the opposite one: for a part extruded along a line (a pipe of any section, a "
         "fin). Triangles on the source face at the target size. No prism layers.", NULL },
 };
+const char *mesher_short_name(int m) { return m >= 0 && m < MESHER__N ? MESHERS[m].shortName : ""; }
+
 
 const char *const GMSH_ALGO_WORD[GMSH_ALGOS] = { "delaunay", "frontal", "hxt", "mmg3d", "rtree" };
 const char *const GMSH_ALGO_NAME[GMSH_ALGOS] = { "Delaunay", "Frontal", "HXT", "MMG3D", "R-tree" };

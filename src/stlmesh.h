@@ -37,6 +37,7 @@ typedef struct {
     const char *what, *what2D;   /* a line on what it makes, in 3-D and 2-D (NULL: no 2-D)  */
 } MesherInfo;
 extern const MesherInfo MESHERS[MESHER__N];
+const char *mesher_short_name(int m);              /* MESHERS[m].shortName, "" out of range */
 #define GMSH_ALGOS 5
 extern const char *const GMSH_ALGO_WORD[GMSH_ALGOS], *const GMSH_ALGO_NAME[GMSH_ALGOS];
 int  mesher_from_word(const char *w);              /* MESHER_SNAPPY when unknown                */

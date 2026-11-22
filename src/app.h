@@ -22,7 +22,7 @@ typedef enum {
 #define MAX_JOBS 8
 
 #define WHATS_NEW_REV 13         /* bump with each batch of changes worth telling about (page_settings.c lists them) */
-typedef enum { MD_NONE = 0, MD_OPEN_FOLDER, MD_CLONE, MD_CLEAN, MD_DELETE, MD_UNSAVED, MD_QUIT_RUNNING, MD_ADD_ENTRY, MD_RUN_RESULTS, MD_NEW_FILE, MD_RUN_SCRIPT, MD_CPL_NEW, MD_CPL_OPEN, MD_CPL_RESULTS, MD_PV_CLAUDE, MD_HIST_CONFIRM, MD_PRECHECK, MD_QUEUE_ADD, MD_MOVIE, MD_STUDY_NEW, MD_STUDY_OUT, MD_STUDY_EXP, MD_PROG_CLEAN, MD_CONFLICT, MD_SHORTCUTS, MD_WHATS_NEW, MD_PALETTE, MD_ENV, MD_REVIEW, MD_PLUME, MD_AWAY, MD_CPL_BUILD, MD_FLAVOUR, MD_BLANK, MD_DEL_FILE, MD_GLOSSARY, MD_CALC } Modal;
+typedef enum { MD_NONE = 0, MD_OPEN_FOLDER, MD_CLONE, MD_CLEAN, MD_DELETE, MD_UNSAVED, MD_QUIT_RUNNING, MD_ADD_ENTRY, MD_RUN_RESULTS, MD_NEW_FILE, MD_RUN_SCRIPT, MD_CPL_NEW, MD_CPL_OPEN, MD_CPL_RESULTS, MD_PV_CLAUDE, MD_HIST_CONFIRM, MD_PRECHECK, MD_QUEUE_ADD, MD_MOVIE, MD_STUDY_NEW, MD_STUDY_OUT, MD_STUDY_EXP, MD_PROG_CLEAN, MD_CONFLICT, MD_SHORTCUTS, MD_WHATS_NEW, MD_PALETTE, MD_ENV, MD_REVIEW, MD_PLUME, MD_AWAY, MD_CPL_BUILD, MD_FLAVOUR, MD_BLANK, MD_DEL_FILE, MD_GLOSSARY, MD_CALC, MD_MESHQ } Modal;
 
 typedef struct {
     Env      env;
@@ -371,6 +371,10 @@ int   run_procs_for_check(void);
 float blocks_page(Case *c, float x, float y, float w);
 bool  blocks_wants_first(void);                             /* a template with a wall first cell is open */
 void  blocks_take_first(double h1);                          /* ... and the y+ calculator's first cell goes in it */
+void  blocks_suggest(int tmpl, double first);                 /* "What mesh do I need?": this template (first cell, 0 none) next time the page draws */
+bool  stlmesh_suggest(Case *c, int mesher, bool layers);      /* ... this mesher for the open case's part; false without a part */
+void  meshq_open(void);                                       /* page_meshadvice.c: the "What mesh do I need?" dialog */
+void  meshq_modal(bool *close);                               /* draw_modals, MD_MESHQ */
 bool  extrude_add_steps(Case *c, Job *j);               /* page_blocks.c: Generate mesh's extrusion steps (mesher/extrude.ini) */                             /* page_run.c: the processes the next run will use */
 /* page_setup.c: the walls' y+ from a run (mean, greatest) against the setup's wall treatment: a line saying so (out), and
    0 it suits, 1 it doesn't (the line says what to change), -1 nothing to say (laminar, no y+) */

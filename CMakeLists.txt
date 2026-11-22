@@ -274,6 +274,8 @@ add_test(NAME stlmesh_smooth COMMAND test_stlmesh smooth ${CMAKE_CURRENT_SOURCE_
 set_tests_properties(stlmesh_smooth PROPERTIES LABELS fast)
 # small end caps on long pipes stay their own regions (inlets), not folded into the wall as slivers (user, 2026-11-20)
 add_test(NAME stlmesh_regions COMMAND test_stlmesh regions ${QC_SCRATCH}/stl_regions)
+add_test(NAME stlmesh_handedit COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tests/stlmesh_handedit.sh $<TARGET_FILE:test_stlmesh> ${QC_SCRATCH})
+set_tests_properties(stlmesh_handedit PROPERTIES LABELS fast)
 set_tests_properties(stlmesh_regions PROPERTIES LABELS fast)
 add_test(NAME meshopts COMMAND test_meshopts ${QC_SCRATCH})
 # the glossary and "show the working" (mesh overhaul plan step 1); every [[term]] in src/ must be an entry

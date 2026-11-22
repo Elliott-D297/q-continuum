@@ -14,6 +14,7 @@
 #include <strings.h>
 #include <glob.h>
 #include "stlmesh.h"
+#include "simsetup.h"
 #include "meshopts.h"
 #include <unistd.h>
 #include "assets.h"
@@ -843,6 +844,11 @@ bool mesher_load(const char *casePath, MeshCfg *m)
     m->prismPct = ini_num(ini, "prism_thickness_pct", m->prismPct); m->stretch = ini_num(ini, "prism_stretching", m->stretch);
     m->evenLayers = (int)ini_num(ini, "prism_even_surface", -1);
     m->maxNonOrtho = ini_num(ini, "max_non_ortho", 65); m->maxSkew = ini_num(ini, "max_skewness", 4);
+    {   double v[3]; char w[128] = ""; ini_str(ini, "location_in_mesh", w, sizeof w);
+        m->locPicked = sscanf(w, "%lf %lf %lf", &v[0], &v[1], &v[2]) == 3 && isfinite(v[0]) && isfinite(v[1]) && isfinite(v[2]);
+        if (m->locPicked) for (int k = 0; k < 3; k++) m->loc[k] = v[k]; }
+    m->meshProcs = (int)ini_num(ini, "mesh_processes", 1);
+    if (m->meshProcs < 1 || m->meshProcs > 1024) m->meshProcs = 1;
     m->nZones = (int)ini_num(ini, "zones", 0);
     if (m->nZones > STL_MAX_ZONES) m->nZones = STL_MAX_ZONES;
     for (int i = 0; i < m->nZones; i++) {
@@ -897,6 +903,9 @@ static void cfg_text(const MeshCfg *m, Str *bp, bool sig)
     if (m->evenLayers >= 0)                                /* not written while it follows the kind of mesh: older meshes stay current */
         str_catf(&b, "# the layered walls' surface cells all the minimum size, so the layers don't break where the size steps\nprism_even_surface = %d\n", m->evenLayers);
     str_catf(&b, "max_non_ortho = %g\nmax_skewness = %g\n", m->maxNonOrtho, m->maxSkew);
+    if (m->locPicked) str_catf(&b, "# the point in the fluid, picked (else worked out from the part)\nlocation_in_mesh = %.10g %.10g %.10g\n", m->loc[0], m->loc[1], m->loc[2]);
+    if (!sig && m->meshProcs > 1)                          /* how it is run, not what it makes: not in the mesh's signature */
+        str_catf(&b, "# snappyHexMesh on this many processes (decomposePar, -parallel, reconstructParMesh)\nmesh_processes = %d\n", m->meshProcs);
     str_catf(&b, "# zoneN = kind  a(x y z)  b(x y z)  radius  size_pct   (box: a = min, b = max; sphere: a = centre; cylinder: a, b = ends)\nzones = %d\n", m->nZones);
     for (int i = 0; i < m->nZones; i++) {
         const MeshZone *z = &m->zone[i];
@@ -1268,6 +1277,7 @@ static const MeshOverrides *g_ov;
 static MeshPreview *g_dry;
 
 /* our dictionary over theirs: the first time, theirs is kept as <file>.orig */
+static char g_kept[2048], g_replaced[2048];               /* hand edits kept / replaced by the last mesher_prepare */
 static bool put_dict(const char *casePath, const char *rel, const char *text, char *err, int cap)
 {
     if (g_dry) {
@@ -1281,18 +1291,36 @@ static bool put_dict(const char *casePath, const char *rel, const char *text, ch
     if (g_ov && !mo_apply(g_ov, rel, &t, err, cap)) { str_free(&t); return false; }
     text = t.s;
     char p[PL_PATH]; pl_join(p, sizeof p, casePath, rel);
-    char *old = pl_read_head(p, 400);
-    if (old && !strstr(old, "Q-Continuum's STL mesher")) {
+    char *old = pl_read_file(p, NULL);
+    if (old && !strstr(old, "Q-Continuum's STL mesher")) {   /* not ours: kept once as .orig */
         char bak[PL_PATH + 8]; snprintf(bak, sizeof bak, "%s.orig", p);
-        if (!pl_exists(bak)) { char *all = pl_read_file(p, NULL); if (all) { pl_write_file(bak, all, strlen(all)); free(all); } }
+        if (!pl_exists(bak)) pl_write_file(bak, old, strlen(old));
     }
-    free(old);
+    /* hand edits (plan step 9, E1): what was written last is kept in mesher/written/; the file on disk differing from it has
+       been edited, and the edits go into what is written now (a three-way merge, as Physics > Setup does): an entry the
+       user added or changed stays, unless the mesher now writes something else for it (then the mesher's wins, listed) */
+    char sub[PL_PATH], bp[PL_PATH]; snprintf(sub, sizeof sub, "mesher/written/%s", rel); pl_join(bp, sizeof bp, casePath, sub);
+    char *base = old ? pl_read_file(bp, NULL) : NULL, *merged = NULL;
+    if (old && base && strcmp(old, base)) {
+        char k[1024] = "", r[1024] = "";
+        merged = sim_merge3(rel, old, base, text, k, sizeof k, r, sizeof r);
+        if (merged) {
+            size_t n = strlen(g_kept); snprintf(g_kept + n, sizeof g_kept - n, "%s", k);
+            n = strlen(g_replaced); snprintf(g_replaced + n, sizeof g_replaced - n, "%s", r);
+        }
+    }
+    free(old); free(base);
     char d[PL_PATH]; pl_dirname(d, sizeof d, p); pl_mkdirs(d);
-    bool ok = pl_write_file(p, text, strlen(text));
+    const char *out = merged ? merged : text;
+    bool ok = pl_write_file(p, out, strlen(out));
+    free(merged);
+    if (ok) { pl_dirname(d, sizeof d, bp); pl_mkdirs(d); pl_write_file(bp, text, strlen(text)); }
     str_free(&t);
     if (!ok) { snprintf(err, (size_t)cap, "Could not write %s", rel); return false; }
     return true;
 }
+const char *mesher_write_kept(void) { return g_kept; }
+const char *mesher_write_replaced(void) { return g_replaced; }
 static void put_if_missing(const char *casePath, const char *rel, const char *text)
 {
     char p[PL_PATH]; pl_join(p, sizeof p, casePath, rel);
@@ -1302,8 +1330,21 @@ static void put_if_missing(const char *casePath, const char *rel, const char *te
 }
 
 /* a point in the fluid, away from the surface: inside the part (internal), in the tunnel ahead of it (external) */
+static void location_in_mesh(const MeshCfg *m, const Stl *s, double out[3]);
+bool mesher_in_fluid(const MeshCfg *m, const Stl *s, const double p[3])
+{
+    if (m->domain != DOMAIN_EXTERNAL) return stl_inside(s, p);
+    double lo[3], hi[3];
+    mesher_domain(m, s, lo, hi);
+    for (int k = 0; k < 3; k++) if (p[k] <= lo[k] || p[k] >= hi[k]) return false;
+    return !stl_inside(s, p);
+}
+
+void mesher_location(const MeshCfg *m, const Stl *s, double out[3]) { location_in_mesh(m, s, out); }
+
 static void location_in_mesh(const MeshCfg *m, const Stl *s, double out[3])
 {
+    if (m->locPicked) { for (int k = 0; k < 3; k++) out[k] = m->loc[k]; return; }   /* chosen by hand (plan step 9, E8) */
     double lo[3], hi[3];
     mesher_domain(m, s, lo, hi);
     if (m->domain == DOMAIN_EXTERNAL) {
@@ -1936,6 +1977,7 @@ bool mesher_prepare(const char *casePath, const MeshCfg *m, Stl *s, char *err, i
         "laplacianSchemes { default Gauss linear corrected; }\ninterpolationSchemes { default linear; }\nsnGradSchemes { default corrected; }\n");
     put_if_missing(casePath, "system/fvSolution", HEADER("dictionary", "fvSolution") "\nsolvers {}\nSIMPLE {}\n");
     MeshOverrides ov; mo_init(&ov); mo_load(casePath, &ov);
+    g_kept[0] = g_replaced[0] = 0;
     g_ov = &ov;
     bool ok = write_mesher_dicts(casePath, m, s, err, cap);
     g_ov = NULL;

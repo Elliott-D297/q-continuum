@@ -37,7 +37,11 @@ typedef struct {
     const char *what, *what2D;   /* a line on what it makes, in 3-D and 2-D (NULL: no 2-D)  */
 } MesherInfo;
 extern const MesherInfo MESHERS[MESHER__N];
-const char *mesher_short_name(int m);              /* MESHERS[m].shortName, "" out of range */
+const char *mesher_short_name(int m);
+/* hand edits to the dictionaries the last mesher_prepare kept, and those it replaced (the mesher now writes another value):
+   "system/snappyHexMeshDict: castellatedMeshControls maxGlobalCells", a line each; "" none */
+const char *mesher_write_kept(void);
+const char *mesher_write_replaced(void);              /* MESHERS[m].shortName, "" out of range */
 #define GMSH_ALGOS 5
 extern const char *const GMSH_ALGO_WORD[GMSH_ALGOS], *const GMSH_ALGO_NAME[GMSH_ALGOS];
 int  mesher_from_word(const char *w);              /* MESHER_SNAPPY when unknown                */
@@ -109,6 +113,9 @@ typedef struct {
     bool   remesh;          /* SALOME: rebuild the surface from CAD made of the STL (else use its triangles) */
     bool   polyConvert;     /* 3-D: the finished mesh turned into polyhedra (polyDualMesh), whatever made it */
     int    gmshAlgo;        /* SALOME Gmsh: its 3-D algorithm (GMSH_ALGO_WORD)                          */
+    bool   locPicked;       /* the point in the fluid (locationInMesh) chosen by hand: loc, else worked out    */
+    double loc[3];
+    int    meshProcs;       /* snappyHexMesh on this many processes (decomposePar, -parallel, reconstructParMesh); 0, 1 serial */
     int    surfRemesher;    /* SALOME on an STL: what remeshes coarse triangles, 0 NETGEN, 1 MMG        */
     double base;            /* base size, m                              */
     double targetPct, minPct;     /* surface sizes, % of base            */
@@ -150,6 +157,11 @@ bool     faces_save(const char *casePath, const StlName *group, int nFaces);
 void     faces_default(Stl *s, double angleDeg, StlName *group);   /* faces merged across smooth bends, named wall_<k> */           /* regions by angle (0: by solid), boundary checks, area, volume */
 void stl_set_scale(Stl *s, double scale);          /* rescale the triangles (relative to the last scale) */
 bool stl_inside(const Stl *s, const double p[3]);  /* ray parity: p is inside the closed surface */
+/* the point in the fluid snappyHexMesh / cfMesh keep the cells on the side of: the picked one, else worked out (inside the
+   part for internal flow, ahead of it in the tunnel for external) */
+void mesher_location(const MeshCfg *m, const Stl *s, double out[3]);
+/* p is in the fluid: inside the part (internal), or in the tunnel and outside the part (external) */
+bool mesher_in_fluid(const MeshCfg *m, const Stl *s, const double p[3]);
 /* 2-D: the outline of a profile extruded along axis n (the side walls at its low end): how many points, and its largest
    corner below cornerDeg (a coarse export's facets); false when it isn't one plain extruded outline */
 bool stl_profile_facets(const Stl *s, int n, double cornerDeg, int *nPts, double *maxKink);

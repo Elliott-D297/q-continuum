@@ -145,6 +145,35 @@ int main(int argc, char **argv)
         if (k < 0 || !mesh_example_setup(k, argv[3], err, sizeof err)) { fprintf(stderr, "%s\n", k < 0 ? "no such example" : err); return 1; }
         return 0;
     }
+    if (argc == 4 && !strcmp(argv[1], "location")) {    /* plan step 9 E8: the picked point in the fluid round-trips and is used */
+        MeshCfg m; memset(&m, 0, sizeof m);
+        FAILIF(!mesher_load(argv[3], &m) || !m.stl[0], "no mesher.ini in %s", argv[3]);
+        Stl s; FAILIF(!stl_load(m.stl, &s), "%s", s.err);
+        stl_set_scale(&s, m.scale > 0 ? m.scale : 1); stl_split_part(&s, m.splitAngle, argv[3]); mesher_apply_names(&m, &s);
+        double c[3] = { (s.bmin[0] + s.bmax[0]) / 2, (s.bmin[1] + s.bmax[1]) / 2, (s.bmin[2] + s.bmax[2]) / 2 }, out[3];
+        double far[3] = { s.bmax[0] + (s.bmax[0] - s.bmin[0]), c[1], c[2] };
+        m.domain = DOMAIN_INTERNAL;
+        FAILIF(!mesher_in_fluid(&m, &s, c), "internal: the centre of a box is in the fluid");
+        FAILIF(mesher_in_fluid(&m, &s, far), "internal: a point outside the box isn't");
+        mesher_location(&m, &s, out);
+        FAILIF(!mesher_in_fluid(&m, &s, out), "internal: the worked-out point is in the fluid");
+        double pick[3] = { s.bmin[0] + 0.1 * (s.bmax[0] - s.bmin[0]), c[1], c[2] };
+        m.locPicked = true; for (int k = 0; k < 3; k++) m.loc[k] = pick[k];
+        FAILIF(!mesher_save(argv[3], &m), "save");
+        MeshCfg r; memset(&r, 0, sizeof r);
+        FAILIF(!mesher_load(argv[3], &r) || !r.locPicked || fabs(r.loc[0] - pick[0]) > 1e-9 * fabs(pick[0]) + 1e-12, "the picked point round-trips");
+        mesher_location(&r, &s, out);
+        FAILIF(out[0] != r.loc[0] || out[1] != r.loc[1] || out[2] != r.loc[2], "the picked point is the one used");
+        char err[300]; r.mesher = MESHER_SNAPPY;
+        FAILIF(!mesher_prepare(argv[3], &r, &s, err, sizeof err), "%s", err);
+        char sp[PL_PATH]; pl_join(sp, sizeof sp, argv[3], "system/snappyHexMeshDict");
+        char *t = pl_read_file(sp, NULL), want[64]; snprintf(want, sizeof want, "%.6g", pick[0]);
+        char *li = t ? strstr(t, "locationInMesh") : NULL;
+        FAILIF(!li || !strstr(li, want), "snappyHexMeshDict's locationInMesh is the picked point (%s)", want);
+        free(t); stl_free(&s);
+        printf("location: all checks passed\n");
+        return 0;
+    }
     if (argc == 3 && !strcmp(argv[1], "regions")) return regions(argv[2]);
     if (argc == 4 && !strcmp(argv[1], "smooth")) return smooth(argv[2], argv[3]);
     if (argc >= 4 && !strcmp(argv[1], "init")) return init(argv[2], argv[3], argc > 4 ? atof(argv[4]) : 1);

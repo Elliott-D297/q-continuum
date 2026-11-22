@@ -477,7 +477,7 @@ void case_summarize(const char *path, CaseSummary *s)
     /* a solver log (any log.* but the mesh/pre tools) written in the last 30 s: someone is running this case */
     if (newestLog && difftime(time(NULL), newestLog) < 30) {
         static const char *pre[] = { "log.blockMesh", "log.checkMesh", "log.decomposePar", "log.reconstructPar", "log.topoSet",
-                                      "log.splitMeshRegions", "log.snappyHexMesh", "log.surfaceFeatureExtract", "log.setFields", NULL };
+                                      "log.splitMeshRegions", "log.snappyHexMesh", "log.snappyLayers", "log.surfaceFeatureExtract", "log.setFields", NULL };
         bool isPre = false;
         for (int i = 0; pre[i]; i++) if (pl_starts_with(newestLogName, pre[i])) isPre = true;
         if (!isPre && log_writer_alive(s->path, newestLogName)) pl_strlcpy(s->runningLog, newestLogName, sizeof s->runningLog);
@@ -860,7 +860,7 @@ static bool mesh_log(const char *n)
 {
     static const char *const L[] = { "log.blockMesh", "log.surfaceFeatureExtract", "log.surfaceFeatures", "log.snappyHexMesh",
         "log.checkMesh", "log.extrudeMesh", "log.meshClear", "log.polyDualMesh", "log.ideasUnvToFoam", "log.gmshToFoam",
-        "log.fluentMeshToFoam", "log.meshImport", "log.salome", "log.createPatch", NULL };
+        "log.fluentMeshToFoam", "log.meshImport", "log.salome", "log.createPatch", "log.snappyLayers", "log.decomposePar.mesh", NULL };
     for (int i = 0; L[i]; i++) if (!strcmp(n, L[i])) return true;
     return false;
 }

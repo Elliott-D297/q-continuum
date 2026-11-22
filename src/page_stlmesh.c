@@ -41,6 +41,7 @@ static struct {
     pid_t  picker;              /* the file dialog, while it is open   */
     char   pickOut[PL_PATH];
     bool   pickNewCase;         /* the pick makes a new case (Cases page) */
+    bool   pickLoc;             /* the next click on the part in the view sets the point in the fluid (Flow) */
     char   pickCase[PL_PATH];   /* else the case it was opened for     */
     int    sel;                 /* the boundary picked (-1 none)       */
     int    reached, open;       /* the flow: the furthest step got to, the one unfolded (ST_*) */
@@ -119,6 +120,7 @@ static bool load_stl(const char *path, bool fresh)
         if (L > 20 && T.m.scale == 1 && !s_cad) { T.m.scale = 0.001; stl_set_scale(&T.stl, 0.001); stl_split_part(&T.stl, T.m.splitAngle, T.casePath);
                                         ui_toast(TOAST_INFO, "The part is %.0f units across: read as millimetres (Scale changes it)", L); }
         mesher_defaults(&T.m, &T.stl);
+        T.m.locPicked = false;                                              /* another part: a point picked on the last means nothing */
         stl_split_part(&T.stl, T.m.splitAngle, T.casePath);                /* split again at the default angle */
         mesher_take_names(&T.m, &T.stl);
         T.sel = -1;
@@ -443,12 +445,27 @@ static bool prepare(Case *c)
     char err[300];
     if (!mesher_prepare(c->s.path, &T.m, &T.stl, err, sizeof err)) { ui_toast(TOAST_ERR, "%s", err); return false; }
     T.dirty = false;
+    /* hand edits to the dictionaries (plan step 9, E1): kept, or replaced where the settings now say otherwise */
+    const char *kept = mesher_write_kept(), *repl = mesher_write_replaced();
+    int nk = 0, nr = 0; for (const char *q = kept; *q; q++) nk += *q == '\n'; for (const char *q = repl; *q; q++) nr += *q == '\n';
+    if (nr) {
+        char first[200]; snprintf(first, sizeof first, "%.*s", (int)strcspn(repl, "\n"), repl);
+        ui_toast(TOAST_WARN, "%d hand edit%s replaced, as the mesher's settings now say otherwise (%s%s); %d kept", nr, nr == 1 ? "" : "s", first, nr > 1 ? " ..." : "", nk);
+    } else if (nk) {
+        char first[200]; snprintf(first, sizeof first, "%.*s", (int)strcspn(kept, "\n"), kept);
+        ui_toast(TOAST_INFO, "Kept %d hand edit%s to the mesher's dictionaries (%s%s)", nk, nk == 1 ? "" : "s", first, nk > 1 ? " ..." : "");
+    }
     case_rescan(c);
     return true;
 }
 
 static void generate(Case *c);
+static bool g_layersOnly;
 static void generate_after_clean(void) { if (A.cs) generate(A.cs); }
+/* Redo the layers only (E3): the kept mesh before the layers, the second stage again with the layer settings now. The flag
+   is taken (and cleared) as generate() starts, so a cancelled clean can't leave the next Generate layers-only */
+static void redo_layers(Case *c) { g_layersOnly = true; generate(c); }
+static void relayer_after_clean(void) { if (A.cs) redo_layers(A.cs); }
 
 /* memory before meshing (plan step 2, gap L10): free memory read every 2 s, not each frame; a mesh whose snappyHexMesh peak
    would pass 90 % of it is held back until "Generate anyway" for that estimate (any way Generate is reached: button, Ctrl+M) */
@@ -466,12 +483,117 @@ static bool mesh_too_big(double cells, double *needMB)
     return avail > 0 && need > 0.9 * avail && gen_armed_for != cells;
 }
 
+/* ---- snappyHexMesh's stages (plan step 9, E3 and E4). With prism layers it runs twice: castellate and snap (addLayers off),
+   the mesh then kept in mesher/snapped/ with the dictionaries that made it, and the layers alone (castellatedMesh and snap
+   off) on that mesh. "Redo the layers only" puts the kept mesh back and runs the second stage: layer tuning without a
+   remesh. With mesh_processes > 1 each stage runs decomposed (decomposePar -no-fields, mpirun snappyHexMesh -parallel,
+   reconstructParMesh -constant) on its own decomposeParDict, the case's own left alone. */
+#define SNAP_KEEP "mesher/snapped"
+static bool layers_split(void) { return T.m.prism && T.m.layers > 0 && (MESHERS[T.m.mesher].flags & MF_LAYERS); }
+static int mesh_procs(void)
+{
+    int np = T.m.meshProcs > 1 ? T.m.meshProcs : 1;
+    if (A.env.nCpu > 0 && np > A.env.nCpu) np = A.env.nCpu;
+    return np;
+}
+
+/* one snappyHexMesh run on dictionary dict, serial or decomposed; the layered points moved from 0/polyMesh to constant/ */
+static void snappy_run(Str *o, const char *dict, const char *extra, int np)
+{
+    if (np > 1) {
+        str_catf(o, "decomposePar -force -no-fields -decomposeParDict system/decomposeParDict.qc-mesh > log.decomposePar.mesh 2>&1 "
+                    "|| { echo 'Q-Continuum: decomposePar failed (log.decomposePar.mesh)'; exit 1; }\n"
+                    "OVS=; mpirun --version 2>&1 | grep -q 'Open MPI' && OVS=--oversubscribe\n"
+                    "mpirun $OVS %s-np %d snappyHexMesh -parallel -overwrite -decomposeParDict system/decomposeParDict.qc-mesh -dict %s %s || exit 1\n"
+                    "for d in processor*; do if [ -f $d/0/polyMesh/points ]; then mv -f $d/0/polyMesh/points $d/constant/polyMesh/points && rm -rf $d/0/polyMesh; fi; done\n"
+                    "reconstructParMesh -constant || exit 1\n"          /* (it takes no -decomposeParDict: it reads processor*) */
+                    "rm -rf processor*\n", getuid() == 0 ? "--allow-run-as-root " : "", np, dict, extra);
+    } else
+        str_catf(o, "snappyHexMesh -overwrite -dict %s %s || exit 1\n", dict, extra);
+    str_cat(o, "if [ -f 0/polyMesh/points ]; then mv -f 0/polyMesh/points constant/polyMesh/points && rm -rf 0/polyMesh && "
+               "echo 'Q-Continuum: moved the layered points from 0/polyMesh to constant/polyMesh'; fi\n");
+}
+
+static void snappy_jobs(Case *c, MeshOverrides *ov, bool layersOnly)
+{
+    int np = mesh_procs();
+    if (np > 1) {                                          /* its own decomposition: the run's decomposeParDict stays as it is */
+        char p[PL_PATH]; pl_join(p, sizeof p, c->s.path, "system/decomposeParDict.qc-mesh");
+        char t[600]; snprintf(t, sizeof t, "FoamFile { version 2.0; format ascii; class dictionary; object decomposeParDict; }\n"
+                                         "// Q-Continuum's STL mesher: snappyHexMesh on %d processes (the run has its own decomposeParDict)\n"
+                                         "numberOfSubdomains %d;\nmethod scotch;\n", np, np);
+        pl_write_file(p, t, strlen(t));
+    }
+    const char *extra = mo_cmd_extra(ov, "snappyHexMesh");
+    bool split = layers_split();
+    char np_s[48] = ""; if (np > 1) snprintf(np_s, sizeof np_s, ", %d processes", np);
+    if (!layersOnly) {
+        char sfe[200], bm[200];
+        snprintf(sfe, sizeof sfe, "surfaceFeatureExtract %s", mo_cmd_extra(ov, "surfaceFeatureExtract"));
+        snprintf(bm, sizeof bm, "blockMesh %s", mo_cmd_extra(ov, "blockMesh"));
+        job_add(A.cj, "surfaceFeatureExtract", "surfaceFeatureExtract", sfe, "log.surfaceFeatureExtract", false);
+        job_add(A.cj, "blockMesh", "blockMesh (background)", bm, "log.blockMesh", false);
+        Str o; str_init(&o);
+        if (split) {
+            str_cat(&o, "cp system/snappyHexMeshDict system/snappyHexMeshDict.qc-snap && "
+                        "foamDictionary system/snappyHexMeshDict.qc-snap -entry addLayers -set false > /dev/null || exit 1\n");
+            snappy_run(&o, "system/snappyHexMeshDict.qc-snap", extra, np);
+            str_cat(&o, "rm -rf " SNAP_KEEP " && mkdir -p " SNAP_KEEP " && cp -r constant/polyMesh " SNAP_KEEP "/ && "
+                        "cp system/snappyHexMeshDict system/blockMeshDict " SNAP_KEEP "/ && "
+                        "echo 'Q-Continuum: the mesh before the layers kept in " SNAP_KEEP " (Redo the layers only starts from it)'\n");
+        } else snappy_run(&o, "system/snappyHexMeshDict", extra, np);
+        char title[96]; snprintf(title, sizeof title, "snappyHexMesh%s%s", split ? ": castellate and snap" : "", np_s);
+        job_add(A.cj, "snappyHexMesh", title, o.s, "log.snappyHexMesh", false);
+        str_free(&o);
+    } else
+        job_add(A.cj, "restore", "The mesh before the layers", "rm -rf constant/polyMesh 0/polyMesh && cp -r " SNAP_KEEP "/polyMesh constant/ && "
+                "echo 'Q-Continuum: the mesh before the layers, from " SNAP_KEEP "'", "log.meshClear", false);
+    if (split) {
+        Str o; str_init(&o);
+        str_cat(&o, "cp system/snappyHexMeshDict system/snappyHexMeshDict.qc-layers && "
+                    "foamDictionary system/snappyHexMeshDict.qc-layers -entry castellatedMesh -set false > /dev/null && "
+                    "foamDictionary system/snappyHexMeshDict.qc-layers -entry snap -set false > /dev/null && "
+                    "foamDictionary system/snappyHexMeshDict.qc-layers -entry addLayers -set true > /dev/null || exit 1\n");
+        snappy_run(&o, "system/snappyHexMeshDict.qc-layers", extra, np);
+        char title[96]; snprintf(title, sizeof title, "snappyHexMesh: prism layers%s", np_s);
+        job_add(A.cj, "snappyLayers", title, o.s, "log.snappyLayers", false);
+        str_free(&o);
+    }
+}
+
+/* the kept mesh still fits: made from the same surface, background and refinement as the dictionaries now written
+   (everything but addLayersControls and the layers per patch the same); why not, when it doesn't */
+static bool snapped_fits(Case *c, char *why, int cap)
+{
+    char a[PL_PATH], b[PL_PATH];
+    pl_join(a, sizeof a, c->s.path, SNAP_KEEP "/polyMesh/owner");
+    if (!pl_is_file(a)) { snprintf(why, (size_t)cap, "Generate the mesh once with prism layers on first: its mesh before the layers is kept for this"); return false; }
+    pl_join(a, sizeof a, c->s.path, SNAP_KEEP "/blockMeshDict"); pl_join(b, sizeof b, c->s.path, "system/blockMeshDict");
+    char *x = pl_read_file(a, NULL), *y = pl_read_file(b, NULL);
+    bool same = x && y && !strcmp(x, y);
+    free(x); free(y);
+    if (!same) { snprintf(why, (size_t)cap, "The base size or the tunnel changed since the mesh was made: Generate the whole mesh"); return false; }
+    pl_join(a, sizeof a, c->s.path, SNAP_KEEP "/snappyHexMeshDict"); pl_join(b, sizeof b, c->s.path, "system/snappyHexMeshDict");
+    FDFile *fa = fd_load(a), *fb = fd_load(b);
+    same = fa && fb;
+    static const char *const KEYS[] = { "geometry", "castellatedMeshControls", "snapControls", "mergeTolerance", "castellatedMesh", "snap" };
+    for (size_t i = 0; same && i < sizeof KEYS / sizeof KEYS[0]; i++) {
+        const FDEntry *ea = fd_child(&fa->root, KEYS[i]), *eb = fd_child(&fb->root, KEYS[i]);
+        if (!ea != !eb) same = false;
+        else if (ea && (ea->end - ea->start != eb->end - eb->start || strncmp(fa->text + ea->start, fb->text + eb->start, (size_t)(ea->end - ea->start)))) same = false;
+    }
+    fd_free(fa); fd_free(fb);
+    if (!same) { snprintf(why, (size_t)cap, "The surface, refinement or snapping settings changed since the mesh was made: Generate the whole mesh"); return false; }
+    return true;
+}
+
 static void generate(Case *c)
 {
+    bool lo = g_layersOnly; g_layersOnly = false;
     if (!app_require_foam() || !app_can_start()) return;
     case_rescan(c);
     if (case_has_results(&c->s)) {                        /* fields on the old mesh: they'd stop the run on the new one */
-        app_clean_then("The results were computed on the mesh that is about to be replaced, so they go first.", generate_after_clean);
+        app_clean_then("The results were computed on the mesh that is about to be replaced, so they go first.", lo ? relayer_after_clean : generate_after_clean);
         return;
     }
     if (salome_mesher() && !A.env.salome[0]) { ui_toast(TOAST_ERR, "SALOME is not installed: see the note under Mesher"); return; }
@@ -482,9 +604,13 @@ static void generate(Case *c)
         return;
     }
     if (!prepare(c)) return;
+    if (lo) {                                              /* the kept mesh must come from what is written now */
+        char why[200];
+        if (!snapped_fits(c, why, sizeof why)) { ui_toast(TOAST_WARN, "%s", why); return; }
+    }
     MeshOverrides ov; mo_init(&ov); mo_load(c->s.path, &ov);   /* the Advanced panel's command-line options */
     job_reset(A.cj, "Mesh");
-    job_add(A.cj, "clear", "Clear the old mesh", "rm -rf constant/polyMesh 0/polyMesh; echo cleared", "log.meshClear", false);
+    job_add(A.cj, "clear", "Clear the old mesh", "rm -rf constant/polyMesh 0/polyMesh processor*; echo cleared", "log.meshClear", false);
     if (T.m.mesher == MESHER_FOAMY) {
         if (T.m.twoD) job_add(A.cj, "foamyQuadMesh", "foamyQuadMesh + extrude2DMesh", mesher_foamy2d_cmd(), "log.foamyQuadMesh", false);
         else job_add(A.cj, "foamyHexMesh", "foamyHexMesh (slow)", mesher_foamy_cmd(), "log.foamyHexMesh", false);
@@ -515,7 +641,8 @@ static void generate(Case *c)
                  "  n=$(grep -oE 'Number of negative volume cells: [0-9]+' log.cfCheck | grep -oE '[0-9]+$')\n"
                  "  if [ -n \"$n\" ]; then h=$((L / 2)); echo; echo \"Q-Continuum: $n cells inside out with $L prism layers: "
                  "meshing again with $h (cfMesh's layers fold on this part; system/meshDict says $h until the next Generate)\"; echo\n"
-                 "    sed -i \"s/nLayers $L;/nLayers $h;/g\" system/meshDict && %s || exit 1; fi\n"
+                 "    sed -i \"s/nLayers $L;/nLayers $h;/g\" system/meshDict && { [ ! -f mesher/written/system/meshDict ] || "
+                 "sed -i \"s/nLayers $L;/nLayers $h;/g\" mesher/written/system/meshDict; } && %s || exit 1; fi\n"
                  "fi", progCmd, progCmd);
         job_add(A.cj, prog, prog, cfc, TextFormat("log.%s", prog), false);
         Str ty; str_init(&ty);
@@ -525,13 +652,7 @@ static void generate(Case *c)
         job_add(A.cj, "patchTypes", "Patch types", ty.s, "log.patchTypes", false);
         str_free(&ty);
     } else if (!salome_mesher()) {
-        char sfe[200], bm[200], sn[sizeof SNAPPY_CMD + 200];
-        snprintf(sfe, sizeof sfe, "surfaceFeatureExtract %s", mo_cmd_extra(&ov, "surfaceFeatureExtract"));
-        snprintf(bm, sizeof bm, "blockMesh %s", mo_cmd_extra(&ov, "blockMesh"));
-        snprintf(sn, sizeof sn, "snappyHexMesh -overwrite %s%s", mo_cmd_extra(&ov, "snappyHexMesh"), SNAPPY_CMD + strlen("snappyHexMesh -overwrite"));
-        job_add(A.cj, "surfaceFeatureExtract", "surfaceFeatureExtract", sfe, "log.surfaceFeatureExtract", false);
-        job_add(A.cj, "blockMesh", "blockMesh (background)", bm, "log.blockMesh", false);
-        job_add(A.cj, "snappyHexMesh", "snappyHexMesh", sn, "log.snappyHexMesh", false);
+        snappy_jobs(c, &ov, lo);
         if (T.m.twoD) {                                   /* the slab's front face, one cell thick; front and back empty */
             Str ex; str_init(&ex);
             mesher_2d_script(&T.m, &T.stl, &ex);
@@ -1101,6 +1222,57 @@ static int view_pick_tri(Rectangle view, Vector2 mp)
     return hit;
 }
 
+/* the point on the part under the mouse and its triangle's normal; the triangle, -1: none */
+static int view_pick_point(Rectangle view, Vector2 mp, double P[3], double N[3])
+{
+    float s = ui_scale();
+    Vector2 pos = { (mp.x - view.x) * s, (mp.y - view.y) * s };
+    Ray ray = GetScreenToWorldRayEx(pos, view_camera(), SV.rtW, SV.rtH);
+    float best = 1e30f; int hit = -1; Vector3 hp = { 0 }, hn = { 0 };
+    const Stl *st = &T.stl;
+    for (int t = 0; t < st->nTri; t++) {
+        const float *p = st->tri + 9 * (size_t)t;
+        RayCollision h = GetRayCollisionTriangle(ray, (Vector3){ p[0], p[1], p[2] }, (Vector3){ p[3], p[4], p[5] }, (Vector3){ p[6], p[7], p[8] });
+        if (h.hit && h.distance < best) { best = h.distance; hit = t; hp = h.point; hn = h.normal; }
+    }
+    if (hit >= 0) { P[0] = hp.x; P[1] = hp.y; P[2] = hp.z; N[0] = hn.x; N[1] = hn.y; N[2] = hn.z; }
+    return hit;
+}
+
+/* the point in the fluid (picked or worked out) and whether it is in the fluid: worked out again only when the settings or
+   the part change (the automatic point samples the whole part) */
+static void loc_now(double out[3], bool *inFluid)
+{
+    static MeshCfg was; static unsigned wasGen = ~0u; static long wasTri = -1; static double L[3]; static bool ok;
+    if (memcmp(&was, &T.m, sizeof was) || wasGen != T.gen || wasTri != T.stl.nTri) {
+        was = T.m; wasGen = T.gen; wasTri = T.stl.nTri;
+        mesher_location(&T.m, &T.stl, L);
+        ok = mesher_in_fluid(&T.m, &T.stl, L);
+    }
+    for (int k = 0; k < 3; k++) out[k] = L[k];
+    if (inFluid) *inFluid = ok;
+}
+
+/* a click on the part (Pick on the part): a point just off the surface on the fluid's side, checked to be in the fluid */
+static void pick_location(Rectangle view, Vector2 mp)
+{
+    double P[3], N[3];
+    if (view_pick_point(view, mp, P, N) < 0) { ui_toast(TOAST_INFO, "Click on the part: the point goes just off its surface, on the fluid's side"); return; }
+    double size = 0; for (int k = 0; k < 3; k++) size = fmax(size, T.stl.bmax[k] - T.stl.bmin[k]);
+    double d = fmax(0.5 * mesher_surface_cell(&T.m), 1e-3 * size);
+    for (int tries = 0; tries < 6; tries++, d *= 2)
+        for (int sgn = -1; sgn <= 1; sgn += 2) {
+            double q[3]; for (int k = 0; k < 3; k++) q[k] = P[k] + sgn * d * N[k];
+            if (mesher_in_fluid(&T.m, &T.stl, q)) {
+                for (int k = 0; k < 3; k++) T.m.loc[k] = q[k];
+                T.m.locPicked = true; T.pickLoc = false; save_cfg(); SV.dirty = true;
+                ui_toast(TOAST_OK, "Point in the fluid: (%.4g, %.4g, %.4g), %.3g mm off the surface", q[0], q[1], q[2], d * 1e3);
+                return;
+            }
+        }
+    ui_toast(TOAST_WARN, "No point in the fluid next to that spot (a thin wall, or an open part): try another");
+}
+
 static int view_pick(Rectangle view, Vector2 mp)
 {
     float s = ui_scale();
@@ -1153,6 +1325,13 @@ static void size_glyphs(const Stl *st, double cell[2], double at[2][3])
 static void view_overlay_3d(const Stl *st)
 {
     Color dim = TH.dark ? (Color){ 230, 200, 120, 220 } : (Color){ 150, 100, 20, 220 };
+    if (T.open == ST_FLOW) {                               /* the point in the fluid: green in the fluid, red not */
+        double L[3]; bool ok; loc_now(L, &ok);
+        double size = 0; for (int k = 0; k < 3; k++) size = fmax(size, st->bmax[k] - st->bmin[k]);
+        rlDrawRenderBatchActive(); rlDisableDepthTest();     /* seen through the part: for internal flow it is inside it */
+        DrawSphere((Vector3){ (float)L[0], (float)L[1], (float)L[2] }, (float)(0.025 * size), ok ? TH.ok : TH.err);
+        rlDrawRenderBatchActive(); rlEnableDepthTest();
+    }
     if (T.open == ST_GEOM) {
         double lo[3] = { st->bmin[0], st->bmin[1], st->bmin[2] }, hi[3] = { st->bmax[0], st->bmax[1], st->bmax[2] };
         wire_box(lo, hi, dim);
@@ -1455,7 +1634,8 @@ static void view_panel(Rectangle view)
         bool down = SV.dragging ? ui_mouse_down() : (IsMouseButtonDown(MOUSE_BUTTON_RIGHT) || ui_mouse_down());
         if (fabsf(mp.x - SV.down.x) + fabsf(mp.y - SV.down.y) > 4) SV.moved = true;
         if (!down) {
-            if (!SV.moved && hov && T.open == ST_BOUND) {    /* a click, not a drag: pick the boundary there (a CAD part: the face too) */
+            if (!SV.moved && hov && T.open == ST_FLOW && T.pickLoc) { pick_location(view, mp); SV.engaged = false; }   /* E8: a pick, not a wish to zoom: the wheel scrolls the page */
+            else if (!SV.moved && hov && T.open == ST_BOUND) {    /* a click, not a drag: pick the boundary there (a CAD part: the face too) */
                 int t = view_pick_tri(view, mp);
                 bool add = inp_key_down(KEY_LEFT_SHIFT) || inp_key_down(KEY_RIGHT_SHIFT);
                 if (T.stl.face) pick_face(t >= 0 ? T.stl.face[t] : 0, add);
@@ -2058,6 +2238,7 @@ static float flow_step(float x, float y, float w)
     }
     if (d != T.m.domain) {
         T.m.domain = d;
+        if (T.m.locPicked) { T.m.locPicked = false; ui_toast(TOAST_INFO, "The picked point in the fluid was for the other kind of flow: worked out again"); }
         mesher_size_defaults(&T.m, &T.stl, part_thickness());   /* the sizes suit each kind (and a thin part); the rest stays */
         save_cfg();
     }
@@ -2068,6 +2249,31 @@ static float flow_step(float x, float y, float w)
                      : "The part is a body in a wind tunnel: a wing, a car, a building. Say which way the air goes and which way is up; the "
                        "tunnel's size is in reference lengths, and the view shows it.");
     y += two_d_rows(x, y, w);
+    {   /* E8: the point in the fluid (locationInMesh), worked out or picked on the part, with its check */
+        double L[3]; bool ok; loc_now(L, &ok);
+        Rectangle cr = prop_row(x, &y, w, "Point in the fluid", "snappyHexMesh and cfMesh keep the cells on the side of the surface this point is on "
+                                "([[location-in-mesh|locationInMesh]]). Worked out from the part; pick it on the part for a part with more than one "
+                                "space inside, where the worked-out one can land in the wrong one.", 34);
+        char t[160]; pl_fmt_ui(t, sizeof t, "(%.4g, %.4g, %.4g)  %s  ·  %s", L[0], L[1], L[2], T.m.locPicked ? "picked" : "worked out", ok ? "in the fluid" : "NOT in the fluid");
+        ui_text_clip(F_MONO, 12.5f, t, cr.x, cr.y + 9, cr.width, ok ? TH.text2 : TH.err);
+        y += 4;
+        float bx = cr.x, bw = ui_button_width(ICON_CIRCLE_DOT, T.pickLoc ? "Click on the part ..." : "Pick on the part");
+        if (ui_button(ui_id("stl-loc-pick"), (Rectangle){ bx, y, bw, 32 }, ICON_CIRCLE_DOT, T.pickLoc ? "Click on the part ..." : "Pick on the part", T.pickLoc ? BTN_PRIMARY : BTN_SECONDARY))
+            T.pickLoc = !T.pickLoc;
+        bx += bw + 8;
+        if (T.m.locPicked) {
+            bw = ui_button_width(ICON_UNDO_2, "Work it out");
+            if (ui_button(ui_id("stl-loc-auto"), (Rectangle){ bx, y, bw, 32 }, ICON_UNDO_2, "Work it out", BTN_GHOST)) { T.m.locPicked = false; save_cfg(); SV.dirty = true; }
+        }
+        y += 44;
+        if (!ok) {
+            const char *d = "The point isn't in the fluid: the mesher would keep the wrong side (the inside of a body, or nothing at all). Pick it on the "
+                            "part: click the inside face of a duct, or the outside of a body.";
+            float ch = callout_height(w, NULL, d);
+            callout((Rectangle){ x, y, w, ch }, TOAST_ERR, ICON_TRIANGLE_ALERT, NULL, d);
+            y += ch + 10;
+        }
+    }
     if (T.m.domain == DOMAIN_EXTERNAL) {
         /* which way the flow goes (the view's arrow), which way is up (the ground and the top), what L is */
         Rectangle cr = prop_row(x, &y, w, "Flow direction", "The way the air goes, in the STL's axes: the inlet is on the other side. "
@@ -2625,16 +2831,42 @@ static float generate_step(Case *c, float x, float y, float w)
     if (ui_button(ui_id("stl-write"), (Rectangle){ bx, y, bw, 42 }, ICON_FILE_TEXT, "Write files only", BTN_SECONDARY) && prepare(c))
         ui_toast(TOAST_OK, salome_mesher() ? "Wrote salome/stl_mesh.py, mesher/mesher.ini and the STL" : "Wrote the snappyHexMesh, blockMesh and feature dictionaries");
     bx += bw + 10;
+    if (!salome_mesher() && T.m.mesher == MESHER_SNAPPY && layers_split()) {   /* E3: layer tuning without a remesh */
+        char lp[PL_PATH]; pl_join(lp, sizeof lp, c->s.path, SNAP_KEEP "/polyMesh/owner");
+        bool have = pl_is_file(lp);
+        ui_disable(running || !have);
+        bw = ui_button_width(ICON_LAYERS, "Redo the layers only");
+        if (ui_button(ui_id("stl-relayer"), (Rectangle){ bx, y, bw, 42 }, ICON_LAYERS, "Redo the layers only", BTN_SECONDARY)) redo_layers(c);
+        ui_tooltip((Rectangle){ bx, y, bw, 42 }, have ? "The mesh before the layers (kept from the last Generate) gets the prism layers again with the layer settings "
+                                                        "now: minutes instead of a whole remesh. Other changes need Generate mesh."
+                                                      : "Generate the mesh once with prism layers: the mesh before the layers is kept, and this redoes only them");
+        bx += bw + 10;
+    }
     ui_disable(running || !A.env.salome[0]);
     bw = ui_button_width(ICON_EXTERNAL_LINK, "Open in SALOME");
     if (ui_button(ui_id("stl-salome"), (Rectangle){ bx, y, bw, 42 }, ICON_EXTERNAL_LINK, "Open in SALOME", BTN_GHOST)) open_salome(c);
     ui_disable(false);
     y += 56;
+    if (!salome_mesher() && T.m.mesher == MESHER_SNAPPY) {   /* E4: snappyHexMesh in parallel */
+        double np = T.m.meshProcs > 1 ? T.m.meshProcs : 1;
+        ui_text(F_REG, 13.5f, "Processes", x, y + 9, TH.text2);
+        char b[16]; snprintf(b, sizeof b, "%g", np);
+        if (ui_input(ui_id("stl-nprocs"), (Rectangle){ x + 96, y, 70, 32 }, b, sizeof b, NULL, INPUT_MONO | INPUT_NUMERIC)) {
+            char *e; double v = strtod(b, &e);
+            if (e == b || *e || !isfinite(v) || v < 1 || v > 1024) ui_toast(TOAST_ERR, "Give a number of processes from 1 to 1024");
+            else { T.m.meshProcs = (int)v; save_cfg(); }
+        }
+        char t[200]; pl_fmt_ui(t, sizeof t, "%s (this machine has %d cores)", np > 1 ? "snappyHexMesh in parallel: decomposePar, -parallel, reconstructParMesh"
+                                                                                       : "1: snappyHexMesh in serial; more runs it decomposed", A.env.nCpu);
+        ui_text_clip(F_REG, 12.5f, t, x + 178, y + 9, w - 178, TH.text3);
+        y += 42;
+    }
     const char *how = salome_mesher()
         ? "Generate runs salome/stl_mesh.py in SALOME without its window, converts salome/mesh.unv with ideasUnvToFoam (a mesh with "
           "polyhedra, Body Fitting's cut cells, comes as salome/polyMesh instead), sets the boundary types%s and runs checkMesh. Open in SALOME runs the same script in SALOME's window, to look at the groups and the mesh."
-        : "Generate writes the dictionaries (the ones there before are kept as .orig) and runs surfaceFeatureExtract, blockMesh for the "
-          "background, snappyHexMesh and checkMesh. Open in SALOME meshes the same STL with SALOME's script instead, in its window.%s";
+        : "Generate writes the dictionaries (the ones there before are kept as .orig; your hand edits to them are kept) and runs "
+          "surfaceFeatureExtract, blockMesh for the background, snappyHexMesh (with prism layers in two stages, castellate and snap then "
+          "the layers, so Redo the layers only can repeat just them) and checkMesh. Open in SALOME meshes the same STL with SALOME's script instead, in its window.%s";
     char hb[600]; pl_fmt_ui(hb, sizeof hb, how, T.m.mesher == MESHER_POLY ? ", turns the tetrahedra into polyhedra (polyDualMesh)" : "");
     y += note(x, y, w, hb) + 4;
     if (!running && A.cj->failed && !strcmp(A.cj->title, "Mesh") && !strcmp(A.cj->casePath, c->s.path)) {

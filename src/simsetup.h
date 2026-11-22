@@ -414,6 +414,10 @@ bool sim_write(const char *casePath, const SimSetup *s, char *err, int cap);
    line ("system/fvSchemes: divSchemes div(phi,U)"); empty when there were none */
 const char *sim_write_kept(void);
 const char *sim_write_replaced(void);
+/* the same three-way merge for other writers (the STL mesher): theirs (on disk) against base (what was written last) applied
+   to mine (what is written now); the merged text (malloc'd), NULL when a file can't be parsed. kept / replaced: the
+   entries' paths, a line each ("system/snappyHexMeshDict: castellatedMeshControls maxGlobalCells") */
+char *sim_merge3(const char *rel, const char *theirs, const char *base, const char *mine, char *kept, size_t kcap, char *replaced, size_t rcap);
 /* the run controls of our system/controlDict as edited since (Run page, Files, an editor: end time, time step, write
    interval, Courant limit) taken into s, so writing again keeps them; true if any changed. Only with a simulation.ini and
    the setup's solver as the application (a tutorial's own controlDict, or one for another solver: false) */

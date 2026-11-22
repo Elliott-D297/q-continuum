@@ -1709,6 +1709,18 @@ static char *merge3(const char *rel, const char *theirs, const char *base, const
     return out;
 }
 
+char *sim_merge3(const char *rel, const char *theirs, const char *base, const char *mine, char *kept, size_t kcap, char *replaced, size_t rcap)
+{
+    char sk[sizeof gKept], sr[sizeof gReplaced];             /* the setup's own notes stay as they were */
+    memcpy(sk, gKept, sizeof sk); memcpy(sr, gReplaced, sizeof sr);
+    gKept[0] = gReplaced[0] = 0;
+    char *out = merge3(rel, theirs, base, mine);
+    if (kept && kcap) snprintf(kept, kcap, "%s", gKept);
+    if (replaced && rcap) snprintf(replaced, rcap, "%s", gReplaced);
+    memcpy(gKept, sk, sizeof sk); memcpy(gReplaced, sr, sizeof sr);
+    return out;
+}
+
 /* a file the setup wrote last time, without its comment line (foamDictionary -set drops comments): it still has at
    least half the setup's entries. A file pasted over it (a tutorial's controlDict) does not, and is the user's. */
 static bool still_ours(const char *rel, const char *text, const char *base)

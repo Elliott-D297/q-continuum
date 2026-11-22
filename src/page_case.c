@@ -601,7 +601,7 @@ void page_mesh(Rectangle r)
                                                : "No mesh yet, and no blockMeshDict to make one: build it on the SALOME tab, or convert one into constant/polyMesh.", mt, mt);
     {   /* an STL mesher case: its dictionaries are the mesher's output, not the place to change it */
         char mi[PL_PATH]; pl_join(mi, sizeof mi, c->s.path, "mesher/mesher.ini");
-        if (mt && pl_is_file(mi)) snprintf(sub, sizeof sub, "The STL mesher writes system/%sDict from its settings: change them on the STL mesher tab.", mt);
+        if (mt && pl_is_file(mi)) snprintf(sub, sizeof sub, "The STL mesher writes system/%sDict from its settings (change them on the STL mesher tab); hand edits here are kept when it writes again.", mt);
     }
     if (A.meshTab == 1) snprintf(sub, sizeof sub, "Import a mesh made in SALOME (UNV, MED, or the saved study) or Gmsh, or build one with a SALOME script.");
     if (A.meshTab == 3) snprintf(sub, sizeof sub, "Mesh any STL or STEP part: snappyHexMesh here, or SALOME's tetrahedra, polyhedra and body-fitted hexahedra.");

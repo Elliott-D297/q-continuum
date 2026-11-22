@@ -76,6 +76,7 @@ typedef struct {
     float *vol; int vn[3];
     double *px, *pv; int pn;
     double dmin, dmax;                /* the built geometry's values                         */
+    VzSurfReport rep; bool haveRep;   /* a section plane: area, mean, flow through it        */
     double fmin, fmax;                /* the whole field's                                   */
     Mesh   gm; bool gmOk;             /* the surfaces on the GPU                             */
     Texture2D tex; bool texOk; int texKey;
@@ -109,8 +110,9 @@ static struct {
     char   title[96]; bool showTime, showStat, showLogo;
     /* playback and recording */
     bool   playing; double playAt; float fps;
-    int    rec;                       /* 0 none, 1 time frames, 2 orbit frames               */
+    int    rec;                       /* 0 none, 1 time frames, 2 orbit frames, 3 a plane swept */
     int    recStep, recN; char recDir[PL_PATH];
+    int    sweepDisp, sweepUid; double sweepLo, sweepHi, sweepO0[3]; bool recPlaced;   /* rec 3: a plane swept through the mesh */
     int    shotMag;
     /* probe */
     bool   probeOk; double probeX[3], probeV; char probeTxt[200]; int probeDisp;
@@ -547,6 +549,7 @@ static void build(Disp *d, VzField *fc, VzField *fi, VzField *U, const char *tim
     case DK_SECTION:
         vz_section(&V.m, d->o, d->n, fc, q, smooth, &d->t);
         if (!d->t.n) snprintf(d->err, sizeof d->err, "The plane misses the mesh");
+        else { vz_surface_report(&V.m, &d->t, U && U->nc == 3 ? U : NULL, d->n, &d->rep); d->haveRep = true; }
         break;
     case DK_ISO: {
         if (!fi) { snprintf(d->err, sizeof d->err, "No field to take the iso-surface of"); break; }
@@ -802,6 +805,7 @@ static void worker_apply(void)
     d->vol = s->vol; memcpy(d->vn, s->vn, sizeof d->vn);
     d->px = s->px; d->pv = s->pv; d->pn = s->pn;
     d->dmin = s->dmin; d->dmax = s->dmax; d->fmin = s->fmin; d->fmax = s->fmax;
+    d->rep = s->rep; d->haveRep = s->haveRep;
     pl_strlcpy(d->err, s->err, sizeof d->err);
     if (d->rangeMode == RM_MANUAL && !(d->hi > d->lo)) { d->lo = s->lo; d->hi = s->hi; }
     d->built = true; d->building = false; d->texDirty = true;
@@ -841,7 +845,7 @@ static void worker_tick(void)
     W.d = *d;
     memset(&W.d.t, 0, sizeof W.d.t); memset(&W.d.l, 0, sizeof W.d.l); memset(&W.d.il, 0, sizeof W.d.il);
     W.d.gp = W.d.gv = W.d.gval = NULL; W.d.ng = 0; W.d.lic = W.d.licVal = NULL; W.d.vol = NULL; W.d.px = W.d.pv = NULL; W.d.pn = 0;
-    W.d.gmOk = W.d.texOk = W.d.licOk = W.d.volOk = false;
+    W.d.gmOk = W.d.texOk = W.d.licOk = W.d.volOk = false; W.d.haveRep = false;
     W.fc = fc; W.fi = fi; W.U = U; W.uid = d->uid;
     pl_strlcpy(W.time, V.ti >= 0 ? V.times[V.ti] : "-", sizeof W.time);
     W.done = false; W.busy = true;
@@ -1627,6 +1631,28 @@ static float kind_settings(Case *c, Disp *d, float x, float y, float w)
                 }
                 y += 38;
             }
+            if (d->kind == DK_SECTION && d->haveRep && d->built) {    /* the plane's report: area, mean, flow through it */
+                char a[32], mv[32], t[400], lab[120] = "";
+                vc_fmt(d->rep.area, a, sizeof a); vc_fmt(d->rep.mean, mv, sizeof mv);
+                if (d->col.field[0]) qty_label(&d->col, lab, sizeof lab);
+                ui_text(F_MED, 12.5f, "On this plane", x, y + 2, TH.text2); y += 20;
+                pl_fmt_ui(t, sizeof t, "area %s m²%s%s%s%s", a, lab[0] ? ",  mean " : "", lab[0] ? lab : "", lab[0] ? " = " : "", lab[0] ? mv : "");
+                ui_text_wrap(F_MONO, 12, t, (Rectangle){ x, y, w, 40 }, 17, TH.text, true); y += 20;
+                if (has_field("U")) {
+                    char f[32], fa[32], mf[32]; vc_fmt(d->rep.flow, f, sizeof f); vc_fmt(d->rep.flowAbs, fa, sizeof fa);
+                    VzField *pp = has_field("p") ? field_of("p") : NULL;
+                    bool kin = pp && strstr(pp->dims, "[0 2 -2");
+                    vc_fmt(d->rep.flow * V.rho, mf, sizeof mf);
+                    pl_fmt_ui(t, sizeof t, "flow through it along the normal %s m³/s%s%s%s  (|flow| %s m³/s)", f, kin ? ",  mass " : "", kin ? mf : "", kin ? " kg/s" : "", fa);
+                    float th = ui_text_wrap(F_MONO, 12, t, (Rectangle){ x, y, w, 60 }, 17, TH.text, true); y += th + 4;
+                }
+                float bw = ui_button_width(ICON_COPY, "Copy");
+                if (ui_button(ui_id("vz-rep-copy"), (Rectangle){ x, y, bw, 28 }, ICON_COPY, "Copy", BTN_GHOST)) {
+                    char c2[300]; snprintf(c2, sizeof c2, "area_m2\tmean\tflow_m3s\n%.10g\t%.10g\t%.10g\n", d->rep.area, d->rep.mean, d->rep.flow);
+                    SetClipboardText(c2); ui_toast(TOAST_OK, "Copied the plane's area, mean and flow");
+                }
+                y += 36;
+            }
         } else {
             for (int p = 0; p < V.m.nPatch; p++) {
                 if (!strcmp(V.m.patch[p].type, "processor")) continue;
@@ -1814,19 +1840,33 @@ static float scene_list(float x, float y, float w)
         }
     }
     y += 30;
-    int del = -1, up = -1;
+    int del = -1, up = -1, dup = -1;
     for (int i = 0; i < V.nd; i++) {
         Disp *d = &V.d[i];
         Rectangle r = { x, y, w, 34 };
         if (ui_row(ui_idn(ui_id("vz-d"), i), r, V.sel == i)) V.sel = i;
         if (ui_button(ui_idn(ui_id("vz-eye"), i), (Rectangle){ x + 4, y + 2, 30, 30 }, d->vis ? ICON_EYE : ICON_CIRCLE_X, NULL, BTN_ICON)) { d->vis = !d->vis; redraw_all(); }
-        ui_text_clip(F_MED, 13, d->name, x + 40, y + 9, w - 110, d->vis ? TH.text : TH.text3);
-        if (d->building || (d->dirty && W.busy)) ui_spinner(x + w - 82, y + 17, 6, TH.accent);
-        else if (d->err[0]) { ui_icon(ICON_TRIANGLE_ALERT, x + w - 82, y + 17, 13, TH.warn); ui_tooltip((Rectangle){ x + w - 92, y, 20, 34 }, d->err); }
+        ui_text_clip(F_MED, 13, d->name, x + 40, y + 9, w - 146, d->vis ? TH.text : TH.text3);
+        if (d->building || (d->dirty && W.busy)) ui_spinner(x + w - 114, y + 17, 6, TH.accent);
+        else if (d->err[0]) { ui_icon(ICON_TRIANGLE_ALERT, x + w - 114, y + 17, 13, TH.warn); ui_tooltip((Rectangle){ x + w - 124, y, 20, 34 }, d->err); }
         if (i > 0 && ui_button(ui_idn(ui_id("vz-up"), i), (Rectangle){ x + w - 66, y + 2, 30, 30 }, ICON_CHEVRON_UP, NULL, BTN_ICON)) up = i;
+        if (ui_button(ui_idn(ui_id("vz-dup"), i), (Rectangle){ x + w - 98, y + 2, 30, 30 }, ICON_COPY, NULL, BTN_ICON)) dup = i;
+        ui_tooltip((Rectangle){ x + w - 98, y + 2, 30, 30 }, "A copy of it (a second plane, the same streamlines coloured another way ...)");
         if (ui_button(ui_idn(ui_id("vz-del"), i), (Rectangle){ x + w - 34, y + 2, 30, 30 }, ICON_TRASH_2, NULL, BTN_ICON)) del = i;
         y += 36;
     }
+    if (dup >= 0 && V.nd < MAX_DISP) {                       /* its settings, built afresh */
+        Disp *n = &V.d[V.nd++], *o = &V.d[dup];
+        disp_defaults(n, o->kind);
+        Disp keep = *n;
+        *n = *o;
+        n->t = keep.t; n->l = keep.l; n->il = keep.il; n->gp = n->gv = n->gval = NULL; n->ng = 0; n->lic = n->licVal = NULL; n->vol = NULL;
+        n->px = n->pv = NULL; n->pn = 0; n->gmOk = n->texOk = n->licOk = n->volOk = false; n->built = n->building = false; n->haveRep = false;
+        n->uid = 0; n->dirty = true; n->err[0] = 0;
+        char nm[64]; snprintf(nm, sizeof nm, "%.40s copy", o->name); pl_strlcpy(n->name, nm, sizeof n->name);
+        V.sel = V.nd - 1;
+        redraw_all();
+    } else if (dup >= 0) ui_toast(TOAST_WARN, "%d displayers at most", MAX_DISP);
     if (up > 0) { Disp t = V.d[up]; V.d[up] = V.d[up - 1]; V.d[up - 1] = t; if (V.sel == up) V.sel--; else if (V.sel == up - 1) V.sel++; redraw_all(); }
     if (del >= 0) {
         disp_release(&V.d[del]);
@@ -2002,13 +2042,26 @@ static void screenshot(void)
 static void start_record(int kind)
 {
     if (kind == 1 && V.nTimes < 2) { ui_toast(TOAST_INFO, "One time only: nothing to animate over time (try the orbit)"); return; }
+    if (kind == 3) {                                         /* the selected plane, from one side of the mesh to the other */
+        Disp *d = V.sel >= 0 && V.sel < V.nd ? &V.d[V.sel] : NULL;
+        if (!d || (d->kind != DK_SECTION && d->kind != DK_LIC && !(d->kind == DK_VECTOR && d->vtarget == 0))) {
+            ui_toast(TOAST_INFO, "Select a section plane (or a surface-flow or vector plane) to sweep"); return;
+        }
+        double nn = sqrt(d->n[0] * d->n[0] + d->n[1] * d->n[1] + d->n[2] * d->n[2]);
+        if (!(nn > 0)) { ui_toast(TOAST_ERR, "The plane has no normal"); return; }
+        double lo = 1e300, hi = -1e300;
+        for (int k = 0; k < 8; k++) { double p[3] = { k & 1 ? V.m.hi[0] : V.m.lo[0], k & 2 ? V.m.hi[1] : V.m.lo[1], k & 4 ? V.m.hi[2] : V.m.lo[2] };
+                                      double sp = (p[0] * d->n[0] + p[1] * d->n[1] + p[2] * d->n[2]) / nn; lo = fmin(lo, sp); hi = fmax(hi, sp); }
+        double pad = 0.02 * (hi - lo);
+        V.sweepLo = lo + pad; V.sweepHi = hi - pad; V.sweepDisp = V.sel; V.sweepUid = d->uid; memcpy(V.sweepO0, d->o, sizeof d->o); V.recPlaced = false;
+    }
     if (!A.env.ffmpeg[0]) { ui_toast(TOAST_ERR, "ffmpeg isn't installed: frames can't become a movie"); return; }
     pl_join(V.recDir, sizeof V.recDir, V.path, "visualization/frames");
     char cmd[PL_PATH + 32]; char q[PL_PATH + 8]; pl_shell_quote(q, sizeof q, V.recDir);
     snprintf(cmd, sizeof cmd, "rm -rf %s", q);
     if (system(cmd)) {}
     pl_mkdirs(V.recDir);
-    V.rec = kind; V.recStep = 0; V.recN = kind == 1 ? V.nTimes : 120;
+    V.rec = kind; V.recStep = 0; V.recN = kind == 1 ? V.nTimes : kind == 3 ? 72 : 120;
     if (kind == 1) set_time(0);
 }
 
@@ -2016,6 +2069,17 @@ static void record_tick(void)
 {
     if (!V.rec) return;
     if (!worker_idle()) { ui_request_frames(2); return; }   /* this frame's displayers first */
+    Disp *sw = V.rec == 3 && V.sweepDisp >= 0 && V.sweepDisp < V.nd && V.d[V.sweepDisp].uid == V.sweepUid ? &V.d[V.sweepDisp] : NULL;
+    if (V.rec == 3 && !sw) { V.rec = 0; ui_toast(TOAST_WARN, "The plane being swept went: the movie stopped"); return; }
+    if (sw && !V.recPlaced) {                                /* the plane to this frame's position, built, then the frame */
+        double nn = sqrt(sw->n[0] * sw->n[0] + sw->n[1] * sw->n[1] + sw->n[2] * sw->n[2]);
+        double cur = (sw->o[0] * sw->n[0] + sw->o[1] * sw->n[1] + sw->o[2] * sw->n[2]) / nn;
+        double at = V.sweepLo + (V.sweepHi - V.sweepLo) * V.recStep / fmax(1, V.recN - 1);
+        for (int k = 0; k < 3; k++) sw->o[k] += (at - cur) * sw->n[k] / nn;
+        sw->dirty = true; V.recPlaced = true; ui_request_frames(2);
+        return;
+    }
+    V.recPlaced = false;
     if (V.rec == 2) orbit_spin(&V.O[0], 2 * PI / V.recN);
     V.dirty[0] = true;
     char p[PL_PATH], nm[32]; snprintf(nm, sizeof nm, "%05d.png", V.recStep); pl_join(p, sizeof p, V.recDir, nm);
@@ -2026,11 +2090,12 @@ static void record_tick(void)
         int kind = V.rec;
         V.rec = 0;
         char out[PL_PATH], qd[PL_PATH + 8], qo[PL_PATH + 8], qf[PL_PATH + 8], cmd[PL_PATH * 4];
-        char nm2[64]; snprintf(nm2, sizeof nm2, "visualization/movie_%s_%ld.mp4", kind == 1 ? "time" : "orbit", (long)time(NULL));
+        if (kind == 3 && sw) { memcpy(sw->o, V.sweepO0, sizeof sw->o); sw->dirty = true; }   /* the plane back where it was */
+        char nm2[64]; snprintf(nm2, sizeof nm2, "visualization/movie_%s_%ld.mp4", kind == 1 ? "time" : kind == 3 ? "sweep" : "orbit", (long)time(NULL));
         pl_join(out, sizeof out, V.path, nm2);
         pl_shell_quote(qd, sizeof qd, V.recDir); pl_shell_quote(qo, sizeof qo, out); pl_shell_quote(qf, sizeof qf, A.env.ffmpeg);
         snprintf(cmd, sizeof cmd, "%s -y -loglevel error -framerate %d -i %s/%%05d.png -vf 'scale=trunc(iw/2)*2:trunc(ih/2)*2' -pix_fmt yuv420p %s && echo 'Q-Continuum: wrote %s'",
-                 qf, kind == 1 ? (int)fmax(2, V.fps) : 30, qd, qo, nm2);
+                 qf, kind == 1 ? (int)fmax(2, V.fps) : kind == 3 ? 18 : 30, qd, qo, nm2);
         app_start_tool("Scene movie", "encode", "Encode the movie (ffmpeg)", cmd, "log.vizmovie");
     } else if (V.rec == 1) set_time(V.recStep);
 }
@@ -2164,16 +2229,18 @@ float viz_page(Case *c, float x, float y, float w, float h)
         if (ui_button(ui_id("vz-fit"), (Rectangle){ tx, ty, fw, 30 }, ICON_SQUARE, "Fit", BTN_GHOST)) { for (int v = 0; v < 2; v++) { V.touched[v] = false; fit_view(v, V.rtH[v] ? (float)V.rtW[v] / V.rtH[v] : 1.6f); } redraw_all(); }
         tx += fw + 10;
         /* saved views */
-        const char *svn[13]; int nsvn = 0;
+        const char *svn[14]; int nsvn = 0;
         svn[nsvn++] = "Save this view";
         for (int s = 0; s < V.nsv; s++) svn[nsvn++] = V.sv[s].name;
+        if (V.nsv) svn[nsvn++] = "Forget the saved views";
         int pk = -1;
         float vw = ui_button_width(ICON_LIST, "Views");
         if (ui_menu_button(ui_id("vz-views"), (Rectangle){ tx, ty, vw, 30 }, ICON_LIST, "Views", BTN_GHOST, svn, nsvn, &pk) && pk >= 0) {
             if (pk == 0) {
                 if (V.nsv < 12) { SavedView *s = &V.sv[V.nsv++]; snprintf(s->name, sizeof s->name, "View %d", V.nsv); s->O = V.O[0]; s->persp = V.persp; ui_toast(TOAST_OK, "Saved as %s", s->name); V.saveDirty = true; }
                 else ui_toast(TOAST_WARN, "Twelve saved views at most");
-            } else { V.O[0] = V.sv[pk - 1].O; V.persp = V.sv[pk - 1].persp; V.touched[0] = true; if (V.linked && V.nViews == 2) V.O[1] = V.O[0]; redraw_all(); }
+            } else if (V.nsv && pk == V.nsv + 1) { V.nsv = 0; V.saveDirty = true; ui_toast(TOAST_INFO, "Saved views forgotten"); }
+            else { V.O[0] = V.sv[pk - 1].O; V.persp = V.sv[pk - 1].persp; V.touched[0] = true; if (V.linked && V.nViews == 2) V.O[1] = V.O[0]; redraw_all(); }
         }
         tx += vw + 10;
         float mw = ui_button_width(ICON_PLAY, "Movie"), sw = ui_button_width(ICON_SAVE, "Image");
@@ -2185,11 +2252,11 @@ float viz_page(Case *c, float x, float y, float w, float h)
         if (V.nViews == 2) { if (ui_checkbox(ui_id("vz-link"), (Rectangle){ tx, ty + 5, 70, 20 }, &V.linked, "Linked")) { if (V.linked) V.O[1] = V.O[0]; redraw_all(); } tx += 76; }
         /* the right end: screenshot and movie */
         static const char *SHOT[3] = { "Screenshot 1x", "Screenshot 2x", "Screenshot 4x" };
-        static const char *MOV[2] = { "Movie over time", "Movie: orbit" };
+        static const char *MOV[3] = { "Movie over time", "Movie: orbit", "Movie: sweep the plane" };
         int sp = -1, mp = -1;
         ui_disable(V.rec != 0);
         if (ui_menu_button(ui_id("vz-shot"), (Rectangle){ x + w - mw - sw - 8, ty, sw, 30 }, ICON_SAVE, "Image", BTN_SECONDARY, SHOT, 3, &sp) && sp >= 0) { V.shotMag = sp == 0 ? 1 : sp == 1 ? 2 : 4; screenshot(); }
-        if (ui_menu_button(ui_id("vz-movie"), (Rectangle){ x + w - mw, ty, mw, 30 }, ICON_PLAY, "Movie", BTN_SECONDARY, MOV, 2, &mp) && mp >= 0) start_record(mp + 1);
+        if (ui_menu_button(ui_id("vz-movie"), (Rectangle){ x + w - mw, ty, mw, 30 }, ICON_PLAY, "Movie", BTN_SECONDARY, MOV, 3, &mp) && mp >= 0) start_record(mp + 1);
         ui_disable(false);
         if (V.rec) { char t[64]; snprintf(t, sizeof t, "Recording %d / %d", V.recStep, V.recN); ui_text(F_REG, 12.5f, t, x + w - mw - sw - 140, ty + 9, TH.warn); }
     }

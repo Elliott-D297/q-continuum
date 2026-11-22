@@ -147,6 +147,12 @@ void vz_lic(const VzMesh *m, const VzField *U, const VzField *col, int colQ, con
 /* the field resampled onto an n[0] x n[1] x n[2] grid over the mesh's box (NAN outside): malloc'd */
 float *vz_resample(const VzMesh *m, const VzField *f, int q, const int n[3]);
 
+/* ---- reports on a surface (a section plane): its area, the area-weighted mean of its vertex values (NAN ones left out), and
+   with U the volume flow through it, the integral of U . n dA with n the triangles' normals turned toward dir (NULL: as they
+   are), U sampled at each triangle's centre */
+typedef struct { double area, mean, flow, flowAbs; long n; } VzSurfReport;
+void vz_surface_report(const VzMesh *m, const VzTris *t, const VzField *U, const double dir[3], VzSurfReport *r);
+
 /* ---- probes */
 /* n samples along a to b: positions (3 each) and values (NAN outside); returns how many are inside */
 int vz_line_probe(const VzMesh *m, const VzField *f, int q, const double a[3], const double b[3], int n, double *pos, double *val);

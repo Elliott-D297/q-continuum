@@ -1074,3 +1074,29 @@ long vz_pick(const VzTris *t, const double o[3], const double d[3], double *dist
     if (dist) *dist = bt;
     return best;
 }
+
+void vz_surface_report(const VzMesh *m, const VzTris *t, const VzField *U, const double dir[3], VzSurfReport *r)
+{
+    memset(r, 0, sizeof *r);
+    double wv = 0;
+    long hint = -1;
+    for (long i = 0; i < t->n; i++) {
+        const float *x = &t->xyz[9 * i];
+        double a[3] = { x[3] - x[0], x[4] - x[1], x[5] - x[2] }, b[3] = { x[6] - x[0], x[7] - x[1], x[8] - x[2] }, n[3];
+        cross3(a, b, n);
+        double A = len3(n) / 2;
+        if (!(A > 0)) continue;
+        r->area += A; r->n++;
+        double v = 0; int k = 0;
+        for (int j = 0; j < 3; j++) if (!isnan(t->val[3 * i + j])) { v += t->val[3 * i + j]; k++; }
+        if (k) { r->mean += A * v / k; wv += A; }
+        if (U && U->nc == 3) {
+            for (int d = 0; d < 3; d++) n[d] /= 2 * A;
+            if (dir && dot3(n, dir) < 0) for (int d = 0; d < 3; d++) n[d] = -n[d];
+            double c[3] = { (x[0] + x[3] + x[6]) / 3, (x[1] + x[4] + x[7]) / 3, (x[2] + x[5] + x[8]) / 3 }, u[3];
+            long h = t->cell && t->cell[i] >= 0 ? t->cell[i] : hint;
+            if (vz_sample(m, U, -1, c, &h, u)) { double q = A * dot3(u, n); r->flow += q; r->flowAbs += fabs(q); hint = h; }
+        }
+    }
+    r->mean = wv > 0 ? r->mean / wv : NAN;
+}

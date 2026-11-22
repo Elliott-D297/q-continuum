@@ -153,6 +153,20 @@ static void check(const char *cs, const char *time)
         worst = fmax(worst, fabs(t.val[3 * i + k] - T_at(x)) + fabs(x[2] - 0.53));
     }
     CHECK(fabs(tri_area(&t) - 1) < 1e-9 && worst < 1e-5, "section: area %g, off by %g", tri_area(&t), worst);
+    {   /* its report: area 1, the mean of T over z = 0.53 is T at (0.5, 0.5, 0.53); a uniform U = (1, 2, 3) puts 3 through it,
+           and -3 seen the other way */
+        VzField Uu; memset(&Uu, 0, sizeof Uu); Uu.nc = 3;
+        Uu.c = malloc(sizeof(double) * 3 * (size_t)m.nCells); Uu.b = malloc(sizeof(double) * 3 * (size_t)(m.nFaces - m.nInternal)); Uu.p = malloc(sizeof(double) * 3 * (size_t)m.nPoints);
+        for (long i = 0; i < m.nCells; i++) { Uu.c[3 * i] = 1; Uu.c[3 * i + 1] = 2; Uu.c[3 * i + 2] = 3; }
+        for (long i = 0; i < m.nFaces - m.nInternal; i++) { Uu.b[3 * i] = 1; Uu.b[3 * i + 1] = 2; Uu.b[3 * i + 2] = 3; }
+        for (long i = 0; i < m.nPoints; i++) { Uu.p[3 * i] = 1; Uu.p[3 * i + 1] = 2; Uu.p[3 * i + 2] = 3; }
+        VzSurfReport r; double x0[3] = { 0.5, 0.5, 0.53 }, down[3] = { 0, 0, -1 };
+        vz_surface_report(&m, &t, &Uu, nz, &r);
+        CHECK(fabs(r.area - 1) < 1e-9 && fabs(r.mean - T_at(x0)) < 1e-6 && fabs(r.flow - 3) < 1e-9, "report: area %g mean %g (%g) flow %g", r.area, r.mean, T_at(x0), r.flow);
+        vz_surface_report(&m, &t, &Uu, down, &r);
+        CHECK(fabs(r.flow + 3) < 1e-9 && fabs(r.flowAbs - 3) < 1e-9, "report: flow seen downward %g", r.flow);
+        vz_field_free(&Uu);
+    }
     vz_tris_free(&t);
     /* a tilted section */
     double nt[3] = { 1, 1, 1 };

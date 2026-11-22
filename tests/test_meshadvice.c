@@ -61,8 +61,8 @@ int main(void)
     /* a mesh made elsewhere */
     { MaIn in = base(MA_HAVE); in.from = MA_FROM_GMSH; ma_advise(&in, &o); CHECK(o.go == MA_GO_IMPORT && says(&o, "gmshToFoam"), "Gmsh: import"); }
     { MaIn in = base(MA_HAVE); in.from = MA_FROM_SALOME; ma_advise(&in, &o); CHECK(o.go == MA_GO_IMPORT && says(&o, "ideasUnvToFoam"), "SALOME: import"); }
-    { MaIn in = base(MA_HAVE); in.from = MA_FROM_FLUENT; ma_advise(&in, &o); CHECK(o.go == MA_GO_CONVERT && strstr(o.cmd, "fluent3DMeshToFoam"), "Fluent: fluent3DMeshToFoam"); }
-    { MaIn in = base(MA_HAVE); in.from = MA_FROM_STAR; ma_advise(&in, &o); CHECK(o.go == MA_GO_CONVERT && strstr(o.cmd, "star4ToFoam"), "STAR: star4ToFoam"); }
+    { MaIn in = base(MA_HAVE); in.from = MA_FROM_FLUENT; ma_advise(&in, &o); CHECK(o.go == MA_GO_IMPORT && strstr(o.cmd, "fluent3DMeshToFoam"), "Fluent: imported (fluent3DMeshToFoam)"); }
+    { MaIn in = base(MA_HAVE); in.from = MA_FROM_STAR; ma_advise(&in, &o); CHECK(o.go == MA_GO_IMPORT && strstr(o.cmd, "star4ToFoam"), "STAR: imported (star4ToFoam)"); }
 
     /* the walls: no layers, wall functions at y+ 50, resolved at y+ 1, and the first cell is the Calculators' */
     { MaIn in = base(MA_PART); in.walls = MA_WALLS_NO; ma_advise(&in, &o); CHECK(!o.layers && o.h1 == 0, "walls that don't matter: no layers"); }

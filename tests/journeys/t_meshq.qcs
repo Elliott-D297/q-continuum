@@ -48,8 +48,6 @@ wait 3
 click text:Fluent (.msh)
 wait 3
 assert text fluent3DMeshToFoam
-click mq-go
-wait 3
 screenshot $OUT/3_fluent.png
 # back to the step, and open the block builder with it
 click mq-shape

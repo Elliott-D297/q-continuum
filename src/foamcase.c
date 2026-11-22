@@ -860,7 +860,7 @@ static bool mesh_log(const char *n)
 {
     static const char *const L[] = { "log.blockMesh", "log.surfaceFeatureExtract", "log.surfaceFeatures", "log.snappyHexMesh",
         "log.checkMesh", "log.extrudeMesh", "log.meshClear", "log.polyDualMesh", "log.ideasUnvToFoam", "log.gmshToFoam",
-        "log.fluentMeshToFoam", "log.meshImport", "log.salome", "log.createPatch", "log.snappyLayers", "log.decomposePar.mesh", NULL };
+        "log.fluentMeshToFoam", "log.meshImport", "log.salome", "log.createPatch", "log.snappyLayers", "log.decomposePar.mesh", "log.star4ToFoam", NULL };
     for (int i = 0; L[i]; i++) if (!strcmp(n, L[i])) return true;
     return false;
 }

@@ -118,12 +118,19 @@ static const char *mesh_kind(const char *p)
     if (!dot) return NULL;
     if (!strcasecmp(dot, ".unv")) return "unv";
     if (!strcasecmp(dot, ".med") || !strcasecmp(dot, ".rmed")) return "med";
-    if (!strcasecmp(dot, ".msh")) return "msh";
+    if (!strcasecmp(dot, ".msh")) {                        /* Gmsh's ($MeshFormat) or Fluent's (Scheme lists: "(0 ...", "(2 3)") */
+        char *h = pl_read_head(p, 4096);
+        bool fluent = false;
+        if (h && !strstr(h, "$MeshFormat")) { const char *q = h; while (*q == ' ' || *q == '\t' || *q == '\r' || *q == '\n') q++; fluent = *q == '('; }
+        free(h);
+        return fluent ? "fluent" : "msh";
+    }
+    if (!strcasecmp(dot, ".vrt") || !strcasecmp(dot, ".cel") || !strcasecmp(dot, ".bnd")) return "star";   /* STAR-CD: the three files */
     if (!strcasecmp(dot, ".hdf") || !strcasecmp(dot, ".hdf5")) return "hdf";   /* a saved SALOME study (File > Save) */
     return NULL;
 }
 
-#define KINDS_MSG "Import a .unv or .med file (SALOME: Mesh > Export), a saved SALOME study (.hdf), or a Gmsh .msh"
+#define KINDS_MSG "Import a .unv or .med file (SALOME: Mesh > Export), a saved SALOME study (.hdf), a Gmsh or Fluent .msh, or STAR-CD's .vrt / .cel / .bnd (STAR-CCM+: File > Export, STAR-CD format)"
 static bool via_salome(const char *k) { return !strcmp(k, "med") || !strcmp(k, "hdf"); }
 
 /* a path as typed or pasted: quotes (Explorer's "Copy as path"), ~, a Windows path on WSL, a file:// URL */
@@ -169,6 +176,16 @@ static bool import_mesh(Case *c, const char *src)
     const char *k = mesh_kind(src);
     if (!k) { ui_toast(TOAST_ERR, KINDS_MSG); return false; }
     if (!pl_is_file(src)) { ui_toast(TOAST_ERR, "%s does not exist", src); return false; }
+    char starBase[PL_PATH] = "";                           /* STAR-CD: the path without its extension; all three files there */
+    if (!strcmp(k, "star")) {
+        pl_strlcpy(starBase, src, sizeof starBase);
+        char *dot = strrchr(starBase, '.'); if (dot) *dot = 0;
+        static const char *const EX[3] = { "vrt", "cel", "bnd" };
+        for (int i = 0; i < 3; i++) {
+            char f[PL_PATH + 8]; snprintf(f, sizeof f, "%s.%s", starBase, EX[i]);
+            if (!pl_is_file(f)) { ui_toast(TOAST_ERR, "A STAR-CD mesh is three files: %s is missing", pl_basename(f)); return false; }
+        }
+    }
     if (via_salome(k) && !A.env.salome[0]) {
         ui_toast(TOAST_ERR, "A %s needs SALOME to read it: export UNV from SALOME instead (Mesh > Export > UNV file), or install SALOME",
                  !strcmp(k, "hdf") ? "SALOME study" : "MED file");
@@ -189,7 +206,13 @@ static bool import_mesh(Case *c, const char *src)
     job_reset(A.cj, "Mesh");
     /* the last import's other kinds go: "Open in SALOME" and the converter must not pick up a stale one */
     snprintf(cmd, sizeof cmd, "rm -rf constant/polyMesh 0/polyMesh salome/polyMesh-import salome/imported.unv salome/imported.med salome/imported.hdf "
-             "salome/imported.msh salome/imported-orig.unv && cp -f %s salome/imported.%s && echo \"copied $(basename %s) into salome/imported.%s\"", qs, k, qs, k);
+             "salome/imported.msh salome/imported-orig.unv salome/imported.vrt salome/imported.cel salome/imported.bnd && cp -f %s salome/imported.%s && echo \"copied $(basename %s) into salome/imported.%s\"",
+             qs, !strcmp(k, "fluent") ? "msh" : k, qs, !strcmp(k, "fluent") ? "msh" : k);
+    if (starBase[0]) {
+        char qb[PL_PATH + 8]; pl_shell_quote(qb, sizeof qb, starBase);
+        snprintf(cmd, sizeof cmd, "rm -rf constant/polyMesh 0/polyMesh salome/polyMesh-import salome/imported.* && "
+                 "for e in vrt cel bnd; do cp -f %s.$e salome/imported.$e || exit 1; done && echo \"copied the STAR-CD files into salome/imported.*\"", qb);
+    }
     job_add(A.cj, "copy", "Copy the mesh into the case", cmd, "log.meshImport", false);
     pl_join(p, sizeof p, d, ".qc-mesh-import.py");             /* also the UNV fallback's, below */
     pl_write_file(p, (const char *)asset_mesh_import_py, asset_mesh_import_py_len);
@@ -202,6 +225,21 @@ static bool import_mesh(Case *c, const char *src)
         job_add(A.cj, "salome", !strcmp(k, "hdf") ? "SALOME: study to UNV" : "SALOME: MED to UNV", cmd, "log.salome", false);
     }
     if (!strcmp(k, "msh")) job_add(A.cj, "gmshToFoam", "gmshToFoam", "gmshToFoam salome/imported.msh && echo && {\n" WALLS "}", "log.gmshToFoam", false);
+    else if (!strcmp(k, "fluent")) {
+        /* fluent3DMeshToFoam keeps polyhedra but reads 3-D only; a 2-D mesh ("(2 2)" in its header) goes through fluentMeshToFoam,
+           made one cell deep (0.01 of whatever unit: an empty direction's depth doesn't change the answer) */
+        char *h = pl_read_head(src, 65536);
+        bool twoD = h && (strstr(h, "(2 2)") || strstr(h, "(2 2 )"));
+        free(h);
+        job_add(A.cj, "fluentMeshToFoam", twoD ? "fluentMeshToFoam (2-D)" : "fluent3DMeshToFoam",
+                twoD ? "fluentMeshToFoam -2D 0.01 salome/imported.msh && echo && {\n" WALLS "}" : "fluent3DMeshToFoam salome/imported.msh && echo && {\n" WALLS "}",
+                "log.fluentMeshToFoam", false);
+    } else if (!strcmp(k, "star"))                       /* STAR-CD's files are in millimetres (star4ToFoam's default scale 0.001) */
+        /* v2606's star4ToFoam ignores its -scale (a cavity in mm came out 100 m across with 0.001 and with 1): converted as it is,
+           then transformPoints */
+        job_add(A.cj, "star4ToFoam", "star4ToFoam", "star4ToFoam -scale 1 salome/imported && transformPoints -scale 0.001 && "
+                "echo 'Q-Continuum: read as millimetres (the unit of STAR-CD); if the mesh came out a thousand times too small, "
+                "Mesh > Tools > Move, scale, turn scales it by 1000' && echo && {\n" WALLS "}", "log.star4ToFoam", false);
     else {
         /* a mesh with polyhedra comes as polyMesh-import: UNV can't hold them. A UNV ideasUnvToFoam can't read (second-order
            elements: "Bad token") is made first-order by SALOME, then converted again */
@@ -236,11 +274,11 @@ static void start_picker(bool newCase)
         if (!pl_fmt(cmd, sizeof cmd, "printf '%%s' %s > %s", tq, q)) return;
     } else if (A.env.wsl)
         pl_win_open_dialog_cmd(cmd, sizeof cmd, "Choose a mesh to import",
-                               "Meshes (*.unv;*.med;*.hdf;*.msh)|*.unv;*.UNV;*.med;*.MED;*.hdf;*.HDF;*.msh;*.MSH|All files (*.*)|*.*", q);
+                               "Meshes (*.unv;*.med;*.hdf;*.msh;*.vrt)|*.unv;*.UNV;*.med;*.MED;*.hdf;*.HDF;*.msh;*.MSH;*.vrt;*.VRT|All files (*.*)|*.*", q);
     else
         snprintf(cmd, sizeof cmd,
-                 "{ zenity --file-selection --title='Choose a mesh to import' --file-filter='Meshes | *.unv *.UNV *.med *.MED *.hdf *.HDF *.msh *.MSH' 2>/dev/null "
-                 "|| kdialog --getopenfilename ~ '*.unv *.med *.hdf *.msh' 2>/dev/null; } > %s; true", q);
+                 "{ zenity --file-selection --title='Choose a mesh to import' --file-filter='Meshes | *.unv *.UNV *.med *.MED *.hdf *.HDF *.msh *.MSH *.vrt *.VRT' 2>/dev/null "
+                 "|| kdialog --getopenfilename ~ '*.unv *.med *.hdf *.msh *.vrt' 2>/dev/null; } > %s; true", q);
     I.picker = pl_spawn_shell(cmd, "/dev/null");
     I.newCase = newCase;
     pl_strlcpy(I.pickCase, A.cs && !newCase ? A.cs->s.path : "", sizeof I.pickCase);

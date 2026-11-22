@@ -54,19 +54,19 @@ void ma_advise(const MaIn *in, MaOut *o)
             step(o, MA_FROM_NAME[f], "Mesh > SALOME / import turns it into constant/polyMesh (%s) and names the walls. Check it afterwards on "
                  "Mesh > Quality: a mesh made elsewhere passes through [[checkmesh|checkMesh]] like any other.", f == MA_FROM_GMSH ? "gmshToFoam" : "ideasUnvToFoam");
         } else if (f == MA_FROM_FLUENT) {
-            o->go = MA_GO_CONVERT;
+            o->go = MA_GO_IMPORT;
             snprintf(o->cmd, sizeof o->cmd, "fluent3DMeshToFoam mesh.msh");
             snprintf(o->title, sizeof o->title, "Convert it with OpenFOAM's fluent3DMeshToFoam");
             step(o, MA_FROM_NAME[f], "OpenFOAM reads Fluent's ASCII .msh: fluent3DMeshToFoam for 3-D meshes (it keeps polyhedra), fluentMeshToFoam "
-                 "for 2-D ones (fluentMeshToFoam mesh.msh). Run it in the case folder (Overview > Terminal), then check the patch types: Fluent's walls arrive as walls, its "
-                 "inlets and outlets as plain patches.");
+                 "for 2-D ones. Mesh > SALOME / import runs the right one on a Fluent .msh (or run it in the case folder yourself); then check the patch "
+                 "types: Fluent's walls arrive as walls, its inlets and outlets as plain patches.");
         } else if (f == MA_FROM_STAR) {
-            o->go = MA_GO_CONVERT;
-            snprintf(o->cmd, sizeof o->cmd, "star4ToFoam -scale 1 mesh");
+            o->go = MA_GO_IMPORT;
+            snprintf(o->cmd, sizeof o->cmd, "star4ToFoam mesh");
             snprintf(o->title, sizeof o->title, "Convert it with OpenFOAM's star4ToFoam");
             step(o, MA_FROM_NAME[f], "This OpenFOAM reads STAR-CD's .vrt / .cel / .bnd files (star4ToFoam); STAR-CCM+ exports them (File > Export, "
-                 "STAR-CD format; mesh.vrt, mesh.cel and mesh.bnd make \"mesh\"). Its .ccm files need ccmToFoam, which this OpenFOAM was built without. STAR works in metres by default: "
-                 "-scale 1 keeps them.");
+                 "STAR-CD format; mesh.vrt, mesh.cel and mesh.bnd make \"mesh\"). Its .ccm files need ccmToFoam, which this OpenFOAM was built without. "
+                 "Mesh > SALOME / import reads the three files too; star4ToFoam takes them as millimetres.");
         } else {
             o->go = MA_GO_IMPORT;
             snprintf(o->title, sizeof o->title, "Export it as UNV or Gmsh .msh, then import it");

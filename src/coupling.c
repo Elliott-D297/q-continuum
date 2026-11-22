@@ -122,6 +122,8 @@ static void describe(Coupling *c, CParticipant *p)
     p->foam = d[0] && case_is_case(d);
     p->solver[0] = 0;
     if (p->foam) { pl_join(q, sizeof q, d, "system/controlDict"); read_word(q, "application", p->solver, sizeof p->solver); }
+    for (const char *c = p->solver; *c; c++)               /* run as a command: a plain word only (see foamcase.c) */
+        if (!isalnum((unsigned char)*c) && !strchr("_.+-", *c)) { p->solver[0] = 0; break; }
     pl_join(q, sizeof q, d, "run.sh");
     p->hasRunSh = d[0] && pl_is_file(q);
 }

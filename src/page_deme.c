@@ -620,16 +620,19 @@ static void frame_load_current(void)
     }
     free(D.vOrder);
     D.vOrder = malloc(sizeof(int) * (size_t)(D.frame.n ? D.frame.n : 1));
+    if (!D.vOrder) { D.vOrderView = -1; return; }          /* out of memory: drawn in file order */
     for (int i = 0; i < D.frame.n; i++) D.vOrder[i] = i;
     G_DEPTH = D.vView == 0 ? D.frame.y : D.vView == 1 ? D.frame.x : D.frame.z;
     if (D.vView == 3) {                                       /* iso: the depth toward the eye at (1, -1, 1) */
         float *dp = malloc(sizeof(float) * (size_t)(D.frame.n ? D.frame.n : 1));
+        if (!dp) { D.vOrderView = D.vView; return; }       /* (unsorted) */
         for (int i = 0; i < D.frame.n; i++) dp[i] = D.frame.x[i] - D.frame.y[i] + D.frame.z[i];
         G_DEPTH = dp;
         qsort(D.vOrder, (size_t)D.frame.n, sizeof(int), depth_cmp);
         free(dp);
     } else if (D.vView == 0 || D.vView == 1) {                       /* side views: the near side is -y / -x, drawn last */
         float *neg = malloc(sizeof(float) * (size_t)(D.frame.n ? D.frame.n : 1));
+        if (!neg) { D.vOrderView = D.vView; return; }
         for (int i = 0; i < D.frame.n; i++) neg[i] = -G_DEPTH[i];
         G_DEPTH = neg;
         qsort(D.vOrder, (size_t)D.frame.n, sizeof(int), depth_cmp);
@@ -699,7 +702,7 @@ static void viewer(Rectangle r)
     else { cv = D.frame.r; c0 = D.frame.rmin; c1 = D.frame.rmax > D.frame.rmin ? D.frame.rmax : D.frame.rmin + 1e-9f; }
     ui_clip_push(r);
     for (int k = 0; k < D.frame.n; k++) {
-        int i = D.vOrder[k];
+        int i = D.vOrder ? D.vOrder[k] : k;              /* (no order: out of memory) */
         float pu = A0[i], pv = B0[i];
         if (iso) iso_uv(D.frame.x[i], D.frame.y[i], D.frame.z[i], &pu, &pv);
         Vector2 c = { ox + (pu - loA) * sc, oy - (pv - loB) * sc };

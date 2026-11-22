@@ -410,6 +410,10 @@ void case_summarize(const char *path, CaseSummary *s)
     if (cd) {
         char v[128];
         if (fd_get(cd, "application", v, sizeof v)) fd_word(v, s->app, sizeof s->app);
+        /* it is run as a command: a solver's name is a plain word. "application $(...);" in a case from elsewhere must not
+           run (sweep 2026-11-22) */
+        for (const char *q = s->app; *q; q++)
+            if (!isalnum((unsigned char)*q) && !strchr("_.+-", *q)) { s->app[0] = 0; break; }
         if (fd_get(cd, "startTime", v, sizeof v)) s->startTime = atof(v);
         if (fd_get(cd, "endTime", v, sizeof v)) s->endTime = atof(v);
         if (fd_get(cd, "deltaT", v, sizeof v)) s->deltaT = atof(v);

@@ -93,7 +93,12 @@ static void outline_update(const Case *c, const XSection *x)
             pt[np++] = v[3 * a + x->axV] + f * (v[3 * b + x->axV] - v[3 * a + x->axV]);
         }
         if (np != 4) continue;
-        if (SO.nSeg == SO.cap) { SO.cap = SO.cap ? SO.cap * 2 : 1024; SO.seg = realloc(SO.seg, sizeof(float) * 4 * (size_t)SO.cap); }
+        if (SO.nSeg == SO.cap) {
+            int nc = SO.cap ? SO.cap * 2 : 1024;
+            float *ns = realloc(SO.seg, sizeof(float) * 4 * (size_t)nc);
+            if (!ns) return;                               /* out of memory: the outline so far */
+            SO.seg = ns; SO.cap = nc;
+        }
         memcpy(&SO.seg[4 * SO.nSeg++], pt, sizeof pt);
     }
 }

@@ -1905,7 +1905,11 @@ static void group_picked(const char *name)
 {
     Stl *s = &T.stl;
     StlName *g = faces_load(T.casePath, s->nFaces);
-    if (!g) { g = calloc((size_t)s->nFaces + 1, sizeof *g); faces_default(s, T.m.splitAngle, g); }
+    if (!g) {
+        g = calloc((size_t)s->nFaces + 1, sizeof *g);
+        if (!g) { ui_toast(TOAST_ERR, "Out of memory: the faces were not grouped"); return; }
+        faces_default(s, T.m.splitAngle, g);
+    }
     for (int f = 1; f <= s->nFaces && f < PK.cap; f++) if (PK.on[f]) pl_strlcpy(g[f], name, 64);
     faces_save(T.casePath, (const StlName *)g, s->nFaces);
     free(g);

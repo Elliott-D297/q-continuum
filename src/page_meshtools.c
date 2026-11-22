@@ -187,8 +187,11 @@ float meshtools_page(Case *c, float x, float y, float w)
         float tx = x + 20 + fminf(300, w * 0.4f);
         if (ui_select_ph(ui_idn(ui_id("mt-ptype"), i), (Rectangle){ tx, y + 4, 180, 32 }, PTYPE, NPTYPE, &t, M.types[i]) && t >= 0 && strcmp(PTYPE[t], M.types[i])) {
             if (!app_require_foam() || !app_can_start()) break;
-            char cmd[400];
-            snprintf(cmd, sizeof cmd, "foamDictionary constant/polyMesh/boundary -entry entry0/%s/type -set %s && echo 'patch %s: %s'", M.names[i], PTYPE[t], M.names[i], PTYPE[t]);
+            /* the name from the mesh's boundary file, quoted: it reaches the shell (sweep 2026-11-22) */
+            char cmd[600], ent[128], qe[160], msg[128], qm[160];
+            snprintf(ent, sizeof ent, "entry0/%s/type", M.names[i]); pl_shell_quote(qe, sizeof qe, ent);
+            snprintf(msg, sizeof msg, "patch %s: %s", M.names[i], PTYPE[t]); pl_shell_quote(qm, sizeof qm, msg);
+            snprintf(cmd, sizeof cmd, "foamDictionary constant/polyMesh/boundary -entry %s -set %s && echo %s", qe, PTYPE[t], qm);
             job_reset(A.cj, "Mesh tool");
             job_add(A.cj, "type", "Patch type", cmd, "log.patchType", false);
             if (job_start(A.cj, c->s.path, app_bashrc(), GetTime())) ui_toast(TOAST_INFO, "%s becomes a %s patch: Physics > Boundaries sets its conditions", M.names[i], PTYPE[t]);

@@ -312,7 +312,9 @@ static void *load_thread(void *arg)
 static void start_load(void)
 {
     if (V.thRunning) return;
-    char *dir = malloc(PL_PATH); pl_strlcpy(dir, V.path, PL_PATH);
+    char *dir = malloc(PL_PATH);
+    if (!dir) { snprintf(V.mErr, sizeof V.mErr, "Out of memory"); return; }
+    pl_strlcpy(dir, V.path, PL_PATH);
     V.mLoading = true; V.thRunning = true; V.mErr[0] = 0;
     if (pthread_create(&V.th, NULL, load_thread, dir) != 0) { free(dir); V.mLoading = V.thRunning = false; snprintf(V.mErr, sizeof V.mErr, "Could not start reading the mesh"); }
 }
@@ -423,15 +425,33 @@ static Disp *add_disp(int kind)
     return d;
 }
 
+/* room for cap triangles; false when memory runs out (the arrays stay valid at their old size) */
+static bool tris_reserve(VzTris *t, long cap)
+{
+    void *q;
+    if (!(q = realloc(t->xyz, sizeof(float) * 9 * (size_t)cap))) return false;
+    t->xyz = q;
+    if (!(q = realloc(t->val, sizeof(float) * 3 * (size_t)cap))) return false;
+    t->val = q;
+    if (!(q = realloc(t->nrm, sizeof(float) * 3 * (size_t)cap))) return false;
+    t->nrm = q;
+    if (!(q = realloc(t->cell, sizeof(int) * (size_t)cap))) return false;
+    t->cell = q;
+    if (!(q = realloc(t->grp, sizeof(int) * (size_t)cap))) return false;
+    t->grp = q;
+    return true;
+}
+
 static void tris_append(VzTris *a, const VzTris *b)
 {
     if (!b->n) return;
     long n = a->n + b->n;
-    a->xyz = realloc(a->xyz, sizeof(float) * 9 * (size_t)n); memcpy(a->xyz + 9 * a->n, b->xyz, sizeof(float) * 9 * (size_t)b->n);
-    a->val = realloc(a->val, sizeof(float) * 3 * (size_t)n); memcpy(a->val + 3 * a->n, b->val, sizeof(float) * 3 * (size_t)b->n);
-    a->nrm = realloc(a->nrm, sizeof(float) * 3 * (size_t)n); memcpy(a->nrm + 3 * a->n, b->nrm, sizeof(float) * 3 * (size_t)b->n);
-    a->cell = realloc(a->cell, sizeof(int) * (size_t)n); memcpy(a->cell + a->n, b->cell, sizeof(int) * (size_t)b->n);
-    a->grp = realloc(a->grp, sizeof(int) * (size_t)n); memcpy(a->grp + a->n, b->grp, sizeof(int) * (size_t)b->n);
+    if (!tris_reserve(a, n)) return;                       /* out of memory: b is left out */
+    memcpy(a->xyz + 9 * a->n, b->xyz, sizeof(float) * 9 * (size_t)b->n);
+    memcpy(a->val + 3 * a->n, b->val, sizeof(float) * 3 * (size_t)b->n);
+    memcpy(a->nrm + 3 * a->n, b->nrm, sizeof(float) * 3 * (size_t)b->n);
+    memcpy(a->cell + a->n, b->cell, sizeof(int) * (size_t)b->n);
+    memcpy(a->grp + a->n, b->grp, sizeof(int) * (size_t)b->n);
     a->n = n;
 }
 
@@ -464,10 +484,9 @@ static void sweep_lines(const VzLines *l, int style, double w, VzTris *out)
                     else { d0[d] = -w * u[d]; d1[d] = w * u[d]; }
                 }
                 if (out->n + 2 > cap) {
-                    cap = cap ? cap * 2 : 4096;
-                    out->xyz = realloc(out->xyz, sizeof(float) * 9 * (size_t)cap); out->val = realloc(out->val, sizeof(float) * 3 * (size_t)cap);
-                    out->nrm = realloc(out->nrm, sizeof(float) * 3 * (size_t)cap); out->cell = realloc(out->cell, sizeof(int) * (size_t)cap);
-                    out->grp = realloc(out->grp, sizeof(int) * (size_t)cap);
+                    long nc = cap ? cap * 2 : 4096;
+                    if (!tris_reserve(out, nc)) return;    /* out of memory: the tubes made so far */
+                    cap = nc;
                 }
                 double q[4][3]; float vv[4] = { l->val[i], l->val[i], l->val[i + 1], l->val[i + 1] };
                 for (int d = 0; d < 3; d++) { q[0][d] = p0[d] + d0[d]; q[1][d] = p0[d] + d1[d]; q[2][d] = p1[d] + d1[d]; q[3][d] = p1[d] + d0[d]; }
@@ -492,8 +511,7 @@ static void cones(const float *gp, const float *gv, const float *gval, long ng, 
     if (!ng) return;
     const int S = 8;
     long cap = ng * S * 2;
-    out->xyz = malloc(sizeof(float) * 9 * (size_t)cap); out->val = malloc(sizeof(float) * 3 * (size_t)cap);
-    out->nrm = malloc(sizeof(float) * 3 * (size_t)cap); out->cell = malloc(sizeof(int) * (size_t)cap); out->grp = malloc(sizeof(int) * (size_t)cap);
+    if (!tris_reserve(out, cap)) { vz_tris_free(out); return; }
     for (long g = 0; g < ng; g++) {
         double v[3] = { gv[3 * g], gv[3 * g + 1], gv[3 * g + 2] }, m = sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
         if (!(m > 0)) continue;
@@ -589,6 +607,7 @@ static void build(Disp *d, VzField *fc, VzField *fi, VzField *U, const char *tim
             }
         }
         d->gval = malloc(sizeof(float) * (size_t)(d->ng > 0 ? d->ng : 1));
+        if (!d->gval) { snprintf(d->err, sizeof d->err, "Out of memory: fewer vectors (a larger spacing)"); break; }
         long hint = -1;
         double vmax = 0;
         for (long g = 0; g < d->ng; g++) {
@@ -601,7 +620,9 @@ static void build(Disp *d, VzField *fc, VzField *fi, VzField *U, const char *tim
         else {                                                    /* lines: shaft and two barbs, each a polyline */
             memset(&d->l, 0, sizeof d->l);
             d->l.xyz = malloc(sizeof(float) * 3 * 5 * (size_t)(d->ng + 1)); d->l.val = malloc(sizeof(float) * 5 * (size_t)(d->ng + 1));
-            d->l.off = malloc(sizeof(long) * (size_t)(d->ng + 2)); d->l.off[0] = 0;
+            d->l.off = malloc(sizeof(long) * (size_t)(d->ng + 2));
+            if (!d->l.xyz || !d->l.val || !d->l.off) { vz_lines_free(&d->l); snprintf(d->err, sizeof d->err, "Out of memory: fewer vectors (a larger spacing)"); break; }
+            d->l.off[0] = 0;
             for (long g = 0; g < d->ng; g++) {
                 double v[3] = { d->gv[3 * g], d->gv[3 * g + 1], d->gv[3 * g + 2] }, m = sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
                 if (!(m > 0)) continue;
@@ -630,6 +651,7 @@ static void build(Disp *d, VzField *fc, VzField *fi, VzField *U, const char *tim
         int r = d->licRes < 64 ? 64 : d->licRes > 1024 ? 1024 : d->licRes;
         d->licW = d->licH = r;
         d->lic = malloc(sizeof(float) * (size_t)r * r); d->licVal = malloc(sizeof(float) * (size_t)r * r);
+        if (!d->lic || !d->licVal) { free(d->lic); free(d->licVal); d->lic = d->licVal = NULL; snprintf(d->err, sizeof d->err, "Out of memory: a lower resolution"); break; }
         double size = d->licSize > 0 ? d->licSize : 1.02 * lic_side();
         vz_lic(&V.m, U, fc, q, d->o, d->n, size, r, r, r / 20 + 4, d->lic, d->licVal, d->eu, d->ev);
         break;
@@ -700,6 +722,7 @@ static void make_tex(Disp *d)
     if (d->texOk) UnloadTexture(d->tex);
     int W = d->col.field[0] ? vc_tex_width(d->style, d->levels) : 2;
     unsigned char *px = malloc(4 * (size_t)W);
+    if (!px) { d->texOk = false; return; }
     if (d->col.field[0]) vc_texels(d->cmap, d->rev, d->style, d->levels, d->clip, px);
     else for (int i = 0; i < W; i++) { px[4 * i] = d->rgb[0]; px[4 * i + 1] = d->rgb[1]; px[4 * i + 2] = d->rgb[2]; px[4 * i + 3] = 255; }
     Image im = { px, W, 1, 1, PIXELFORMAT_UNCOMPRESSED_R8G8B8A8 };
@@ -727,6 +750,7 @@ static void make_lic_tex(Disp *d)
     if (!d->lic) return;
     int W = d->licW, H = d->licH;
     unsigned char *px = malloc(4 * (size_t)W * H);
+    if (!px) return;                                       /* out of memory: no picture */
     double lo, hi; disp_range(d, &lo, &hi);
     for (long i = 0; i < (long)W * H; i++) {
         if (isnan(d->lic[i])) { px[4 * i] = px[4 * i + 1] = px[4 * i + 2] = 0; px[4 * i + 3] = 0; continue; }
@@ -754,6 +778,7 @@ static void make_vol_tex(Disp *d)
         int u = (a + 1) % 3, v = (a + 2) % 3, W = n[u], H = n[v];
         d->volTexN[a] = n[a] > 128 ? 128 : n[a];
         unsigned char *px = malloc(4 * (size_t)W * H);
+        if (!px) { d->volTexN[a] = 0; continue; }          /* out of memory: no slices along this axis */
         for (int k = 0; k < d->volTexN[a]; k++) {
             for (int j = 0; j < H; j++) for (int i = 0; i < W; i++) {
                 int idx[3]; idx[a] = k; idx[u] = i; idx[v] = j;
@@ -2060,9 +2085,7 @@ static void start_record(int kind)
     }
     if (!A.env.ffmpeg[0]) { ui_toast(TOAST_ERR, "ffmpeg isn't installed: frames can't become a movie"); return; }
     pl_join(V.recDir, sizeof V.recDir, V.path, "visualization/frames");
-    char cmd[PL_PATH + 32]; char q[PL_PATH + 8]; pl_shell_quote(q, sizeof q, V.recDir);
-    snprintf(cmd, sizeof cmd, "rm -rf %s", q);
-    if (system(cmd)) {}
+    pl_remove_tree(V.recDir);                              /* (no shell needed) */
     pl_mkdirs(V.recDir);
     V.rec = kind; V.recStep = 0; V.recN = kind == 1 ? V.nTimes : kind == 3 ? 72 : 120;
     if (kind == 1) set_time(0);

@@ -18,6 +18,8 @@ void vz_mesh_free(VzMesh *m)
     free(m->pt); free(m->fOff); free(m->fIdx); free(m->own); free(m->nei);
     free(m->fCtr); free(m->fArea); free(m->cCtr); free(m->cVol); free(m->cfOff); free(m->cfIdx); free(m->pcOff); free(m->pcIdx);
     free(m->grid); free(m->gridOff);
+    for (int p = 0; p < m->nProc; p++) { free(m->proc[p].cell); free(m->proc[p].face); }
+    free(m->proc);
     memset(m, 0, sizeof *m);
 }
 
@@ -236,6 +238,85 @@ bool vz_field_load(VzField *f, const VzMesh *m, const char *casePath, const char
     return true;
 }
 
+/* ================================================================ decomposed cases */
+int vz_mesh_procs(VzMesh *m, const char *casePath)
+{
+    for (int p = 0; p < m->nProc; p++) { free(m->proc[p].cell); free(m->proc[p].face); }
+    free(m->proc); m->proc = NULL; m->nProc = 0;
+    int n = 0;
+    for (;; n++) { char d[64], p[PL_PATH]; snprintf(d, sizeof d, "processor%d/constant/polyMesh/cellProcAddressing", n); pl_join(p, sizeof p, casePath, d); if (!pl_exists(p)) break; }
+    if (!n) return 0;
+    struct VzProc *pr = calloc((size_t)n, sizeof *pr);
+    long covered = 0;
+    for (int k = 0; k < n; k++) {
+        char d[96], p[PL_PATH];
+        snprintf(d, sizeof d, "processor%d/constant/polyMesh/cellProcAddressing", k); pl_join(p, sizeof p, casePath, d);
+        pr[k].cell = fr_labels(p, &pr[k].nCells);
+        snprintf(d, sizeof d, "processor%d/constant/polyMesh/faceProcAddressing", k); pl_join(p, sizeof p, casePath, d);
+        pr[k].face = fr_labels(p, &pr[k].nFaces);
+        snprintf(d, sizeof d, "processor%d/constant/polyMesh/boundary", k); pl_join(p, sizeof p, casePath, d);
+        pr[k].nPatch = fr_boundary(p, pr[k].patch, VZ_MAX_PATCHES);
+        bool ok = pr[k].cell && pr[k].face && pr[k].nPatch > 0;
+        pr[k].nInternal = ok ? pr[k].patch[0].start : 0;
+        for (long i = 0; ok && i < pr[k].nCells; i++) ok = pr[k].cell[i] >= 0 && pr[k].cell[i] < m->nCells;
+        /* faceProcAddressing: the whole mesh's face + 1, negative when the processor's face points the other way */
+        for (long i = 0; ok && i < pr[k].nFaces; i++) { long g = labs(pr[k].face[i]) - 1; ok = g >= 0 && g < m->nFaces; }
+        if (!ok) {
+            snprintf(m->err, sizeof m->err, "processor%d's maps don't fit constant/polyMesh: reconstruct the case (reconstructParMesh, reconstructPar) to see it", k);
+            for (int j = 0; j <= k; j++) { free(pr[j].cell); free(pr[j].face); }
+            free(pr);
+            return 0;
+        }
+        covered += pr[k].nCells;
+    }
+    if (covered != m->nCells) {
+        snprintf(m->err, sizeof m->err, "The processors hold %ld cells, constant/polyMesh %ld: reconstruct the case (reconstructParMesh) to see it", covered, m->nCells);
+        for (int j = 0; j < n; j++) { free(pr[j].cell); free(pr[j].face); }
+        free(pr);
+        return 0;
+    }
+    m->proc = pr; m->nProc = n;
+    return n;
+}
+
+bool vz_field_load_procs(VzField *f, const VzMesh *m, const char *casePath, const char *time, const char *name)
+{
+    memset(f, 0, sizeof *f);
+    if (!m->nProc) return false;
+    long nb = m->nFaces - m->nInternal;
+    for (int k = 0; k < m->nProc; k++) {
+        const struct VzProc *pr = &m->proc[k];
+        char rel[PL_PATH], p[PL_PATH]; snprintf(rel, sizeof rel, "processor%d/%s/%s", k, time, name); pl_join(p, sizeof p, casePath, rel);
+        double *c = NULL, *b = NULL; char dims[40] = "";
+        int nc = fr_vol_field(p, pr->nCells, pr->patch, pr->nPatch, pr->nInternal, pr->nFaces, &c, &b, dims, sizeof dims);
+        if (!nc || (f->nc && nc != f->nc)) { free(c); free(b); vz_field_free(f); return false; }
+        if (!f->nc) {
+            f->nc = nc;
+            pl_strlcpy(f->dims, dims, sizeof f->dims);
+            f->c = calloc((size_t)m->nCells * nc, sizeof(double));
+            f->b = malloc(sizeof(double) * (size_t)(nb > 0 ? nb : 1) * nc);
+            for (long i = 0; i < nb * nc; i++) f->b[i] = NAN;
+        }
+        for (long i = 0; i < pr->nCells; i++) for (int j = 0; j < nc; j++) f->c[pr->cell[i] * nc + j] = c[i * nc + j];
+        for (int q = 0; q < pr->nPatch; q++) {                   /* the real patches' faces (not the processor ones) */
+            if (!strncmp(pr->patch[q].type, "processor", 9)) continue;
+            for (long i = pr->patch[q].start; i < pr->patch[q].start + pr->patch[q].nFaces && i < pr->nFaces; i++) {
+                long g = labs(pr->face[i]) - 1;
+                if (g < m->nInternal) continue;
+                for (int j = 0; j < nc; j++) f->b[(g - m->nInternal) * nc + j] = b[(i - pr->nInternal) * nc + j];
+            }
+        }
+        free(c); free(b);
+    }
+    pl_strlcpy(f->name, name, sizeof f->name);
+    for (long i = m->nInternal; i < m->nFaces; i++) {
+        double *v = &f->b[(i - m->nInternal) * f->nc];
+        if (isnan(v[0])) for (int j = 0; j < f->nc; j++) v[j] = f->c[m->own[i] * f->nc + j];
+    }
+    vz_field_points(f, m);
+    return true;
+}
+
 static double qof(const double *v, int nc, int q)
 {
     if (nc == 1) return v[0];
@@ -275,7 +356,7 @@ double *vz_gradient(const VzMesh *m, const VzField *f, int k)
     return g;
 }
 
-const char *const VD_NAME[VD__N] = { "", "Pressure (Pa)", "Total pressure", "Velocity gradient magnitude", "Vorticity magnitude",
+const char *const VD_NAME[VD__N] = { "", "Pressure", "Total pressure", "Velocity gradient magnitude", "Vorticity magnitude",
                                      "Q-criterion", "Helicity", "Cell volume" };
 
 static bool kinematic(const VzField *p) { return strstr(p->dims, "[0 2 -2") != NULL; }

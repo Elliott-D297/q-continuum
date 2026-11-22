@@ -28,6 +28,9 @@ typedef struct {
     long   *grid;                     /* a uniform grid of cell centres for the first guess in point location */
     long   *gridOff;
     int     gn[3];
+    /* a decomposed case (vz_mesh_procs): each processor's cells and faces in the whole mesh, from decomposePar's maps */
+    int     nProc;
+    struct VzProc { long nCells, nFaces, nInternal; long *cell, *face; int nPatch; FrPatch patch[VZ_MAX_PATCHES]; } *proc;
 } VzMesh;
 
 bool vz_mesh_load(VzMesh *m, const char *polyMeshDir);
@@ -45,6 +48,11 @@ typedef struct {
 } VzField;
 
 bool vz_field_load(VzField *f, const VzMesh *m, const char *casePath, const char *time, const char *name);
+/* a decomposed case: read each processorN/constant/polyMesh's cellProcAddressing and faceProcAddressing onto m (the whole mesh,
+   constant/polyMesh); how many processors, 0 when there are none or the maps don't fit m (err says why). Afterwards
+   vz_field_load_procs reads every processorN/<time>/<name> into one field on m: exactly what reconstructPar would write */
+int  vz_mesh_procs(VzMesh *m, const char *casePath);
+bool vz_field_load_procs(VzField *f, const VzMesh *m, const char *casePath, const char *time, const char *name);
 void vz_field_free(VzField *f);
 void vz_field_points(VzField *f, const VzMesh *m);   /* (re)fills f->p from c and b */
 

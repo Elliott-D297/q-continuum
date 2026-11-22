@@ -93,6 +93,7 @@ typedef struct {
     int      histAction;                /* MD_HIST_CONFIRM: what is being confirmed            */
     int      numericsTab;
     int      physicsTab;
+    int      resultsTab;                /* Results page: 0 summary, 1 visualization */
 
     /* coupling (preCICE) */
     CouplingSummary cplList[64];
@@ -277,6 +278,7 @@ void page_prog_setup(Rectangle r);
 void page_prog_run(Rectangle r);
 void page_prog_results(Rectangle r);
 void page_foam_results(Rectangle r);
+float viz_page(Case *c, float x, float y, float w, float h);   /* Results > Visualization (page_viz.c) */
 bool app_starter_info(const char *casePath, char *title, int tcap, char *learn, int lcap, char *expect, int ecap);   /* W8 */
 float app_starter_callout(const char *casePath, float x, float y, float w);
 /* page_fea.c: a part study in CalculiX (docs/FEA_PLAN.md) */

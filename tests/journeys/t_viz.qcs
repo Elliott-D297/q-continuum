@@ -1,0 +1,89 @@
+# Results > Visualization (docs/VISUALIZATION_PLAN.md) on a lid-driven cube run to 0.5 s: the default scene, then every
+# kind of displayer added and shown, the time stepped, a probe clicked, the scene saved with the case
+open $SB/ws/cube3d
+click nav:results
+wait 2
+click res-tabs#1
+wait-until text Boundary surfaces timeout 30
+wait 3
+screenshot $OUT/viz_default.png
+assert text Colour by
+assert text Pressure in Pa
+choose vz-add Section plane
+wait 3
+screenshot $OUT/viz_section.png
+choose vz-add Streamlines
+wait 3
+assert not text No streamline left
+screenshot $OUT/viz_stream.png
+choose vz-add Iso-surface
+wait 3
+screenshot $OUT/viz_iso.png
+choose vz-add Vectors
+wait 3
+screenshot $OUT/viz_vectors.png
+choose vz-add Surface flow (LIC)
+wait 4
+screenshot $OUT/viz_lic.png
+choose vz-add Threshold
+wait 3
+screenshot $OUT/viz_threshold.png
+choose vz-add Volume rendering
+wait 4
+screenshot $OUT/viz_volume.png
+choose vz-add Line probe
+wait 3
+click vz-hist
+wait 2
+screenshot $OUT/viz_line.png
+click vz-prev
+wait 3
+assert text 0.4
+click vz-view#0
+wait 3
+screenshot $OUT/viz_probe.png
+wait 3
+shell test -f $SB/ws/cube3d/visualization/scene.ini
+# each displayer alone: all hidden, then one at a time
+click vz-eye#0
+click vz-eye#1
+click vz-eye#2
+click vz-eye#3
+click vz-eye#4
+click vz-eye#5
+click vz-eye#6
+click vz-eye#7
+click vz-eye#8
+wait 2
+click vz-eye#1
+wait 3
+screenshot $OUT/alone_1.png
+click vz-eye#1
+click vz-eye#2
+wait 3
+screenshot $OUT/alone_2.png
+click vz-eye#2
+click vz-eye#3
+wait 3
+screenshot $OUT/alone_3.png
+click vz-eye#3
+click vz-eye#4
+wait 3
+screenshot $OUT/alone_4.png
+click vz-eye#4
+click vz-eye#5
+wait 3
+screenshot $OUT/alone_5.png
+click vz-eye#5
+click vz-eye#6
+wait 3
+screenshot $OUT/alone_6.png
+click vz-eye#6
+click vz-eye#7
+wait 3
+screenshot $OUT/alone_7.png
+click vz-eye#7
+click vz-eye#8
+wait 3
+screenshot $OUT/alone_8.png
+click vz-eye#8

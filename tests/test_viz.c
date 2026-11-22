@@ -267,6 +267,26 @@ int main(int argc, char **argv)
             vz_field_free(&fa); vz_field_free(&fb);
         }
         vz_mesh_free(&a); vz_mesh_free(&b);
+    } else if (argc >= 3 && !strcmp(argv[1], "procs")) {
+        /* a decomposed copy: the processors' fields on the whole mesh, the same as the case's own */
+        VzMesh m; load_mesh(&m, argv[2]);
+        int np = vz_mesh_procs(&m, argv[2]);
+        CHECK(np == 4, "processors: %d (%s)", np, m.err);
+        const char *names[3] = { "T", "U", "p" };
+        for (int k = 0; k < 3 && np; k++) {
+            VzField a, b;
+            bool la = vz_field_load(&a, &m, argv[2], "0", names[k]), lb = vz_field_load_procs(&b, &m, argv[2], "0", names[k]);
+            CHECK(la && lb && a.nc == b.nc, "%s loads both ways", names[k]);
+            if (!la || !lb) continue;
+            double worst = 0;
+            for (long i = 0; i < m.nCells * a.nc; i++) worst = fmax(worst, fabs(a.c[i] - b.c[i]));
+            for (long i = 0; i < (m.nFaces - m.nInternal) * a.nc; i++) worst = fmax(worst, fabs(a.b[i] - b.b[i]));
+            for (long i = 0; i < m.nPoints * a.nc; i++) worst = fmax(worst, fabs(a.p[i] - b.p[i]));
+            CHECK(worst < 1e-12, "%s: decomposed differs by %g", names[k], worst);
+            CHECK(!strcmp(a.dims, b.dims), "%s dims '%s' vs '%s'", names[k], a.dims, b.dims);
+            vz_field_free(&a); vz_field_free(&b);
+        }
+        vz_mesh_free(&m);
     } else return 2;
     if (fails) { fprintf(stderr, "%d failure(s)\n", fails); return 1; }
     printf("viz %s: all passed\n", argv[1]);

@@ -29,5 +29,17 @@ grep -q 'format *binary' "$b/0/T" || { echo "FAIL: 0/T not converted to binary";
 grep -q 'format *binary' "$b/constant/polyMesh/faces" || echo "(the mesh stayed ASCII)"
 "$tv" same "$c" "$b" || fail=1
 "$tv" check "$b" || fail=1
+# decomposed into 4 (full precision, so the copies are exact): the processors' fields put back on the whole mesh
+dp=$out/cube_procs
+cp -a "$c" "$dp"
+foamDictionary "$dp/system/controlDict" -entry writePrecision -set 17 > /dev/null
+cat > "$dp/system/decomposeParDict" <<'D'
+FoamFile { version 2.0; format ascii; class dictionary; object decomposeParDict; }
+numberOfSubdomains 4;
+method simple;
+coeffs { n (2 2 1); }
+D
+decomposePar -case "$dp" > "$dp/log.decomposePar" 2>&1 || { echo "FAIL decomposePar"; tail -5 "$dp/log.decomposePar"; fail=1; }
+"$tv" procs "$dp" || fail=1
 [ $fail = 0 ] && echo "viz_openfoam: all passed"
 exit $fail

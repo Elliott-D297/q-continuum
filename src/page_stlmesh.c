@@ -2681,9 +2681,48 @@ static float zones_section(float x, float y, float w)
 }
 
 /* ---------------------------------------------------------------------------- 4 Mesh settings: the mesher, the sizes, the layers */
+/* presets (plan step 10, E10): these settings kept by name for other parts, or a kept one used here */
+static void preset_dir(char *out, size_t cap)              /* beside the settings: $XDG_CONFIG_HOME/q-continuum, else ~/.config/q-continuum */
+{
+    const char *x = getenv("XDG_CONFIG_HOME");
+    if (x && *x) snprintf(out, cap, "%s/q-continuum/mesh-presets", x);
+    else snprintf(out, cap, "%s/.config/q-continuum/mesh-presets", pl_home());
+}
+static float presets_row(float x, float y, float w)
+{
+    char dir[PL_PATH]; preset_dir(dir, sizeof dir);
+    static char names[64][64]; static int n = -1; static double at;
+    if (n < 0 || GetTime() - at > 3) { n = mesher_preset_list(dir, names, 64); at = GetTime(); }
+    ui_text(F_REG, 13.5f, "Presets", x, y + 9, TH.text2);
+    float px = x + 96;
+    if (n > 0) {
+        const char *items[64]; for (int i = 0; i < n; i++) items[i] = names[i];
+        int sel = -1;
+        if (ui_select_ph(ui_id("stl-preset"), (Rectangle){ px, y, 220, 34 }, items, n, &sel, "Use a preset ...") && sel >= 0) {
+            if (mesher_preset_apply(dir, names[sel], &T.m, &T.stl)) { save_cfg(); ui_toast(TOAST_OK, "Preset %s: its sizes, layers and mesher (the base size scaled to this part)", names[sel]); }
+            else ui_toast(TOAST_ERR, "Could not read the preset %s", names[sel]);
+        }
+        px += 230;
+    }
+    static char nm[64];
+    float nw = fmaxf(110, fminf(180, x + w - px - 188 - ui_button_width(ICON_SAVE, "Save as preset")));   /* narrow: the name box gives way */
+    ui_input(ui_id("stl-preset-name"), (Rectangle){ px, y, nw, 34 }, nm, sizeof nm, "name", 0);
+    px += nw - 180;
+    float bw = ui_button_width(ICON_SAVE, "Save as preset");
+    if (ui_button(ui_id("stl-preset-save"), (Rectangle){ px + 188, y, bw, 34 }, ICON_SAVE, "Save as preset", BTN_GHOST)) {
+        bool okName = nm[0] && !strchr(nm, '/') && nm[0] != '.';
+        if (!okName) ui_toast(TOAST_ERR, "Give the preset a name (no /)");
+        else if (mesher_preset_save(dir, nm, &T.m, &T.stl)) { ui_toast(TOAST_OK, "Saved the preset %s (~/.config/q-continuum/mesh-presets)", nm); n = -1; nm[0] = 0; }
+        else ui_toast(TOAST_ERR, "Could not write the preset");
+    }
+    ui_tooltip((Rectangle){ px + 188, y, bw, 34 }, "These sizes, layers, mesher and quality limits kept by name: Use a preset on any other part");
+    return 46;
+}
+
 static float mesh_step(float x, float y, float w)
 {
     float y0 = y;
+    y += presets_row(x, y, w);
     y += mesher_section(x, y, w);
     y += sizes_section(x, y + 6, w) + 6;
     y += prism_section(x, y + 6, w) + 6;

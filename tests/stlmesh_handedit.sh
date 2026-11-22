@@ -32,4 +32,7 @@ cmp -s "$mq" "$S/q.expected" || fail "an unedited file isn't what the mesher wro
 # the picked point in the fluid (E8)
 "$T" init "$S/box.stl" "$S/loc" > /dev/null || fail "init loc"
 "$T" location x "$S/loc" || fail "location"
+# presets (E10)
+"$T" init "$S/box.stl" "$S/pre" > /dev/null || fail "init pre"
+rm -rf "$S/presets"; "$T" preset x "$S/pre" "$S/presets" || fail "preset"
 echo "stlmesh_handedit: all checks passed"

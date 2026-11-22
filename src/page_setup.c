@@ -2049,6 +2049,18 @@ static float reports_step(Case *c, float x, float y, float w)
         }
         y += 18;
     }
+    y += section_head(x, y, w, "Fields written with the results", "Extra fields OpenFOAM works out at each write, next to U and p: for ParaView and "
+                                  "Results > Visualization (which can also work out vorticity and Q itself).");
+    {
+        Rectangle cr = prop_row(x, &y, w, "Wall shear stress", "The friction the flow puts on each wall (wallShearStress): where a boundary layer separates "
+                                "it falls to zero; its pull on a part is the skin-friction drag.", 24);
+        if (ui_switch(ui_id("su-out-wss"), cr.x, cr.y + 2, &s->outWss)) save();
+        cr = prop_row(x, &y, w, "Q-criterion", "Q = (|W|² − |S|²)/2: positive where rotation beats strain. An iso-surface of Q shows the vortex cores.", 24);
+        if (ui_switch(ui_id("su-out-q"), cr.x, cr.y + 2, &s->outQ)) save();
+        cr = prop_row(x, &y, w, "Vorticity", "The local spin of the flow, curl U (twice the angular velocity of a fluid particle).", 24);
+        if (ui_switch(ui_id("su-out-vort"), cr.x, cr.y + 2, &s->outVort)) save();
+        y += 14;
+    }
     y += section_head(x, y, w, "Lift and drag", "The force of the flow on the part while it runs: drag along the flow, lift across it, and as "
                                                 "coefficients, Cd = drag / (½ ρ U² A) and Cl the same with the lift. The Run page plots them as they settle.");
     Rectangle cr = prop_row(x, &y, w, "Monitor forces", "Adds the forces and forceCoeffs function objects to system/controlDict.", 24);

@@ -31,6 +31,7 @@ assert log log.snappyLayers Layer mesh
 screenshot $OUT/1_generated.png
 # a hand edit to a layer setting (E1), then the layers redone (E3)
 shell sed -i 's/nLayerIter 15;/nLayerIter 30;/' $SB/ws/stg/system/snappyHexMeshDict
+wait 10
 click stl-relayer
 wait-until job running timeout 20
 wait-until job finished timeout 900
@@ -53,8 +54,10 @@ assert file system/decomposeParDict.qc-mesh
 assert not file processor0
 screenshot $OUT/3_parallel.png
 # the point in the fluid (E8): worked out, then picked by a click on the part, checked and saved
+wait 10
 click stl-step#1
-wait 5
+wait 10
+screenshot $OUT/3b_flow.png
 assert text worked out  ·  in the fluid
 click stl-loc-pick
 wait 2
@@ -66,3 +69,12 @@ screenshot $OUT/4_location.png
 click stl-loc-auto
 wait 3
 assert text worked out  ·  in the fluid
+# a preset of these settings (E10), saved and listed
+click stl-step#3
+wait 5
+click stl-preset-name
+type box fine
+click stl-preset-save
+wait 5
+assert text Use a preset
+assert file $SB/cfg/q-continuum/mesh-presets/box fine.ini

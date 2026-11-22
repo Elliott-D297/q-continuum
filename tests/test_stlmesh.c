@@ -174,6 +174,28 @@ int main(int argc, char **argv)
         printf("location: all checks passed\n");
         return 0;
     }
+    if (argc == 5 && !strcmp(argv[1], "preset")) {      /* plan step 10 E10: a preset saved, listed and applied (base size scaled to the part) */
+        MeshCfg m; memset(&m, 0, sizeof m);
+        FAILIF(!mesher_load(argv[3], &m) || !m.stl[0], "no mesher.ini in %s", argv[3]);
+        Stl s; FAILIF(!stl_load(m.stl, &s), "%s", s.err);
+        stl_set_scale(&s, 1); stl_split_part(&s, m.splitAngle, argv[3]);
+        m.layers = 7; m.targetPct = 33; m.mesher = MESHER_SNAPPY; m.base = 0.02; m.prism = true;
+        FAILIF(!mesher_preset_save(argv[4], "fine walls", &m, &s), "save");
+        FAILIF(mesher_preset_save(argv[4], "../evil", &m, &s), "a name with / refused");
+        char names[8][64]; int n = mesher_preset_list(argv[4], names, 8);
+        FAILIF(n != 1 || strcmp(names[0], "fine walls"), "listed (%d)", n);
+        MeshCfg o; memset(&o, 0, sizeof o); mesher_load(argv[3], &o); o.layers = 2; o.targetPct = 80;
+        Stl big = s; stl_set_scale(&big, 2);              /* the same part twice the size: twice the base */
+        double L1 = 0, L2 = 0; for (int k = 0; k < 3; k++) { L1 = fmax(L1, s.bmax[k] - s.bmin[k]); }
+        FAILIF(!mesher_preset_apply(argv[4], "fine walls", &o, &big), "apply");
+        for (int k = 0; k < 3; k++) L2 = fmax(L2, big.bmax[k] - big.bmin[k]);
+        FAILIF(o.layers != 7 || o.targetPct != 33 || !o.prism, "the preset's settings taken (%d layers, %g %%)", o.layers, o.targetPct);
+        FAILIF(fabs(o.base - 0.02 * L2 / L1) > 1e-9, "the base size scaled with the part (%g, expected %g)", o.base, 0.02 * L2 / L1);
+        FAILIF(!o.stl[0] || strcmp(o.stl, m.stl), "the part itself not touched");
+        stl_free(&s);
+        printf("preset: all checks passed\n");
+        return 0;
+    }
     if (argc == 3 && !strcmp(argv[1], "regions")) return regions(argv[2]);
     if (argc == 4 && !strcmp(argv[1], "smooth")) return smooth(argv[2], argv[3]);
     if (argc >= 4 && !strcmp(argv[1], "init")) return init(argv[2], argv[3], argc > 4 ? atof(argv[4]) : 1);

@@ -230,4 +230,11 @@ void mesher_2d_script(const MeshCfg *m, const Stl *s, Str *out);
 /* the shell lines that give each boundary its type after a conversion (ideasUnvToFoam): foamDictionary on the boundary */
 void mesher_type_script(const MeshCfg *m, const Stl *s, Str *out);
 
+/* presets (plan step 10, E10) in dir (~/.config/q-continuum/mesh-presets): saved from m (the base size also as a share of the part's
+   size), listed by name, applied to m (sizes, layers, mesher, quality, the tunnel when the flow kind is the same; not the part,
+   its boundaries or zones) */
+bool mesher_preset_save(const char *dir, const char *name, const MeshCfg *m, const Stl *s);
+int  mesher_preset_list(const char *dir, char names[][64], int max);
+bool mesher_preset_apply(const char *dir, const char *name, MeshCfg *m, const Stl *s);
+
 #endif

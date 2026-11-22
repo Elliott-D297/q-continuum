@@ -204,6 +204,7 @@ typedef struct {
     int    wallTreat;           /* WT_*                                                       */
     double avgStart;            /* LES and DES: the time the averages (UMean ...) start, s; < 0: automatic (sim_avg_start) */
     bool   forces;              /* lift and drag monitored: forces and forceCoeffs function objects */
+    bool   outWss, outQ, outVort;   /* written with the results: wallShearStress, Q, vorticity (plan step 10, E9) */
     bool   forceAuto;           /* the reference from the part and the wind tunnel (stlmesh_force_ref), not typed in */
     SimForceRef fr;
     int    nB;

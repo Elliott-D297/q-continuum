@@ -112,7 +112,7 @@ target_link_libraries(qc_core PUBLIC m)
 
 add_executable(q-continuum
   src/app.c src/app_widgets.c src/suggest.c src/ui.c src/input.c src/script.c
-  src/page_cases.c src/page_case.c src/page_bc.c src/page_dicts.c src/page_run.c src/logview.c src/undo.c src/actions.c src/palette.c src/page_settings.c src/page_env.c src/texteditor.c src/page_coupling.c src/page_salome.c src/page_history.c src/page_queue.c src/page_studies.c src/page_deme.c src/page_prog.c src/page_review.c src/page_away.c src/flavour.c src/logo.c src/terms.c src/page_movie.c src/page_xsection.c src/page_meshview.c src/orbit.c src/tour.c src/sound.c src/page_stlmesh.c src/page_setup.c src/salometool.c src/page_meshquality.c src/page_meshadv.c src/intro.c src/page_results.c src/gpu.c src/page_fea.c src/teach.c src/page_calc.c src/page_blocks.c src/page_viz.c src/vizcolor.c src/page_meshadvice.c)
+  src/page_cases.c src/page_case.c src/page_bc.c src/page_dicts.c src/page_run.c src/logview.c src/undo.c src/actions.c src/palette.c src/page_settings.c src/page_env.c src/texteditor.c src/page_coupling.c src/page_salome.c src/page_history.c src/page_queue.c src/page_studies.c src/page_deme.c src/page_prog.c src/page_review.c src/page_away.c src/flavour.c src/logo.c src/terms.c src/page_movie.c src/page_xsection.c src/page_meshview.c src/orbit.c src/tour.c src/sound.c src/page_stlmesh.c src/page_setup.c src/salometool.c src/page_meshquality.c src/page_meshadv.c src/intro.c src/page_results.c src/gpu.c src/page_fea.c src/teach.c src/page_calc.c src/page_blocks.c src/page_viz.c src/vizcolor.c src/page_meshadvice.c src/page_meshtools.c)
 target_link_libraries(q-continuum PRIVATE qc_core raylib)
 target_compile_definitions(q-continuum PRIVATE QC_VERSION="${PROJECT_VERSION}")
 
@@ -309,6 +309,8 @@ set_tests_properties(simsetup_heat PROPERTIES LABELS full TIMEOUT 1800)
 # turbulent natural convection: the buoyantCavity tutorial's tall cavity against Betts and Bokhari's temperatures
 add_test(NAME simsetup_adopt COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tests/simsetup_adopt.sh $<TARGET_FILE:test_simsetup> ${QC_BASHRC} ${QC_SCRATCH})
 set_tests_properties(simsetup_adopt PROPERTIES LABELS full TIMEOUT 900)
+add_test(NAME simsetup_outputs COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tests/simsetup_outputs.sh $<TARGET_FILE:test_simsetup> ${QC_BASHRC} ${QC_SCRATCH})
+set_tests_properties(simsetup_outputs PROPERTIES LABELS full TIMEOUT 900)
 add_test(NAME simsetup_cavity COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tests/simsetup_cavity.sh $<TARGET_FILE:test_simsetup> ${QC_BASHRC} ${QC_SCRATCH})
 set_tests_properties(simsetup_cavity PROPERTIES LABELS full TIMEOUT 1800)
 # step 4 (compressible): nozzles against isentropic theory, the aerofoilNACA0012 tutorial against the setup's own

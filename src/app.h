@@ -373,6 +373,7 @@ bool  blocks_wants_first(void);                             /* a template with a
 void  blocks_take_first(double h1);                          /* ... and the y+ calculator's first cell goes in it */
 void  blocks_suggest(int tmpl, double first);                 /* "What mesh do I need?": this template (first cell, 0 none) next time the page draws */
 bool  stlmesh_suggest(Case *c, int mesher, bool layers);      /* ... this mesher for the open case's part; false without a part */
+float meshtools_page(Case *c, float x, float y, float w);    /* page_meshtools.c: Mesh > Tools (A.meshTab 6) */
 void  meshq_open(void);                                       /* page_meshadvice.c: the "What mesh do I need?" dialog */
 void  meshq_modal(bool *close);                               /* draw_modals, MD_MESHQ */
 bool  extrude_add_steps(Case *c, Job *j);               /* page_blocks.c: Generate mesh's extrusion steps (mesher/extrude.ini) */                             /* page_run.c: the processes the next run will use */

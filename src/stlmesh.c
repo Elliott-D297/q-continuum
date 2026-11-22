@@ -805,9 +805,15 @@ bool stl_is_cad(const char *path)
 
 static void ini_path(const char *casePath, char *out, size_t cap) { char d[PL_PATH]; pl_join(d, sizeof d, casePath, "mesher"); pl_join(out, cap, d, "mesher.ini"); }
 
+static bool mesher_load_file(const char *p, MeshCfg *m);
 bool mesher_load(const char *casePath, MeshCfg *m)
 {
     char p[PL_PATH]; ini_path(casePath, p, sizeof p);
+    return mesher_load_file(p, m);
+}
+
+static bool mesher_load_file(const char *p, MeshCfg *m)
+{
     char *ini = pl_read_file(p, NULL);
     if (!ini) return false;
     m->cad[0] = m->stl[0] = 0;                                /* defaults keep these: nothing from another case */
@@ -914,6 +920,61 @@ static void cfg_text(const MeshCfg *m, Str *bp, bool sig)
     str_catf(&b, "# boundaryN = name type, in the order of the regions in constant/triSurface/geometry.stl\nboundaries = %d\n", m->nNames);
     for (int i = 0; i < m->nNames; i++) str_catf(&b, "boundary%d = %s %s\n", i, m->names[i], sig ? foam_type(m->types[i]) : BT_NAME[m->types[i]]);
     *bp = b;
+}
+
+/* ---- presets (plan step 10, E10): the sizing and the mesher's choices, kept by name for other parts. The base size is kept
+   as a share of the part's size too, so a preset made on a 1 m part meshes a 10 cm one as finely for its size */
+static double part_size(const Stl *s)
+{
+    double L = 0; if (s && s->nTri) for (int k = 0; k < 3; k++) L = fmax(L, s->bmax[k] - s->bmin[k]);
+    return L;
+}
+
+bool mesher_preset_save(const char *dir, const char *name, const MeshCfg *m, const Stl *s)
+{
+    if (!name || !name[0] || strchr(name, '/') || name[0] == '.') return false;
+    if (!pl_mkdirs(dir)) return false;
+    Str b; str_init(&b);
+    str_catf(&b, "# Q-Continuum STL mesher preset \"%s\": the sizes and choices, for any part\n", name);
+    cfg_text(m, &b, false);
+    double L = part_size(s);
+    if (L > 0 && m->base > 0) str_catf(&b, "[preset]\nbase_fraction = %.10g\n", m->base / L);
+    char f[160], p[PL_PATH]; snprintf(f, sizeof f, "%s.ini", name); pl_join(p, sizeof p, dir, f);
+    bool ok = pl_write_file(p, b.s, b.len);
+    str_free(&b);
+    return ok;
+}
+
+int mesher_preset_list(const char *dir, char names[][64], int max)
+{
+    NameList l = { 0 };
+    pl_list_dir(dir, &l, false, false);
+    int n = 0;
+    for (int i = 0; i < l.n && n < max; i++) {
+        size_t k = strlen(l.names[i]);
+        if (k > 4 && k - 4 < 64 && !strcmp(l.names[i] + k - 4, ".ini")) { snprintf(names[n], 64, "%.*s", (int)(k - 4), l.names[i]); n++; }
+    }
+    names_free(&l);
+    for (int i = 0; i < n; i++) for (int j = i + 1; j < n; j++) if (strcmp(names[j], names[i]) < 0) { char t[64]; memcpy(t, names[i], 64); memcpy(names[i], names[j], 64); memcpy(names[j], t, 64); }
+    return n;
+}
+
+bool mesher_preset_apply(const char *dir, const char *name, MeshCfg *m, const Stl *s)
+{
+    char f[160], p[PL_PATH]; snprintf(f, sizeof f, "%s.ini", name); pl_join(p, sizeof p, dir, f);
+    MeshCfg t; memset(&t, 0, sizeof t);
+    if (!mesher_load_file(p, &t)) return false;
+    char *ini = pl_read_file(p, NULL);
+    double frac = ini ? ini_num(ini, "base_fraction", 0) : 0;
+    free(ini);
+    double L = part_size(s);
+    m->base = frac > 0 && L > 0 ? frac * L : t.base;
+    m->mesher = t.mesher; m->remesh = t.remesh; m->polyConvert = t.polyConvert; m->gmshAlgo = t.gmshAlgo; m->surfRemesher = t.surfRemesher;
+    m->targetPct = t.targetPct; m->minPct = t.minPct; m->curvature = t.curvature; m->surfGrowth = t.surfGrowth; m->volGrowth = t.volGrowth;
+    m->featureAngle = t.featureAngle; m->prism = t.prism; m->layers = t.layers; m->prismPct = t.prismPct; m->stretch = t.stretch;
+    m->evenLayers = t.evenLayers; m->maxNonOrtho = t.maxNonOrtho; m->maxSkew = t.maxSkew; m->meshProcs = t.meshProcs;
+    if (t.domain == m->domain) { m->up = t.up; m->down = t.down; m->side = t.side; m->top = t.top; m->below = t.below; }   /* the tunnel, in reference lengths */
+    return true;
 }
 
 bool mesher_save(const char *casePath, const MeshCfg *m)

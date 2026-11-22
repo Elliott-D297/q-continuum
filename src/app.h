@@ -200,7 +200,8 @@ void logo_draw(int theme, float x, float y, float s);
 void logo_set_icon(int theme, bool desktop);
 int  logo_export(const char *dir);                           /* --export-logos: logo-<theme>.png, 256 px */                           /* page_coupling.c: a coupled case from two cases */
 void page_cpl_case(Rectangle r, int which);                  /* page_coupling.c: a coupled run's pages (0 overview, 1 setup, 2 participants, 3 run) */                                /* page_away.c: AWAY MISSION, a case packed for aerofly (5.1) */
-int  run_steps_script(Case *c, int np, Str *out);             /* page_run.c: the run as a Slurm job's shell steps */                               /* page_cases.c: the impinging-plume starter (4.4) */                       /* page_run.c: its solver's parallel probe has answered */
+int  run_steps_script(Case *c, int np, Str *out);
+bool run_export_allrun(Case *c, int np, char *msg, int cap);   /* page_run.c: Allrun and Allclean in the case (plan step 11) */             /* page_run.c: the run as a Slurm job's shell steps */                               /* page_cases.c: the impinging-plume starter (4.4) */                       /* page_run.c: its solver's parallel probe has answered */
 bool app_deme_running(void);
 void app_generate_mesh(void);
 /* log.checkMesh read for what its failed checks amount to (foamcase.h), re-read when the log changes */

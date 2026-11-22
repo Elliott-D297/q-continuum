@@ -1,0 +1,39 @@
+# Mesh plan step 11 (E5): an STL part meshed in the app (snappyHexMesh with layers) leaves its recipe; Run > Export Allrun
+# writes Allrun and Allclean; after Allclean the command-line mode (q-continuum mesh) makes the same mesh again outside the app.
+budget p95 80 max 800
+shell mkdir -p $SB/ws/ar/system && python3 "$QC_TESTS/tools/gen_named_box.py" $SB/ws/box.stl && printf 'FoamFile { version 2.0; format ascii; class dictionary; object controlDict; }\napplication simpleFoam;\nstartTime 0;\nendTime 10;\ndeltaT 1;\nwriteControl timeStep;\nwriteInterval 10;\n' > $SB/ws/ar/system/controlDict
+open $SB/ws/ar
+click nav:mesh
+wait-until page Mesh
+click text:STL mesher
+wait 5
+click stl-path
+enter $SB/ws/box.stl
+wait 10
+click stl-next
+wait 3
+click stl-next
+wait 5
+click stl-name-kinds
+wait 5
+click stl-next
+wait 3
+click stl-next
+wait 5
+click stl-gen
+wait-until job running timeout 20
+wait-until job finished timeout 900
+assert log log.checkMesh Mesh OK.
+assert log .qc-recipe/mesh.sh snappyHexMesh: castellate and snap
+action case.allrun
+wait 5
+assert log Allrun Written by Q-Continuum
+assert log Allrun snappyHexMesh -overwrite -dict system/snappyHexMeshDict.qc-snap
+assert log Allclean rm -rf constant/polyMesh
+shell cd $SB/ws/ar && grep -m1 "cells:" log.checkMesh > cells.before && ./Allclean && test ! -d constant/polyMesh
+assert not file constant/polyMesh/owner
+shell "$QC_APP" mesh $SB/ws/ar > $SB/ws/ar/cli.log 2>&1
+assert log cli.log mesh done
+assert log log.checkMesh Mesh OK.
+shell cd $SB/ws/ar && grep -m1 "cells:" log.checkMesh > cells.after && cmp cells.before cells.after && echo same > cells.same
+assert file cells.same

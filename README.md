@@ -139,6 +139,10 @@ bash install.sh --no-openfoam
 - **F1** lists every command with its keyboard shortcut (Ctrl+R run, Ctrl+M mesh, Ctrl+P ParaView, Ctrl+1 to Ctrl+8 for the case pages).
 - The app reopens the last case and page when it starts.
 - To open a case directly: `q-continuum ~/OpenFOAM/$USER-v2606/run/cavity`.
+- **Run > Export Allrun** writes `Allrun` and `Allclean` into the case: the mesh exactly as the app last made it, then the run. They work anywhere OpenFOAM is loaded. Without the window:
+  - `q-continuum allrun <case> [np]` writes them;
+  - `q-continuum mesh <case>` makes the mesh again;
+  - `q-continuum run <case> [np]` writes them and runs.
 
 Settings are stored in `~/.config/q-continuum/settings.ini`.
 

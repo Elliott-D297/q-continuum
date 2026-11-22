@@ -9,6 +9,7 @@
 #include <unistd.h>
 #include <sys/wait.h>
 #include "app.h"
+#include "allrun.h"
 #include "program.h"
 #include "simsetup.h"
 const SimSetup *setup_current(Case *c);            /* page_setup.c: NULL without a simulation.ini */
@@ -110,6 +111,7 @@ static int allrun_decomp_dicts(const Case *c, char (*out)[160], int max)
     for (int f = 0; f < 2; f++) {
         char p[PL_PATH]; pl_join(p, sizeof p, c->s.path, names[f]);
         size_t len; char *t = pl_read_file(p, &len);
+        if (t && strstr(t, ALLRUN_MARK)) { free(t); return false; }   /* ours (Export Allrun): the built-in steps are the same, without re-meshing each run */
         for (char *line = t ? strtok(t, "\n") : NULL; line; line = strtok(NULL, "\n")) {
             while (*line == ' ' || *line == '\t') line++;
             if (*line == '#') continue;
@@ -2292,6 +2294,12 @@ void page_run(Rectangle r)
     if (ui_button(ui_id("run-away"), (Rectangle){ x, y, w, 34 }, ICON_HARD_DRIVE, term(T_AWAY), BTN_SECONDARY)) A.modal = MD_AWAY;   /* 5.1 */
     ui_tooltip((Rectangle){ x, y, w, 34 }, "Pack this case for aerofly (OpenFOAM v2412, Slurm): checked with v2412 here, a batch script, and "
                "the commands to copy it there");
+    y += 44;
+    if (ui_button(ui_id("run-allrun"), (Rectangle){ x, y, w, 34 }, ICON_FILE_CODE, "Export Allrun", BTN_SECONDARY)) {
+        char m[300]; bool ok = run_export_allrun(c, procs(), m, sizeof m); ui_toast(ok ? TOAST_OK : TOAST_ERR, "%s", m);
+    }
+    ui_tooltip((Rectangle){ x, y, w, 34 }, "Allrun and Allclean scripts in the case: the mesh exactly as it was last made here, then the run "
+               "on these processes. Run them anywhere OpenFOAM is loaded (a cluster, a script, a colleague's machine).");
     y += 50;
     y += case_scripts(c, x, y, w);
     ui_scroll_end(sc, y - top);
@@ -2597,15 +2605,21 @@ void page_run(Rectangle r)
 
 /* AWAY MISSION (5.1): the run as a shell script for a Slurm batch job: the same steps the app runs here, the solver
    started by srun. Each step writes its own log and a failing one ends the job. Returns the step count. */
-int run_steps_script(Case *c, int np, Str *out)
+static int steps_script(Case *c, int np, bool slurm, bool noMesh, Str *out)
 {
     static Job tmp;
     memset(&tmp, 0, sizeof tmp);
     tmp.pid = -1;
     bool cont = A.continueRun; A.continueRun = false;
-    int mode = A.runMode;
-    build_steps(c, &tmp, np, true);
-    A.continueRun = cont; A.runMode = mode;
+    int mode = A.runMode; if (!slurm) A.runMode = 0;        /* Allrun: the built-in steps (never the Allrun it replaces) */
+    bool on[ST_COUNT]; memcpy(on, A.stepOn, sizeof on);
+    if (noMesh) A.stepOn[ST_BLOCKMESH] = A.stepOn[ST_FEATURES] = A.stepOn[ST_SNAPPY] = A.stepOn[ST_CHECK] = false;   /* the recipe makes the mesh */
+    build_steps(c, &tmp, np, slurm);
+    A.continueRun = cont; A.runMode = mode; memcpy(A.stepOn, on, sizeof on);
+    for (int i = 0; i < tmp.n; i++) {                       /* the app's Pause switch means nothing outside it */
+        char *q = strstr(tmp.steps[i].cmd, " " PAUSE_SIGNAL_OPT);
+        if (q) memmove(q, q + strlen(" " PAUSE_SIGNAL_OPT), strlen(q + strlen(" " PAUSE_SIGNAL_OPT)) + 1);
+    }
     str_cat(out, SH_RUN);
     for (int i = 0; i < tmp.n; i++) {
         const JobStep *st = &tmp.steps[i];
@@ -2614,4 +2628,33 @@ int run_steps_script(Case *c, int np, Str *out)
         else str_catf(out, "( %s\n) || exit 1\n", st->cmd);
     }
     return tmp.n;
+}
+
+int run_steps_script(Case *c, int np, Str *out) { return steps_script(c, np, true, false, out); }
+
+/* Run > Export Allrun (plan step 11): Allrun (the mesh recipe, then these run steps on np processes) and Allclean */
+bool run_export_allrun(Case *c, int np, char *msg, int cap)
+{
+    if (!c || c->s.prog) { snprintf(msg, (size_t)cap, "Open an OpenFOAM case first"); return false; }
+    if (A.cs == c) init_steps();                           /* the steps as the Run page has them (or would on opening) */
+    Str probe; str_init(&probe);
+    bool haveMesh = recipe_mesh_steps(c->s.path, &probe);
+    str_free(&probe);
+    if (np > 1) {                                           /* the decomposition for np, as starting a run here writes it */
+        char n[16]; snprintf(n, sizeof n, "%d", np);
+        FDFile *dp = case_dict(c, "system/decomposeParDict");
+        if (!dp) {
+            char body[256]; snprintf(body, sizeof body, "numberOfSubdomains %d;\n\nmethod          scotch;\n", np);
+            dp = case_create_dict(c, "system/decomposeParDict", "dictionary", body);
+        } else { fd_put(dp, "numberOfSubdomains", n); fix_decomposition(dp, np); }
+        if (!dp || !fd_save(dp)) { snprintf(msg, (size_t)cap, "Could not write system/decomposeParDict"); return false; }
+    }
+    Str steps; str_init(&steps);
+    steps_script(c, np, false, haveMesh, &steps);
+    char what[400]; snprintf(what, sizeof what, "%s, %s on %d process%s", c->s.name, c->s.app[0] ? c->s.app : "the solver", np, np == 1 ? "" : "es");
+    bool ok = allrun_write(c->s.path, steps.s, what, msg, cap);
+    str_free(&steps);
+    if (ok) snprintf(msg, (size_t)cap, "Wrote Allrun and Allclean in %s (%s)%s", c->s.name, haveMesh ? "the mesh as last made, then the run" : "the run; the mesh comes with the case", "");
+    case_rescan(c);
+    return ok;
 }

@@ -99,14 +99,22 @@ static void add(ParamFile *f, const char *group, const char *key, int start, int
     while (len > 0 && (f->text[start + len - 1] == ' ' || f->text[start + len - 1] == '\t' || f->text[start + len - 1] == '\r')) len--;
     while (len > 0 && (f->text[start] == ' ' || f->text[start] == '\t')) { start++; len--; }
     if (len < 0) return;
-    if (f->n == f->cap) { f->cap = f->cap ? f->cap * 2 : 64; f->p = realloc(f->p, sizeof(Param) * (size_t)f->cap); }
+    if (f->n == f->cap) {
+        int nc = f->cap ? f->cap * 2 : 64;
+        Param *np = realloc(f->p, sizeof(Param) * (size_t)nc);
+        if (!np) return;
+        f->p = np; f->cap = nc;
+    }
     Param *p = &f->p[f->n++];
     memset(p, 0, sizeof *p);
     pl_strlcpy(p->group, group, sizeof p->group);
     pl_strlcpy(p->key, key, sizeof p->key);
     p->start = start; p->len = len;
-    int l = 1; for (int i = 0; i < start; i++) if (f->text[i] == '\n') l++;
-    p->line = l;
+    /* from the last value's line when this one is further on (a big CalculiX deck: thousands of load lines) */
+    if (start < f->lnAt) { f->lnAt = 0; f->lnNo = 1; }
+    for (int i = f->lnAt; i < start; i++) if (f->text[i] == '\n') f->lnNo++;
+    f->lnAt = start;
+    p->line = f->lnNo;
     int c = len < (int)sizeof p->value - 1 ? len : (int)sizeof p->value - 1;
     memcpy(p->value, f->text + start, (size_t)c); p->value[c] = 0;
     p->editable = len < (int)sizeof p->value - 1 && !memchr(f->text + start, '\n', (size_t)len);
@@ -455,6 +463,7 @@ long long params_stamp(const char *path)
 void params_rescan(ParamFile *f)
 {
     f->n = 0;
+    f->lnAt = 0; f->lnNo = 1;
     if (!f->text) return;
     const char *b = pl_basename(f->path);
     switch (f->prog) {

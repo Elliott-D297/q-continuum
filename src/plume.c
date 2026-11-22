@@ -64,8 +64,10 @@ bool plume_compute(const PlumeIn *in, PlumeOut *o, char *err, int cap)
     int k = 0;
     if (o->per < 1) k += snprintf(o->warn + k, sizeof o->warn - (size_t)k, "pe/pa = %.3g: over-expanded, the jet separates in the nozzle on a real "
                                   "vehicle; here it is fixed at the exit. ", o->per);
+    if (k >= (int)sizeof o->warn) k = (int)sizeof o->warn - 1;     /* (a cut message: the next adds nothing rather than overrun) */
     if (o->cells > 2000000) k += snprintf(o->warn + k, sizeof o->warn - (size_t)k, "%ld cells is a lot for this machine (7 GB): use fewer cells "
                                           "across the radius. ", o->cells);
+    if (k >= (int)sizeof o->warn) k = (int)sizeof o->warn - 1;
     if (in->pa < 1) snprintf(o->warn + k, sizeof o->warn - (size_t)k, "Ambient below 1 Pa: the outer flow is rarefied (SENSOR SWEEP's "
                                   "continuum check says where), and very large pressure ratios slow rhoCentralFoam down. ");
     return true;

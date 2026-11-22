@@ -26,6 +26,7 @@ typedef struct {
     int    prog;                 /* PROG_*; -1 = plain key = value (.ini)                                           */
     char  *text; int len;
     Param *p; int n, cap;
+    int lnAt, lnNo;              /* line counting from the last value added (scans go forwards, mostly)            */
     long long stamp;             /* mtime (ns) + size when loaded: an outside change is noticed                     */
     bool   dirty;
     char  *orig;                 /* the text as loaded or last saved (the review before writing diffs against it)    */

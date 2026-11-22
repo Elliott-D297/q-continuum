@@ -18,8 +18,10 @@ void xml_free(XTree *t) { node_free(&t->root); memset(t, 0, sizeof *t); }
 static XNode *add_child(XNode *p)
 {
     if (p->nChild == p->capChild) {
-        p->capChild = p->capChild ? p->capChild * 2 : 8;
-        p->child = realloc(p->child, sizeof(XNode) * (size_t)p->capChild);
+        int nc = p->capChild ? p->capChild * 2 : 8;
+        XNode *nn = realloc(p->child, sizeof(XNode) * (size_t)nc);
+        if (!nn) return NULL;
+        p->child = nn; p->capChild = nc;
     }
     XNode *c = &p->child[p->nChild++];
     memset(c, 0, sizeof *c);
@@ -70,6 +72,7 @@ bool xml_parse(const char *s, int len, XTree *t)
         XNode *p = walk(&t->root, path, depth);
         int idx = p->nChild;
         XNode *n = add_child(p);
+        if (!n) FAIL("out of memory at byte %d", i);
         n->start = i;
         int a = i + 1, b = a;
         while (b < len && name_ch(s[b])) b++;

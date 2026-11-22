@@ -12,18 +12,29 @@
 #include "stlmesh.h"
 
 /* ---------------------------------------------------------------- a surface as triangles */
-typedef struct { double *v; int nv, capv; int *t; int nt, capt; } Soup;   /* v: 3 a vertex; t: 3 vertex indices a triangle */
+typedef struct { double *v; int nv, capv; int *t; int nt, capt; bool oom; } Soup;   /* v: 3 a vertex; t: 3 vertex indices a triangle */
 
 static int soup_v(Soup *s, double x, double y, double z)
 {
-    if (s->nv == s->capv) { s->capv = s->capv ? s->capv * 2 : 1024; s->v = realloc(s->v, sizeof(double) * 3 * (size_t)s->capv); }
+    if (s->nv == s->capv) {
+        int nc = s->capv ? s->capv * 2 : 1024;
+        double *nv = realloc(s->v, sizeof(double) * 3 * (size_t)nc);
+        if (!nv) { s->oom = true; return 0; }
+        s->v = nv; s->capv = nc;
+    }
     s->v[3 * s->nv] = x; s->v[3 * s->nv + 1] = y; s->v[3 * s->nv + 2] = z;
     return s->nv++;
 }
 static void soup_t(Soup *s, int a, int b, int c)
 {
     if (a == b || b == c || a == c) return;
-    if (s->nt == s->capt) { s->capt = s->capt ? s->capt * 2 : 1024; s->t = realloc(s->t, sizeof(int) * 3 * (size_t)s->capt); }
+    if (s->oom) return;
+    if (s->nt == s->capt) {
+        int nc = s->capt ? s->capt * 2 : 1024;
+        int *nt = realloc(s->t, sizeof(int) * 3 * (size_t)nc);
+        if (!nt) { s->oom = true; return; }
+        s->t = nt; s->capt = nc;
+    }
     s->t[3 * s->nt] = a; s->t[3 * s->nt + 1] = b; s->t[3 * s->nt + 2] = c;
     s->nt++;
 }
@@ -55,6 +66,7 @@ static bool read_obj(const char *path, Soup *s, char *err, int cap)
         }
     }
     free(txt);
+    if (s->oom) { snprintf(err, (size_t)cap, "%.200s is too big to read", pl_basename(path)); return false; }
     if (!s->nt) { snprintf(err, (size_t)cap, "%.200s has no faces", pl_basename(path)); return false; }
     return true;
 }
@@ -74,10 +86,11 @@ static void weld(Soup *s, double tol)
 {
     if (!s->nv) return;
     int *ord = malloc(sizeof(int) * (size_t)s->nv), *map = malloc(sizeof(int) * (size_t)s->nv);
+    double *nv = malloc(sizeof(double) * 3 * (size_t)s->nv);
+    if (!ord || !map || !nv) { free(ord); free(map); free(nv); return; }      /* unwelded: still a valid OBJ, only bigger */
     for (int i = 0; i < s->nv; i++) ord[i] = i;
     g_wv = s->v; g_wtol = tol;
     qsort(ord, (size_t)s->nv, sizeof(int), cmp_corner);
-    double *nv = malloc(sizeof(double) * 3 * (size_t)s->nv);
     int n = 0;
     for (int i = 0; i < s->nv; i++) {
         if (i == 0 || cmp_corner(&ord[i - 1], &ord[i])) { memcpy(nv + 3 * n, s->v + 3 * ord[i], sizeof(double) * 3); n++; }
@@ -108,6 +121,7 @@ bool part_to_obj(const char *src, double scale, const char *dstObj, double lo[3]
             soup_t(&s, a, b, c);
         }
         stl_free(&st);
+        if (s.oom) { snprintf(err, (size_t)cap, "%.200s is too big to read", pl_basename(src)); soup_free(&s); return false; }
     } else { snprintf(err, (size_t)cap, "Use an STL or OBJ file (save STEP or IGES as STL from your CAD program)"); return false; }
     if (!s.nt) { snprintf(err, (size_t)cap, "%.200s has no triangles", pl_basename(src)); soup_free(&s); return false; }
     if (!(scale > 0)) scale = 1;

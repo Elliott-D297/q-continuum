@@ -583,6 +583,20 @@ void prog_log_name(int prog, const char *input, char *out, int cap)
 }
 
 /* ============================================================================ run steps */
+/* the command shown in the log before it runs: single-quoted, so a file name holding $(...) or a quote is only printed
+   (sweep 2026-11-21: they sat inside double quotes and would have run) */
+static const char *echo_of(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
+static const char *echo_of(const char *fmt, ...)
+{
+    static char out[4][1200]; static int k;
+    char shown[1000] = "$ ";
+    va_list ap; va_start(ap, fmt); vsnprintf(shown + 2, sizeof shown - 2, fmt, ap); va_end(ap);
+    char *o = out[k++ & 3];
+    char q[1150]; pl_shell_quote(q, sizeof q, shown);
+    snprintf(o, sizeof out[0], "echo %s", q);
+    return o;
+}
+
 static void finish_cmd(char *cmd, int cap, const char *body)
 {
     /* the exit code goes into the log, so a finished run reads as finished (or failed) without the app watching */
@@ -681,15 +695,16 @@ int prog_run_steps(int prog, const char *dir, const char *input, int procs, bool
         pl_strlcpy(r->label, input, sizeof r->label);
         pl_strlcpy(r->log, log, sizeof r->log);
         r->solver = true;
-        snprintf(body, sizeof body, "mkdir -p run && cd run || exit 1\necho \"\\$ ../build/%s\"\n../build/%s", input, input);
+        char qt[PL_PATH + 16]; char tgt[PL_PATH]; snprintf(tgt, sizeof tgt, "../build/%s", input); pl_shell_quote(qt, sizeof qt, tgt);
+        snprintf(body, sizeof body, "mkdir -p run && cd run || exit 1\n%s\n%s", echo_of("../build/%s", input), qt);
         finish_cmd(r->cmd, sizeof r->cmd, body);
         return n;
     }
     case PROG_CALCULIX: {
         char job[128]; stem_of(input, job, sizeof job);
         char qj[200]; pl_shell_quote(qj, sizeof qj, job);
-        snprintf(body, sizeof body, "export OMP_NUM_THREADS=%d\necho \"\\$ ccx -i %s   (%d thread%s)\"\n%s -i %s", procs, job, procs,
-                 procs == 1 ? "" : "s", qe, qj);
+        snprintf(body, sizeof body, "export OMP_NUM_THREADS=%d\n%s\n%s -i %s", procs, echo_of("ccx -i %s   (%d thread%s)", job, procs,
+                 procs == 1 ? "" : "s"), qe, qj);
         break;
     }
     case PROG_ASTER: {
@@ -698,7 +713,7 @@ int prog_run_steps(int prog, const char *dir, const char *input, int procs, bool
             if (!write_export_for(dir, input, procs, ex, sizeof ex)) { snprintf(err, (size_t)errCap, "Could not write %s.export", input); return 0; }
         } else pl_strlcpy(ex, input, sizeof ex);
         char qx[300]; pl_shell_quote(qx, sizeof qx, ex);
-        snprintf(body, sizeof body, "echo \"\\$ run_aster %s\"\n%s %s", ex, qe, qx);
+        snprintf(body, sizeof body, "%s\n%s %s", echo_of("run_aster %s", ex), qe, qx);
         break;
     }
     case PROG_SATURNE:
@@ -726,8 +741,8 @@ int prog_run_steps(int prog, const char *dir, const char *input, int procs, bool
         }
         break;
     case PROG_MOOSE:
-        if (par) snprintf(body, sizeof body, "echo \"\\$ mpiexec -n %d %s -i %s\"\n%s -n %d %s -i %s --color off", procs, pl_basename(exe), input, qm, procs, qe, qi);
-        else snprintf(body, sizeof body, "echo \"\\$ %s -i %s\"\n%s -i %s --color off", pl_basename(exe), input, qe, qi);
+        if (par) snprintf(body, sizeof body, "%s\n%s -n %d %s -i %s --color off", echo_of("mpiexec -n %d %s -i %s", procs, pl_basename(exe), input), qm, procs, qe, qi);
+        else snprintf(body, sizeof body, "%s\n%s -i %s --color off", echo_of("%s -i %s", pl_basename(exe), input), qe, qi);
         break;
     case PROG_ELMER: {
         /* the mesh folder from a .grd with ElmerGrid when it is missing */
@@ -743,14 +758,14 @@ int prog_run_steps(int prog, const char *dir, const char *input, int procs, bool
             char g[PL_PATH]; snprintf(g, sizeof g, "%s/%s.grd", dir, md);
             if (pl_is_file(g)) snprintf(grd, sizeof grd, "%s.grd", md);
         }
-        if (grd[0]) snprintf(body, sizeof body, "echo \"\\$ ElmerGrid 1 2 %s\"\nElmerGrid 1 2 %s || exit 1\necho \"\\$ ElmerSolver %s\"\n%s %s",
-                             grd, grd, input, qe, qi);
-        else snprintf(body, sizeof body, "echo \"\\$ ElmerSolver %s\"\n%s %s", input, qe, qi);
+        char qg[300]; pl_shell_quote(qg, sizeof qg, grd);
+        if (grd[0]) snprintf(body, sizeof body, "%s\nElmerGrid 1 2 %s || exit 1\n%s\n%s %s", echo_of("ElmerGrid 1 2 %s", grd), qg, echo_of("ElmerSolver %s", input), qe, qi);
+        else snprintf(body, sizeof body, "%s\n%s %s", echo_of("ElmerSolver %s", input), qe, qi);
         break;
     }
     case PROG_SPARTA:
-        if (par) snprintf(body, sizeof body, "echo \"\\$ mpirun -np %d spa_mpi -in %s\"\n%s -np %d %s -in %s -log none", procs, input, qm, procs, qe, qi);
-        else snprintf(body, sizeof body, "echo \"\\$ spa_mpi -in %s\"\n%s -in %s -log none", input, qe, qi);
+        if (par) snprintf(body, sizeof body, "%s\n%s -np %d %s -in %s -log none", echo_of("mpirun -np %d spa_mpi -in %s", procs, input), qm, procs, qe, qi);
+        else snprintf(body, sizeof body, "%s\n%s -in %s -log none", echo_of("spa_mpi -in %s", input), qe, qi);
         break;
     default:
         snprintf(err, (size_t)errCap, "%s runs on the OpenFOAM pages.", prog_info(prog)->name);

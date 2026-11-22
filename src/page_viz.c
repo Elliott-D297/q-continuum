@@ -112,11 +112,11 @@ static struct {
     /* probe */
     bool   probeOk; double probeX[3], probeV; char probeTxt[200]; int probeDisp;
     /* panels */
-    UiScroll left; bool histOn; int histDisp;
+    UiScroll left; bool histOn;
     Shader sh; bool shOk; int locView, locLit;
     bool   loaded;                    /* the scene file was read                             */
     double saveAt; bool saveDirty;
-} V = { .sel = -1, .nViews = 1, .linked = true, .light = true, .showTime = true, .fps = 6, .shotMag = 2, .histDisp = -1 };
+} V = { .sel = -1, .nViews = 1, .linked = true, .light = true, .showTime = true, .fps = 6, .shotMag = 2 };
 
 static const Color BG[3] = { { 10, 14, 22, 255 }, { 236, 240, 247, 255 }, { 0, 0, 0, 255 } };
 static const char *BG_NAME[3] = { "Dark", "Light", "Black" };
@@ -203,7 +203,7 @@ static VzField *derived(int k)
     char nm[64]; snprintf(nm, sizeof nm, "@%d", k);
     const char *t = V.ti >= 0 ? V.times[V.ti] : "";
     for (int i = 0; i < V.nCache; i++) if (!strcmp(V.cache[i].name, nm) && !strcmp(V.cache[i].time, t)) return V.cache[i].ok ? &V.cache[i].f : NULL;
-    if (V.nCache >= 24) { worker_wait(); cache_clear(); }
+    if (V.nCache >= 22) { worker_wait(); cache_clear(); }         /* room for p, U and this, so loading them can't clear it */
     VzField *p = has_field("p") ? field_of("p") : NULL, *U = has_field("U") ? field_of("U") : NULL;
     int slot = V.nCache++;
     pl_strlcpy(V.cache[slot].name, nm, sizeof V.cache[slot].name); pl_strlcpy(V.cache[slot].time, t, sizeof V.cache[slot].time);
@@ -338,6 +338,13 @@ static void disp_free_built(Disp *d)
     if (d->licOk) { UnloadTexture(d->licTex); d->licOk = false; }
     if (d->volOk) { for (int a = 0; a < 3; a++) for (int k = 0; k < d->volTexN[a]; k++) UnloadTexture(d->volTex[a][k]); d->volOk = false; }
     d->built = false;
+}
+
+/* a displayer gone for good (deleted, or the case left): its colour texture too */
+static void disp_release(Disp *d)
+{
+    disp_free_built(d);
+    if (d->texOk) { UnloadTexture(d->tex); d->texOk = false; }
 }
 
 static void centre_of_mesh(double c[3]) { for (int k = 0; k < 3; k++) c[k] = (V.m.lo[k] + V.m.hi[k]) / 2; }
@@ -1317,8 +1324,30 @@ static bool scene_load(void)
         else if (!strcmp(k, "show")) { char *q = v; for (int pp = 0; pp < VZ_MAX_PATCHES; pp++) { char *e; long x = strtol(q, &e, 10); if (e == q) break; d->show[pp] = x != 0; q = e; } }
     }
     free(t);
-    for (int i = 0; i < V.nd; i++) V.d[i].dirty = true;
-    if (V.sel >= V.nd) V.sel = V.nd - 1;
+    for (int i = 0; i < V.nd; i++) {                          /* a hand-edited file: keep the numbers sane */
+        Disp *e = &V.d[i];
+        e->dirty = true;
+        e->levels = e->levels < 2 ? 2 : e->levels > 64 ? 64 : e->levels;
+        e->nIso = e->nIso < 1 ? 1 : e->nIso > 100 ? 100 : e->nIso;
+        e->nIsoVal = e->nIsoVal < 1 ? 1 : e->nIsoVal > 4 ? 4 : e->nIsoVal;
+        e->seeds.n = e->seeds.n < 1 ? 1 : e->seeds.n > 2000 ? 2000 : e->seeds.n;
+        if (e->seeds.kind == VS_PLANE && e->seeds.n > 60) e->seeds.n = 60;
+        e->seeds.kind = e->seeds.kind < 0 || e->seeds.kind > VS_PATCH ? VS_POINT : e->seeds.kind;
+        e->seeds.dir = e->seeds.dir < 0 || e->seeds.dir > 2 ? 2 : e->seeds.dir;
+        e->sstyle = e->sstyle < 0 || e->sstyle > SS_RIBBONS ? SS_LINES : e->sstyle;
+        if (!(e->swidth >= 0.1f && e->swidth <= 20)) e->swidth = 1;
+        if (!(e->opacity >= 0.05f && e->opacity <= 1)) e->opacity = 1;
+        if (!(e->volAlpha >= 0.01f && e->volAlpha <= 5)) e->volAlpha = 1;
+        if (e->cmap < 0) e->cmap = 0;
+        if (e->style < 0) e->style = 0;
+        if (e->rangeMode < 0) e->rangeMode = RM_FIELD;
+        if (e->clip < 0) e->clip = 0;
+    }
+    if (V.periodic < 1) V.periodic = 1;
+    if (V.periodic > 64) V.periodic = 64;
+    if (V.periodicAxis < 0 || V.periodicAxis > 2) V.periodicAxis = 2;
+    if (V.bg < 0) V.bg = 0;
+    if (V.sel >= V.nd || V.sel < -1) V.sel = V.nd - 1;
     return true;
 }
 
@@ -1328,7 +1357,7 @@ static void open_case(Case *c)
     worker_wait();
     if (V.saveDirty && V.mOk && V.loaded) scene_save();      /* the last change to the case being left */
     V.saveDirty = false;
-    for (int i = 0; i < V.nd; i++) disp_free_built(&V.d[i]);
+    for (int i = 0; i < V.nd; i++) disp_release(&V.d[i]);
     V.nd = 0; V.sel = -1; V.nsv = 0; V.probeOk = false;
     cache_clear();
     vz_mesh_free(&V.m); V.mOk = false;
@@ -1734,8 +1763,8 @@ static float scene_list(float x, float y, float w)
     }
     if (up > 0) { Disp t = V.d[up]; V.d[up] = V.d[up - 1]; V.d[up - 1] = t; if (V.sel == up) V.sel--; else if (V.sel == up - 1) V.sel++; redraw_all(); }
     if (del >= 0) {
-        disp_free_built(&V.d[del]);
-        if (V.d[del].texOk) UnloadTexture(V.d[del].tex);
+        disp_release(&V.d[del]);
+        if (V.probeOk && V.probeDisp == del) V.probeOk = false;
         for (int i = del; i < V.nd - 1; i++) V.d[i] = V.d[i + 1];
         V.nd--;
         if (V.sel >= V.nd) V.sel = V.nd - 1;
@@ -1828,8 +1857,10 @@ static void view_interact(int v, Rectangle view)
                     char lab[120] = "", vs[32] = "";
                     if (f) { qty_label(&d->col, lab, sizeof lab); vc_fmt(val, vs, sizeof vs); }
                     const char *patch = d->t.grp[bt] >= 0 && d->t.grp[bt] < V.m.nPatch ? V.m.patch[d->t.grp[bt]].name : "";
-                    pl_fmt_ui(V.probeTxt, sizeof V.probeTxt, "%s%s%s  at (%.4g, %.4g, %.4g)  cell %ld%s%s", lab, f ? " = " : "", vs, V.probeX[0], V.probeX[1], V.probeX[2],
-                              cell, patch[0] ? "  on " : "", patch);
+                    if (cell < 0) cell = vz_find_cell(&V.m, V.probeX, -1);
+                    char cs[32] = ""; if (cell >= 0) snprintf(cs, sizeof cs, "  cell %ld", cell);
+                    pl_fmt_ui(V.probeTxt, sizeof V.probeTxt, "%s%s%s  at (%.4g, %.4g, %.4g)%s%s%s", lab, f ? " = " : "", vs, V.probeX[0], V.probeX[1], V.probeX[2],
+                              cs, patch[0] ? "  on " : "", patch);
                     V.probeOk = true; V.probeV = val; V.probeDisp = bd;
                 }
                 V.dirty[0] = V.dirty[1] = true;
@@ -1991,7 +2022,11 @@ static void plot_panel(Rectangle r)
 /* ================================================================ the page */
 float viz_page(Case *c, float x, float y, float w, float h)
 {
-    if (strcmp(V.path, c->s.path)) { if (!V.mu.__size[0] && 0) {} static bool init; if (!init) { pthread_mutex_init(&V.mu, NULL); init = true; } open_case(c); }
+    if (strcmp(V.path, c->s.path)) {
+        static bool init;
+        if (!init) { pthread_mutex_init(&V.mu, NULL); init = true; }
+        open_case(c);
+    }
     poll_load();
     if (V.mOk && !V.loaded) after_mesh();
     if (V.mLoading || (!V.mOk && !V.mErr[0])) {
@@ -2059,7 +2094,7 @@ float viz_page(Case *c, float x, float y, float w, float h)
             tx += bw + 4;
         }
         float fw = ui_button_width(ICON_SQUARE, "Fit");
-        if (ui_button(ui_id("vz-fit"), (Rectangle){ tx, ty, fw, 30 }, ICON_SQUARE, "Fit", BTN_GHOST)) { for (int v = 0; v < 2; v++) { V.touched[v] = false; float a = V.rtH[v] ? (float)V.rtW[v] / V.rtH[v] : 1.6f; bool keep = V.fitted[v]; V.fitted[v] = keep; fit_view(v, a); } redraw_all(); }
+        if (ui_button(ui_id("vz-fit"), (Rectangle){ tx, ty, fw, 30 }, ICON_SQUARE, "Fit", BTN_GHOST)) { for (int v = 0; v < 2; v++) { V.touched[v] = false; fit_view(v, V.rtH[v] ? (float)V.rtW[v] / V.rtH[v] : 1.6f); } redraw_all(); }
         tx += fw + 10;
         /* saved views */
         const char *svn[13]; int nsvn = 0;

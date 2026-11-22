@@ -146,8 +146,9 @@ bool vz_mesh_load(VzMesh *m, const char *dir)
     pl_join(p, sizeof p, dir, "neighbour"); m->nei = fr_labels(p, &nn);
     pl_join(p, sizeof p, dir, "boundary"); m->nPatch = fr_boundary(p, m->patch, VZ_MAX_PATCHES);
     if (!m->pt || !fo || !m->own || no != m->nFaces || nn < 0 || nn > m->nFaces) {
-        snprintf(m->err, sizeof m->err, "Could not read the mesh in %s (%s)", dir, !m->pt ? "points" : !fo ? "faces" : !m->own ? "owner" : "neighbour");
-        vz_mesh_free(m); snprintf(m->err, sizeof m->err, "Could not read the mesh in %s", dir);
+        const char *what = !m->pt ? "points" : !fo ? "faces" : !m->own ? "owner" : no != m->nFaces ? "owner (its length)" : "neighbour";
+        vz_mesh_free(m);                                     /* (it clears err) */
+        snprintf(m->err, sizeof m->err, "Could not read the mesh in %s (%s)", dir, what);
         return false;
     }
     if (!m->nei && nn == 0) m->nei = malloc(sizeof(long));
@@ -930,13 +931,13 @@ static int trace(const VzMesh *m, const VzField *U, const double x0[3], double s
         if (s >= maxSteps) break;
         double xn[3];
         for (int d = 0; d < 3; d++) xn[d] = x[d] + dt / 6 * (k[0][d] + 2 * k[1][d] + 2 * k[2][d] + k[3][d]);
-        long cn = c;
-        if (vz_find_cell(m, xn, cn) < 0) break;
+        long cn = vz_find_cell(m, xn, c);
+        if (cn < 0) break;                                   /* out of the mesh */
         double dl[3]; sub3(xn, x, dl); len += len3(dl);
         memcpy(x, xn, sizeof x);
-        c = vz_find_cell(m, x, c);
+        c = cn;
         memcpy(&buf[3 * n], x, sizeof x); n++;
-        if (len > maxLen || c < 0) break;
+        if (len > maxLen) break;
     }
     return n;
 }

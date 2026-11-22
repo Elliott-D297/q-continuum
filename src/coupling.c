@@ -475,8 +475,8 @@ static bool adapter_lib_present(void)
     glob_t g;
     char pat[PL_PATH];
     snprintf(pat, sizeof pat, "%s/OpenFOAM/*/platforms/*/lib/libpreciceAdapterFunctionObject.so", pl_home());
-    bool ok = glob(pat, 0, NULL, &g) == 0 && g.gl_pathc > 0;
-    if (glob(pat, 0, NULL, &g) == 0) globfree(&g);
+    bool ok = false;
+    if (glob(pat, 0, NULL, &g) == 0) { ok = g.gl_pathc > 0; globfree(&g); }   /* (it globbed twice and leaked the first) */
     return ok;
 }
 

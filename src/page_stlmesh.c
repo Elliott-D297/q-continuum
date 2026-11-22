@@ -1032,9 +1032,11 @@ static float geometry_step(Case *c, float x, float y, float w)
               a, b3, c3, s->area, s->openEdges == 0 && s->nonManifold == 0 ? TextFormat("  ·  volume %.4g m³", s->volume) : "",
               th[0] ? "  ·  thinnest about " : "", th);
     y += ui_text_wrap(F_MONO, 12.5f, line, (Rectangle){ x, y, w, 80 }, 19, TH.text2, true) + 8;
-    bool closed = s->openEdges == 0 && s->nonManifold == 0;
+    bool closed = s->openEdges == 0 && s->nonManifold == 0 && !s->oom;
     char msg[300];
-    if (closed) snprintf(msg, sizeof msg, "Closed (watertight): every edge has two triangles. It can be meshed inside or outside.");
+    if (s->oom) snprintf(msg, sizeof msg, "Too big to check in the memory free now: whether it is closed is not known, and it is one "
+                         "boundary (walls). Close other programs and open it again, or export it coarser.");
+    else if (closed) snprintf(msg, sizeof msg, "Closed (watertight): every edge has two triangles. It can be meshed inside or outside.");
     else snprintf(msg, sizeof msg, "%d open and %d non-manifold edges: not watertight. snappyHexMesh copes with small gaps (smaller than the cells there); "
                   "SALOME needs a closed surface. Fix it in your CAD, or with surfaceCheck and surfaceClean.", s->openEdges, s->nonManifold);
     float ch = callout_height(w, NULL, msg);

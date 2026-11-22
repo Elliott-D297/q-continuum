@@ -1564,7 +1564,7 @@ const char *sim_write_replaced(void) { return gReplaced; }
 typedef struct { const char *key[KP_MAX]; int n; } KPath;
 enum { OP_KEEP, OP_INSERT, OP_DELETE };
 typedef struct { int kind; char *path[KP_MAX]; int n; char *text; char *before; } MergeOp;   /* before: an insert goes ahead of this key */
-typedef struct { MergeOp *op; int n, cap; } MergeOps;
+typedef struct { MergeOp *op; int n, cap; bool oom; } MergeOps;   /* oom: an edit could not be noted: no merge */
 
 /* entries equal but for spacing (and comments' spacing) */
 static bool same_text(const char *a, int al, const char *b, int bl)
@@ -1607,7 +1607,13 @@ static void note(char *buf, const char *line)
 
 static void add_op(MergeOps *m, int kind, const KPath *k, const char *last, const char *text, int tl)
 {
-    if (m->n == m->cap) { m->cap = m->cap ? 2 * m->cap : 16; m->op = realloc(m->op, sizeof(MergeOp) * (size_t)m->cap); }
+    if (m->oom) return;
+    if (m->n == m->cap) {
+        int nc = m->cap ? 2 * m->cap : 16;
+        MergeOp *no = realloc(m->op, sizeof(MergeOp) * (size_t)nc);
+        if (!no) { m->oom = true; return; }
+        m->op = no; m->cap = nc;
+    }
     MergeOp *o = &m->op[m->n++];
     o->kind = kind; o->n = 0;
     for (int i = 0; i < k->n && o->n < KP_MAX; i++) o->path[o->n++] = strdup(k->key[i]);
@@ -1619,7 +1625,7 @@ static void add_op(MergeOps *m, int kind, const KPath *k, const char *last, cons
    in their file (a macro's definition before its $uses: pitzDaily's "turbulence" above "div(phi,k) $turbulence") */
 static void insert_before(MergeOps *m, FDEntry *td, int i, FDEntry *rd)
 {
-    if (!m->n || !rd) return;
+    if (!m->n || !rd || m->oom) return;
     for (int j = i + 1; j < td->nChild; j++) {
         const char *key = td->child[j].key;
         if (td->child[j].kind != FD_DIRECTIVE && key && key[0] && fd_child(rd, key)) { m->op[m->n - 1].before = strdup(key); return; }
@@ -1707,7 +1713,7 @@ static char *merge3(const char *rel, const char *theirs, const char *base, const
         }
         for (int i = 0; i < m.n; i++) { for (int j = 0; j < m.op[i].n; j++) free(m.op[i].path[j]); free(m.op[i].text); free(m.op[i].before); }
         free(m.op);
-        if (R->ok) out = strdup(R->text);
+        if (R->ok && !m.oom) out = strdup(R->text);           /* a user's edit not noted: "can't tell" rather than lose it */
     }
     fd_free(T); fd_free(B); fd_free(R);
     return out;

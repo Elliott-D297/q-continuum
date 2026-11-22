@@ -30,10 +30,12 @@ int vz_patch_of_face(const VzMesh *m, long f)
     return -1;
 }
 
-static void face_geometry(VzMesh *m)
+/* the derived arrays: each false when memory runs out (vz_mesh_load then frees the mesh and says so) */
+static bool face_geometry(VzMesh *m)
 {
     m->fCtr = malloc(sizeof(double) * 3 * (size_t)m->nFaces);
     m->fArea = malloc(sizeof(double) * 3 * (size_t)m->nFaces);
+    if (!m->fCtr || !m->fArea) return false;
     for (long f = 0; f < m->nFaces; f++) {
         long a = m->fOff[f], n = m->fOff[f + 1] - a;
         double avg[3] = { 0, 0, 0 };
@@ -48,20 +50,22 @@ static void face_geometry(VzMesh *m)
         }
         for (int d = 0; d < 3; d++) { m->fArea[3 * f + d] = S[d]; m->fCtr[3 * f + d] = tot > 0 ? C[d] / tot : avg[d]; }
     }
+    return true;
 }
 
-static void cell_geometry(VzMesh *m)
+static bool cell_geometry(VzMesh *m)
 {
     long nc = m->nCells;
     double *est = calloc((size_t)nc * 3, sizeof(double));
     int *cnt = calloc((size_t)nc, sizeof(int));
+    m->cCtr = calloc((size_t)nc * 3, sizeof(double));
+    m->cVol = calloc((size_t)nc, sizeof(double));
+    if (!est || !cnt || !m->cCtr || !m->cVol) { free(est); free(cnt); return false; }
     for (long f = 0; f < m->nFaces; f++) {
         long cs[2] = { m->own[f], f < m->nInternal ? m->nei[f] : -1 };
         for (int s = 0; s < 2; s++) if (cs[s] >= 0) { for (int d = 0; d < 3; d++) est[3 * cs[s] + d] += m->fCtr[3 * f + d]; cnt[cs[s]]++; }
     }
     for (long c = 0; c < nc; c++) for (int d = 0; d < 3; d++) est[3 * c + d] /= cnt[c] ? cnt[c] : 1;
-    m->cCtr = calloc((size_t)nc * 3, sizeof(double));
-    m->cVol = calloc((size_t)nc, sizeof(double));
     for (long f = 0; f < m->nFaces; f++) {
         long cs[2] = { m->own[f], f < m->nInternal ? m->nei[f] : -1 };
         for (int s = 0; s < 2; s++) {
@@ -78,16 +82,19 @@ static void cell_geometry(VzMesh *m)
         else for (int d = 0; d < 3; d++) m->cCtr[3 * c + d] = est[3 * c + d];
     }
     free(est); free(cnt);
+    return true;
 }
 
-static void adjacency(VzMesh *m)
+static bool adjacency(VzMesh *m)
 {
     long nc = m->nCells, np = m->nPoints;
     m->cfOff = calloc((size_t)nc + 1, sizeof(long));
+    if (!m->cfOff) return false;
     for (long f = 0; f < m->nFaces; f++) { m->cfOff[m->own[f] + 1]++; if (f < m->nInternal) m->cfOff[m->nei[f] + 1]++; }
     for (long c = 0; c < nc; c++) m->cfOff[c + 1] += m->cfOff[c];
     m->cfIdx = malloc(sizeof(long) * (size_t)(m->cfOff[nc] > 0 ? m->cfOff[nc] : 1));
     long *fill = calloc((size_t)nc, sizeof(long));
+    if (!m->cfIdx || !fill) { free(fill); return false; }
     for (long f = 0; f < m->nFaces; f++) {
         m->cfIdx[m->cfOff[m->own[f]] + fill[m->own[f]]++] = f;
         if (f < m->nInternal) m->cfIdx[m->cfOff[m->nei[f]] + fill[m->nei[f]]++] = f;
@@ -95,8 +102,9 @@ static void adjacency(VzMesh *m)
     free(fill);
     /* point to cells, each cell once per point */
     long *last = malloc(sizeof(long) * (size_t)np);
-    for (long p = 0; p < np; p++) last[p] = -1;
     m->pcOff = calloc((size_t)np + 1, sizeof(long));
+    if (!last || !m->pcOff) { free(last); return false; }
+    for (long p = 0; p < np; p++) last[p] = -1;
     for (long c = 0; c < nc; c++)
         for (long k = m->cfOff[c]; k < m->cfOff[c + 1]; k++) {
             long f = m->cfIdx[k];
@@ -105,6 +113,7 @@ static void adjacency(VzMesh *m)
     for (long p = 0; p < np; p++) m->pcOff[p + 1] += m->pcOff[p];
     m->pcIdx = malloc(sizeof(long) * (size_t)(m->pcOff[np] > 0 ? m->pcOff[np] : 1));
     long *pf = calloc((size_t)np, sizeof(long));
+    if (!m->pcIdx || !pf) { free(pf); free(last); return false; }
     for (long p = 0; p < np; p++) last[p] = -1;
     for (long c = 0; c < nc; c++)
         for (long k = m->cfOff[c]; k < m->cfOff[c + 1]; k++) {
@@ -112,16 +121,20 @@ static void adjacency(VzMesh *m)
             for (long j = m->fOff[f]; j < m->fOff[f + 1]; j++) { long p = m->fIdx[j]; if (last[p] != c) { last[p] = c; m->pcIdx[m->pcOff[p] + pf[p]++] = c; } }
         }
     free(pf); free(last);
+    return true;
 }
 
-static void build_grid(VzMesh *m)
+static bool build_grid(VzMesh *m)
 {
     double L[3]; for (int d = 0; d < 3; d++) L[d] = fmax(m->hi[d] - m->lo[d], 1e-12);
     double target = fmax(1, (double)m->nCells / 4), vol = L[0] * L[1] * L[2], s = cbrt(vol / target);
     for (int d = 0; d < 3; d++) { m->gn[d] = (int)fmin(256, fmax(1, ceil(L[d] / s))); }
     long nb = (long)m->gn[0] * m->gn[1] * m->gn[2];
     m->gridOff = calloc((size_t)nb + 1, sizeof(long));
-    long *bin = malloc(sizeof(long) * (size_t)m->nCells);
+    long *bin = malloc(sizeof(long) * (size_t)(m->nCells > 0 ? m->nCells : 1));
+    m->grid = malloc(sizeof(long) * (size_t)(m->nCells > 0 ? m->nCells : 1));
+    long *fill = calloc((size_t)nb, sizeof(long));
+    if (!m->gridOff || !bin || !m->grid || !fill) { free(bin); free(fill); return false; }
     for (long c = 0; c < m->nCells; c++) {
         int ix[3];
         for (int d = 0; d < 3; d++) { ix[d] = (int)((m->cCtr[3 * c + d] - m->lo[d]) / L[d] * m->gn[d]); if (ix[d] < 0) ix[d] = 0; if (ix[d] >= m->gn[d]) ix[d] = m->gn[d] - 1; }
@@ -129,10 +142,9 @@ static void build_grid(VzMesh *m)
         m->gridOff[bin[c] + 1]++;
     }
     for (long b = 0; b < nb; b++) m->gridOff[b + 1] += m->gridOff[b];
-    m->grid = malloc(sizeof(long) * (size_t)(m->nCells > 0 ? m->nCells : 1));
-    long *fill = calloc((size_t)nb, sizeof(long));
     for (long c = 0; c < m->nCells; c++) m->grid[m->gridOff[bin[c]] + fill[bin[c]]++] = c;
     free(fill); free(bin);
+    return true;
 }
 
 bool vz_mesh_load(VzMesh *m, const char *dir)
@@ -151,7 +163,7 @@ bool vz_mesh_load(VzMesh *m, const char *dir)
         snprintf(m->err, sizeof m->err, "Could not read the mesh in %s (%s)", dir, what);
         return false;
     }
-    if (!m->nei && nn == 0) m->nei = malloc(sizeof(long));
+    if (!m->nei && nn == 0 && !(m->nei = malloc(sizeof(long)))) { vz_mesh_free(m); snprintf(m->err, sizeof m->err, "Out of memory"); return false; }
     m->nInternal = nn;
     long mc = -1;
     for (long f = 0; f < m->nFaces; f++) { if (m->own[f] > mc) mc = m->own[f]; }
@@ -164,12 +176,20 @@ bool vz_mesh_load(VzMesh *m, const char *dir)
     }
     for (int d = 0; d < 3; d++) { m->lo[d] = 1e300; m->hi[d] = -1e300; }
     for (long i = 0; i < m->nPoints; i++) for (int d = 0; d < 3; d++) { m->lo[d] = fmin(m->lo[d], m->pt[3 * i + d]); m->hi[d] = fmax(m->hi[d], m->pt[3 * i + d]); }
-    face_geometry(m);
-    cell_geometry(m);
-    adjacency(m);
+    if (!face_geometry(m) || !cell_geometry(m) || !adjacency(m)) {
+        long nc = m->nCells;
+        vz_mesh_free(m);
+        snprintf(m->err, sizeof m->err, "Not enough memory free to show this mesh (%ld cells): close other programs and open it again", nc);
+        return false;
+    }
     double vol = 0; for (long c = 0; c < m->nCells; c++) vol += fabs(m->cVol[c]);
     m->h = m->nCells ? cbrt(vol / m->nCells) : 1;
-    build_grid(m);
+    if (!build_grid(m)) {
+        long nc = m->nCells;
+        vz_mesh_free(m);
+        snprintf(m->err, sizeof m->err, "Not enough memory free to show this mesh (%ld cells): close other programs and open it again", nc);
+        return false;
+    }
     m->ok = true;
     return true;
 }
@@ -187,13 +207,21 @@ static bool real_patch(const char *type)
    is off at a mesh's edges and corners even for a linear field (0.125 on a 0.1 m mesh of 2x + 3y - z); this is exact for
    linear fields and second-order otherwise */
 double *vz_gradient(const VzMesh *m, const VzField *f, int k);
-void vz_field_points(VzField *f, const VzMesh *m)
+bool vz_field_points(VzField *f, const VzMesh *m)
 {
     int nc = f->nc;
     free(f->p);
     f->p = calloc((size_t)m->nPoints * (size_t)nc, sizeof(double));
     double *g[3] = { NULL, NULL, NULL };
-    for (int j = 0; j < nc; j++) g[j] = vz_gradient(m, f, j);
+    double *sum = calloc((size_t)m->nPoints * (size_t)nc, sizeof(double));
+    int *cnt = calloc((size_t)m->nPoints, sizeof(int));
+    bool ok = f->p && sum && cnt && nc <= 3;
+    for (int j = 0; j < nc && ok; j++) if (!(g[j] = vz_gradient(m, f, j))) ok = false;
+    if (!ok) {                                             /* out of memory: no point values, the caller drops the field */
+        free(f->p); f->p = NULL; free(sum); free(cnt);
+        for (int j = 0; j < 3; j++) free(g[j]);
+        return false;
+    }
     for (long p = 0; p < m->nPoints; p++) {
         long a = m->pcOff[p], b = m->pcOff[p + 1];
         const double *xp = &m->pt[3 * p];
@@ -204,8 +232,6 @@ void vz_field_points(VzField *f, const VzMesh *m)
         }
         if (b > a) for (int j = 0; j < nc; j++) f->p[p * nc + j] /= (double)(b - a);
     }
-    double *sum = calloc((size_t)m->nPoints * (size_t)nc, sizeof(double));
-    int *cnt = calloc((size_t)m->nPoints, sizeof(int));
     for (int q = 0; q < m->nPatch; q++) {
         if (!real_patch(m->patch[q].type)) continue;
         for (long f2 = m->patch[q].start; f2 < m->patch[q].start + m->patch[q].nFaces; f2++) {
@@ -222,6 +248,7 @@ void vz_field_points(VzField *f, const VzMesh *m)
     for (long p = 0; p < m->nPoints; p++) if (cnt[p]) for (int j = 0; j < nc; j++) f->p[p * nc + j] = sum[p * nc + j] / cnt[p];
     free(sum); free(cnt);
     for (int j = 0; j < nc; j++) free(g[j]);
+    return true;
 }
 
 bool vz_field_load(VzField *f, const VzMesh *m, const char *casePath, const char *time, const char *name)
@@ -235,7 +262,7 @@ bool vz_field_load(VzField *f, const VzMesh *m, const char *casePath, const char
         double *v = &f->b[(i - m->nInternal) * f->nc];
         if (isnan(v[0])) for (int j = 0; j < f->nc; j++) v[j] = f->c[m->own[i] * f->nc + j];
     }
-    vz_field_points(f, m);
+    if (!vz_field_points(f, m)) { vz_field_free(f); return false; }
     return true;
 }
 
@@ -296,6 +323,7 @@ bool vz_field_load_procs(VzField *f, const VzMesh *m, const char *casePath, cons
             pl_strlcpy(f->dims, dims, sizeof f->dims);
             f->c = calloc((size_t)m->nCells * nc, sizeof(double));
             f->b = malloc(sizeof(double) * (size_t)(nb > 0 ? nb : 1) * nc);
+            if (!f->c || !f->b) { free(c); free(b); vz_field_free(f); return false; }
             for (long i = 0; i < nb * nc; i++) f->b[i] = NAN;
         }
         for (long i = 0; i < pr->nCells; i++) for (int j = 0; j < nc; j++) f->c[pr->cell[i] * nc + j] = c[i * nc + j];
@@ -314,7 +342,7 @@ bool vz_field_load_procs(VzField *f, const VzMesh *m, const char *casePath, cons
         double *v = &f->b[(i - m->nInternal) * f->nc];
         if (isnan(v[0])) for (int j = 0; j < f->nc; j++) v[j] = f->c[m->own[i] * f->nc + j];
     }
-    vz_field_points(f, m);
+    if (!vz_field_points(f, m)) { vz_field_free(f); return false; }
     return true;
 }
 
@@ -336,6 +364,7 @@ double vz_point(const VzField *f, int q, long i) { return qof(&f->p[i * f->nc], 
 double *vz_gradient(const VzMesh *m, const VzField *f, int k)
 {
     double *g = calloc((size_t)m->nCells * 3, sizeof(double));
+    if (!g) return NULL;
     int nc = f->nc;
     for (long fa = 0; fa < m->nFaces; fa++) {
         long o = m->own[fa];
@@ -369,6 +398,7 @@ bool vz_derived(VzField *out, const VzMesh *m, int kind, const VzField *p, const
     out->nc = 1;
     out->c = calloc((size_t)(nc > 0 ? nc : 1), sizeof(double));
     out->b = calloc((size_t)(nb > 0 ? nb : 1), sizeof(double));
+    if (!out->c || !out->b) { vz_field_free(out); return false; }
     pl_strlcpy(out->name, VD_NAME[kind], sizeof out->name);
     switch (kind) {
     case VD_PPA:
@@ -399,6 +429,7 @@ bool vz_derived(VzField *out, const VzMesh *m, int kind, const VzField *p, const
     default: {
         if (!U || U->nc != 3) { vz_field_free(out); return false; }
         double *g[3] = { vz_gradient(m, U, 0), vz_gradient(m, U, 1), vz_gradient(m, U, 2) };   /* g[i][d] = d u_i / d x_d */
+        if (!g[0] || !g[1] || !g[2]) { free(g[0]); free(g[1]); free(g[2]); vz_field_free(out); return false; }
         for (long c = 0; c < nc; c++) {
             double G[3][3];
             for (int i = 0; i < 3; i++) for (int d = 0; d < 3; d++) G[i][d] = g[i][3 * c + d];
@@ -422,7 +453,7 @@ bool vz_derived(VzField *out, const VzMesh *m, int kind, const VzField *p, const
         pl_strlcpy(out->dims, kind == VD_Q ? "[0 0 -2 0 0 0 0]" : kind == VD_HELICITY ? "[0 1 -2 0 0 0 0]" : "[0 0 -1 0 0 0 0]", sizeof out->dims);
     }
     }
-    vz_field_points(out, m);
+    if (!vz_field_points(out, m)) { vz_field_free(out); return false; }
     return true;
 }
 
@@ -596,13 +627,25 @@ typedef struct { VzTris *t; long cap; } TB;
 static void tb_add(TB *b, const double *p0, const double *p1, const double *p2, double v0, double v1, double v2, int cell, int grp)
 {
     VzTris *t = b->t;
-    if (t->n >= b->cap) {
-        b->cap = b->cap ? b->cap * 2 : 1024;
-        t->xyz = realloc(t->xyz, sizeof(float) * 9 * (size_t)b->cap);
-        t->val = realloc(t->val, sizeof(float) * 3 * (size_t)b->cap);
-        t->nrm = realloc(t->nrm, sizeof(float) * 3 * (size_t)b->cap);
-        t->cell = realloc(t->cell, sizeof(int) * (size_t)b->cap);
-        t->grp = realloc(t->grp, sizeof(int) * (size_t)b->cap);
+    if (t->n >= b->cap) {                                  /* out of memory: the triangle is left out, the rest stays valid */
+        long nc = b->cap ? b->cap * 2 : 1024;
+        void *q;
+        q = realloc(t->xyz, sizeof(float) * 9 * (size_t)nc);
+        if (!q) return;
+        t->xyz = q;
+        q = realloc(t->val, sizeof(float) * 3 * (size_t)nc);
+        if (!q) return;
+        t->val = q;
+        q = realloc(t->nrm, sizeof(float) * 3 * (size_t)nc);
+        if (!q) return;
+        t->nrm = q;
+        q = realloc(t->cell, sizeof(int) * (size_t)nc);
+        if (!q) return;
+        t->cell = q;
+        q = realloc(t->grp, sizeof(int) * (size_t)nc);
+        if (!q) return;
+        t->grp = q;
+        b->cap = nc;
     }
     long i = t->n++;
     const double *P[3] = { p0, p1, p2 };
@@ -643,6 +686,7 @@ void vz_cut(const VzMesh *m, const double *fn, const VzField *f, int q, bool smo
     TB tb = { out, 0 };
     Cross *cr = malloc(sizeof(Cross) * 512);
     int (*seg)[2] = malloc(sizeof(int) * 2 * 512);
+    if (!cr || !seg) { free(cr); free(seg); return; }
     for (long c = 0; c < m->nCells; c++) {
         /* a quick look: does the function change sign over the cell's points? */
         bool pos = false, neg = false;
@@ -713,6 +757,7 @@ void vz_section(const VzMesh *m, const double origin[3], const double normal[3],
     if (l <= 0) { memset(out, 0, sizeof *out); return; }
     for (int d = 0; d < 3; d++) n[d] /= l;
     double *fn = malloc(sizeof(double) * (size_t)m->nPoints);
+    if (!fn) { memset(out, 0, sizeof *out); return; }
     /* a point exactly on the plane counts as just above it, so a plane through a layer of points cuts cleanly */
     for (long p = 0; p < m->nPoints; p++) { double r[3]; sub3(&m->pt[3 * p], origin, r); fn[p] = dot3(r, n); if (fn[p] == 0) fn[p] = 1e-12 * m->h; }
     vz_cut(m, fn, f, q, smooth, out);
@@ -722,6 +767,7 @@ void vz_section(const VzMesh *m, const double origin[3], const double normal[3],
 void vz_isosurface(const VzMesh *m, const VzField *iso, int isoQ, double value, const VzField *f, int q, VzTris *out)
 {
     double *fn = malloc(sizeof(double) * (size_t)m->nPoints);
+    if (!fn) { memset(out, 0, sizeof *out); return; }
     for (long p = 0; p < m->nPoints; p++) { fn[p] = vz_point(iso, isoQ, p) - value; if (fn[p] == 0) fn[p] = 1e-300; }
     vz_cut(m, fn, f ? f : iso, f ? q : isoQ, true, out);
     free(fn);
@@ -732,6 +778,7 @@ void vz_threshold(const VzMesh *m, const VzField *f, int q, double lo, double hi
     memset(out, 0, sizeof *out);
     TB tb = { out, 0 };
     unsigned char *sel = calloc((size_t)m->nCells, 1);
+    if (!sel) return;
     for (long c = 0; c < m->nCells; c++) { double v = vz_cell(f, q, c); sel[c] = v >= lo && v <= hi; }
     if (!col) { col = f; colQ = q; }
     for (long fa = 0; fa < m->nFaces; fa++) {
@@ -775,26 +822,42 @@ void vz_clip(VzTris *t, const double origin[3], const double normal[3])
     t->n = w;
 }
 
-typedef struct { VzLines *l; long capV, capL; } LB;
+/* oom: memory ran out; every call after is a no-op, so the lines finished before it stay valid */
+typedef struct { VzLines *l; long capV, capL; bool oom; } LB;
 static void lb_begin(LB *b)
 {
     VzLines *l = b->l;
-    if (l->nl + 2 > b->capL) { b->capL = b->capL ? b->capL * 2 : 256; l->off = realloc(l->off, sizeof(long) * (size_t)(b->capL + 1)); }
+    if (b->oom) return;
+    if (l->nl + 2 > b->capL) {
+        long nc = b->capL ? b->capL * 2 : 256;
+        long *no = realloc(l->off, sizeof(long) * (size_t)(nc + 1));
+        if (!no) { b->oom = true; return; }
+        l->off = no; b->capL = nc;
+    }
     if (l->nl == 0) l->off[0] = l->nv;
 }
 static void lb_vert(LB *b, const double *x, double v)
 {
     VzLines *l = b->l;
-    if (l->nv >= b->capV) { b->capV = b->capV ? b->capV * 2 : 1024; l->xyz = realloc(l->xyz, sizeof(float) * 3 * (size_t)b->capV); l->val = realloc(l->val, sizeof(float) * (size_t)b->capV); }
+    if (b->oom) return;
+    if (l->nv >= b->capV) {
+        long nc = b->capV ? b->capV * 2 : 1024;
+        float *nx = realloc(l->xyz, sizeof(float) * 3 * (size_t)nc);
+        if (!nx) { b->oom = true; return; }
+        l->xyz = nx;
+        float *nv = realloc(l->val, sizeof(float) * (size_t)nc);
+        if (!nv) { b->oom = true; return; }
+        l->val = nv; b->capV = nc;
+    }
     for (int d = 0; d < 3; d++) l->xyz[3 * l->nv + d] = (float)x[d];
     l->val[l->nv++] = (float)v;
 }
-static void lb_end(LB *b) { VzLines *l = b->l; l->off[++l->nl] = l->nv; }
+static void lb_end(LB *b) { VzLines *l = b->l; if (b->oom) { l->nv = l->nl ? l->off[l->nl] : 0; return; } l->off[++l->nl] = l->nv; }
 
 void vz_isolines(const VzTris *t, double lo, double hi, int n, bool logScale, VzLines *out)
 {
     memset(out, 0, sizeof *out);
-    LB b = { out, 0, 0 };
+    LB b = { out, 0, 0, false };
     if (n < 1 || !(hi > lo)) return;
     for (int k = 0; k < n; k++) {
         double f = (k + 1.0) / (n + 1.0);
@@ -824,8 +887,9 @@ long vz_glyph_points(const VzMesh *m, const VzField *U, const VzTris *t, double 
     long cap = 1024, n = 0, hcap = 1;
     while (hcap < t->n * 2) hcap <<= 1;
     int64_t *keys = malloc(sizeof(int64_t) * (size_t)hcap);
-    for (long i = 0; i < hcap; i++) keys[i] = INT64_MIN;
     float *P = malloc(sizeof(float) * 3 * (size_t)cap), *V = malloc(sizeof(float) * 3 * (size_t)cap);
+    if (!keys || !P || !V) { free(keys); free(P); free(V); return 0; }
+    for (long i = 0; i < hcap; i++) keys[i] = INT64_MIN;
     for (long i = 0; i < t->n; i++) {
         double c[3];
         for (int d = 0; d < 3; d++) c[d] = (t->xyz[9 * i + d] + t->xyz[9 * i + 3 + d] + t->xyz[9 * i + 6 + d]) / 3;
@@ -843,7 +907,14 @@ long vz_glyph_points(const VzMesh *m, const VzField *U, const VzTris *t, double 
             if (t->cell && t->cell[i] >= 0) for (int d = 0; d < 3; d++) u[d] = U->c[3 * t->cell[i] + d];
             else continue;
         }
-        if (n >= cap) { cap *= 2; P = realloc(P, sizeof(float) * 3 * (size_t)cap); V = realloc(V, sizeof(float) * 3 * (size_t)cap); }
+        if (n >= cap) {                                    /* out of memory: the glyphs so far */
+            float *np = realloc(P, sizeof(float) * 3 * (size_t)cap * 2);
+            if (!np) break;
+            P = np;
+            float *nv = realloc(V, sizeof(float) * 3 * (size_t)cap * 2);
+            if (!nv) break;
+            V = nv; cap *= 2;
+        }
         for (int d = 0; d < 3; d++) { P[3 * n + d] = (float)c[d]; V[3 * n + d] = (float)u[d]; }
         n++;
     }
@@ -867,6 +938,8 @@ long vz_seed_points(const VzMesh *m, const VzSeeds *s, double **pts)
     int n = s->n < 1 ? 1 : s->n;
     long cap = s->kind == VS_PLANE ? (long)n * n : n;
     double *P = malloc(sizeof(double) * 3 * (size_t)(cap > 0 ? cap : 1));
+    *pts = P;
+    if (!P) return 0;
     long k = 0;
     if (s->kind == VS_POINT) {
         double R = s->b[0];
@@ -946,12 +1019,13 @@ void vz_streamlines(const VzMesh *m, const VzField *U, const VzSeeds *s, const V
 {
     memset(out, 0, sizeof *out);
     if (!U || U->nc != 3) return;
-    LB b = { out, 0, 0 };
+    LB b = { out, 0, 0, false };
     double *seeds; long ns = vz_seed_points(m, s, &seeds);
     double diag[3]; sub3(m->hi, m->lo, diag);
     double maxLen = s->maxLen > 0 ? s->maxLen : 10 * len3(diag);
     int maxSteps = s->maxSteps > 0 ? s->maxSteps : 4000;
     double *fw = malloc(sizeof(double) * 3 * (size_t)(maxSteps + 2)), *bw = malloc(sizeof(double) * 3 * (size_t)(maxSteps + 2));
+    if (!fw || !bw) ns = 0;                                /* out of memory: no lines */
     for (long i = 0; i < ns; i++) {
         int nf = s->dir != 1 ? trace(m, U, &seeds[3 * i], 1, maxSteps, maxLen, fw) : 0;
         int nb = s->dir != 0 ? trace(m, U, &seeds[3 * i], -1, maxSteps, maxLen, bw) : 0;
@@ -987,6 +1061,11 @@ void vz_lic(const VzMesh *m, const VzField *U, const VzField *col, int colQ, con
     for (int d = 0; d < 3; d++) n[d] /= l;
     plane_axes(n, eu, ev);
     float *vx = malloc(sizeof(float) * (size_t)w * h), *vy = malloc(sizeof(float) * (size_t)w * h);
+    if (!vx || !vy) {                                      /* out of memory: a blank picture */
+        free(vx); free(vy);
+        for (long i = 0; i < (long)w * h; i++) { lum[i] = 0; if (val) val[i] = NAN; }
+        return;
+    }
     long hint = -1;
     for (int j = 0; j < h; j++) for (int i = 0; i < w; i++) {
         double x[3], u[3];
@@ -1029,6 +1108,7 @@ float *vz_resample(const VzMesh *m, const VzField *f, int q, const int n[3])
 {
     long tot = (long)n[0] * n[1] * n[2];
     float *g = malloc(sizeof(float) * (size_t)(tot > 0 ? tot : 1));
+    if (!g) return NULL;
     long hint = -1;
     for (int k = 0; k < n[2]; k++) for (int j = 0; j < n[1]; j++) for (int i = 0; i < n[0]; i++) {
         double x[3] = { m->lo[0] + (i + 0.5) / n[0] * (m->hi[0] - m->lo[0]), m->lo[1] + (j + 0.5) / n[1] * (m->hi[1] - m->lo[1]),

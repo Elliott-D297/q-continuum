@@ -549,6 +549,7 @@ bool bm_points_parse(const char *text, BmEdge *e)
 {
     Tk t = { text, 0, (int)strlen(text), 0, "" };
     double (*p)[3] = malloc(sizeof(double) * 3 * BM_MAXPTS);
+    if (!p) return false;
     int n = 0, ty;
     bool ok = true;
     while (ok && (ty = tk(&t)) != T_END) {

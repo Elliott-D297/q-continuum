@@ -75,6 +75,7 @@ typedef struct {
     int   *face;            /* a CAD part's face a triangle is on (solid face_<id>: id), 0 none; NULL: no CAD faces */
     int    nFaces;          /* the largest face id                       */
     int    dropped;         /* degenerate triangles left out when read   */
+    bool   oom;             /* reading ran out of memory                  */
     int    nRegions;
     StlRegion reg[STL_MAX_REGIONS];
     float  bmin[3], bmax[3];

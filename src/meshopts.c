@@ -520,7 +520,12 @@ void mo_set(MeshOverrides *o, const char *file, const char *path, const char *va
         return;
     }
     if (at < 0) {
-        if (o->n == o->cap) { o->cap = o->cap ? o->cap * 2 : 32; o->s = realloc(o->s, sizeof *o->s * (size_t)o->cap); }
+        if (o->n == o->cap) {
+            int nc = o->cap ? o->cap * 2 : 32;
+            void *ns = realloc(o->s, sizeof *o->s * (size_t)nc);
+            if (!ns) return;                                   /* (the setting is not kept) */
+            o->s = ns; o->cap = nc;
+        }
         at = o->n++;
         pl_strlcpy(o->s[at].file, file, sizeof o->s[at].file);
         pl_strlcpy(o->s[at].path, path, sizeof o->s[at].path);

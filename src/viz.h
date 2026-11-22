@@ -54,7 +54,7 @@ bool vz_field_load(VzField *f, const VzMesh *m, const char *casePath, const char
 int  vz_mesh_procs(VzMesh *m, const char *casePath);
 bool vz_field_load_procs(VzField *f, const VzMesh *m, const char *casePath, const char *time, const char *name);
 void vz_field_free(VzField *f);
-void vz_field_points(VzField *f, const VzMesh *m);   /* (re)fills f->p from c and b */
+bool vz_field_points(VzField *f, const VzMesh *m);   /* (re)fills f->p from c and b; false: out of memory (f->p NULL) */
 
 /* ---- derived fields: what to colour by. A "quantity" is a field and how to read it */
 enum { VQ_VALUE = 0, VQ_MAG, VQ_X, VQ_Y, VQ_Z };     /* a scalar's value; a vector's magnitude or a component */

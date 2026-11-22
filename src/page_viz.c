@@ -641,6 +641,7 @@ static void build(Disp *d, VzField *fc, VzField *fi, VzField *U, const char *tim
         int N = d->volN < 16 ? 16 : d->volN > 128 ? 128 : d->volN;
         for (int k = 0; k < 3; k++) d->vn[k] = (int)fmax(2, ceil(N * L[k] / mx));
         d->vol = vz_resample(&V.m, f, q, d->vn);
+        if (!d->vol) snprintf(d->err, sizeof d->err, "Not enough memory free for the volume: a lower resolution");
         break;
     }
     case DK_LINE: {
@@ -648,6 +649,7 @@ static void build(Disp *d, VzField *fc, VzField *fi, VzField *U, const char *tim
         if (!f) { snprintf(d->err, sizeof d->err, "A line probe needs a field"); break; }
         int n = d->lN < 2 ? 2 : d->lN > 4000 ? 4000 : d->lN;
         d->px = malloc(sizeof(double) * 3 * (size_t)n); d->pv = malloc(sizeof(double) * (size_t)n); d->pn = n;
+        if (!d->px || !d->pv) { free(d->px); free(d->pv); d->px = d->pv = NULL; d->pn = 0; snprintf(d->err, sizeof d->err, "Out of memory"); break; }
         if (!vz_line_probe(&V.m, f, q, d->la, d->lb, n, d->px, d->pv)) snprintf(d->err, sizeof d->err, "The line is outside the mesh");
         break;
     }

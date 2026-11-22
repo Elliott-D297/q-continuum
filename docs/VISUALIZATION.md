@@ -43,6 +43,7 @@ Adding something that sits inside the flow makes an opaque boundary see-through 
 - A **section plane** reports what is on it under its settings: its area, the area-weighted mean of what it is coloured by, and the flow through it along its normal, as a volume and (for an incompressible case) a mass flow, with **Copy** for a spreadsheet.
 - The copy button on a displayer's row makes a second one with the same settings, for example another plane, or the same streamlines coloured another way.
 - **Views > Forget the saved views** clears the saved views. **Movie > sweep the plane** moves the selected plane from one side of the mesh to the other, one frame per position, and puts it back afterwards.
+- **Streamlines from here** beside a probe readout seeds streamlines at the clicked point.
 - The page follows a case that is run again: new times appear, rewritten fields and a remade mesh are read again.
 
 ## Units and pressure

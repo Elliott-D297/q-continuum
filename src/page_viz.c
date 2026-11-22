@@ -116,6 +116,7 @@ static struct {
     int    shotMag;
     /* probe */
     bool   probeOk; double probeX[3], probeV; char probeTxt[200]; int probeDisp;
+    Rectangle probeBox;               /* the probe's readout and its button, last frame: not the view's clicks */
     /* panels */
     UiScroll left; bool histOn;
     Shader sh; bool shOk; int locView, locLit;
@@ -1927,7 +1928,7 @@ static float options_panel(float x, float y, float w)
 static void view_interact(int v, Rectangle view)
 {
     Rectangle turnR = { view.x + 12, view.y + 10, orbit_tools_w(false) + 16, 40 };
-    bool hov = ui_hovered(view) && !ui_hovered(turnR) && A.modal == MD_NONE;
+    bool hov = ui_hovered(view) && !ui_hovered(turnR) && !(V.probeOk && ui_hovered(V.probeBox)) && A.modal == MD_NONE;
     Vector2 mp = ui_mouse();
     static Vector2 pressAt;
     if (hov && ui_pressed(view)) {
@@ -2290,11 +2291,21 @@ float viz_page(Case *c, float x, float y, float w, float h)
         draw_view(1, (Rectangle){ vx + hw + gap, y, hw, vh });
     } else draw_view(0, (Rectangle){ vx, y, vw, vh });
     if (V.probeOk) {
-        float pw = fminf(vw - 20, ui_text_w(F_MONO, 12, V.probeTxt) + 24);
+        float sbw = has_field("U") ? ui_button_width(NULL, "Streamlines from here") : 0;
+        float pw = fminf(vw - 20 - sbw - 8, ui_text_w(F_MONO, 12, V.probeTxt) + 24);
         Rectangle pr = { vx + 10, y + vh - 40, pw, 30 };
         ui_rect(pr, 8, ui_alpha(TH.surface, 0.9f));
         ui_text_clip(F_MONO, 12, V.probeTxt, pr.x + 12, pr.y + 9, pr.width - 20, TH.text);
         ui_register(ui_id("vz-probe"), pr, V.probeTxt);
+        V.probeBox = (Rectangle){ pr.x, pr.y, pr.width + (sbw > 0 ? sbw + 8 : 0), pr.height };
+        if (sbw > 0 && ui_button(ui_id("vz-seed-here"), (Rectangle){ pr.x + pr.width + 8, pr.y, sbw, 30 }, NULL, "Streamlines from here", BTN_SECONDARY)) {
+            Disp *d = add_disp(DK_STREAM);                   /* a small ball of seeds at the probed point, both ways */
+            if (d) {
+                d->seeds.kind = VS_POINT; d->seeds.dir = 2; d->seeds.n = 40;
+                memcpy(d->seeds.a, V.probeX, sizeof V.probeX); d->seeds.b[0] = 0.04 * diag_of_mesh();
+                V.sel = V.nd - 1; redraw_all();
+            } else ui_toast(TOAST_WARN, "%d displayers at most", MAX_DISP);
+        }
     }
     if (plotH > 0) plot_panel((Rectangle){ vx, y + vh + gap, vw, plotH });
     /* the scene file, a moment after the last change */

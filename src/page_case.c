@@ -61,6 +61,7 @@ void app_generate_mesh(void)
         return;
     }
     app_save_all(true);
+    least_case(A.cs->s.path);                              /* a new case with only controlDict: checkMesh needs fvSchemes and fvSolution (plan step 12 walk-through) */
     job_reset(A.cj, "Mesh");
     if (bm) job_add(A.cj, "blockMesh", "blockMesh", "blockMesh", "log.blockMesh", false);
     if (sn) {

@@ -179,7 +179,7 @@ names one path and says why, step by step:
 | A pipe in 3-D | Block builder, O-grid | no cell squeezed at the centre |
 | A CAD part | STL mesher, snappyHexMesh | passed every check on curved parts (tests/compare_meshers.sh, 2026-11-10) |
 | A 2-D profile with SALOME installed | STL mesher, SALOME triangles | fewest cells for the same wall resolution on the NACA profile |
-| Gmsh, SALOME (UNV, MED) | Mesh > SALOME / import | gmshToFoam, ideasUnvToFoam |
+| Gmsh, SALOME (UNV, MED) | Mesh > SALOME script (Import a mesh) | gmshToFoam, ideasUnvToFoam |
 | Fluent, STAR-CD | the command (fluent3DMeshToFoam, star4ToFoam) | this OpenFOAM has no ccmToFoam |
 
 Walls: nothing asked of them, no layers; pressure drop and forces, wall functions at y+ 50 (30 to 300), 3 to 5 layers; heat

@@ -31,7 +31,7 @@ enter 1
 wait 5
 assert text Block builder, "Backward-facing step" template
 assert text Resolve the viscous sublayer
-assert text Re 6.6e+05
+assert text Re 660,000
 screenshot $OUT/2_step.png
 # a part from CAD: the STL mesher; a Fluent mesh: the converter's command
 click mq-shape

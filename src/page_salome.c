@@ -150,7 +150,7 @@ static void typed_path(char *p, size_t cap)
 
 /* the setup's marker line (simsetup.c MARK_START): these stand-ins are its to replace when it writes the case files */
 #define STANDIN "// Written by Q-Continuum's simulation setup: a stand-in until the setup writes this file\n"
-static void least_case(const char *dir)
+void least_case(const char *dir)
 {
     static const char *const F[][2] = {
         { "system/controlDict", STANDIN "FoamFile { version 2.0; format ascii; class dictionary; object controlDict; }\n\napplication     simpleFoam;\n"

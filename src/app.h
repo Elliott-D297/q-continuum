@@ -343,6 +343,7 @@ void  stlmesh_new_case(void);                                /* page_stlmesh.c: 
    in constant/, where clearing or copying 0/ (Clean, 0.orig) can't leave the faces with the points from before the layers */
 #define SNAPPY_CMD "snappyHexMesh -overwrite && if [ -f 0/polyMesh/points ]; then mv -f 0/polyMesh/points constant/polyMesh/points " \
                    "&& rm -rf 0/polyMesh && echo 'Q-Continuum: moved the layered points from 0/polyMesh to constant/polyMesh'; fi"
+void  least_case(const char *dir);                           /* page_salome.c: stand-in controlDict, fvSchemes, fvSolution where missing (the mesh tools need them) */
 void  salome_import_new_case(void);                         /* page_salome.c: pick a mesh file (UNV, MED, .msh), make a case for it, import it */
 void  salome_tick(void);                                     /* page_salome.c: follows its file dialog, every frame */
 bool  stlmesh_example_case(int k);                           /* page_stlmesh.c: the meshing tutorial's example k (meshexamples.h) made and opened */
@@ -372,7 +373,7 @@ int   run_procs_for_check(void);
 float blocks_page(Case *c, float x, float y, float w);
 bool  blocks_wants_first(void);                             /* a template with a wall first cell is open */
 void  blocks_take_first(double h1);                          /* ... and the y+ calculator's first cell goes in it */
-void  blocks_suggest(int tmpl, double first);                 /* "What mesh do I need?": this template (first cell, 0 none) next time the page draws */
+void  blocks_suggest(int tmpl, double first, double cells);   /* "What mesh do I need?": this template (first cell, 0 none; counts scaled toward cells) next time the page draws */
 bool  stlmesh_suggest(Case *c, int mesher, bool layers);      /* ... this mesher for the open case's part; false without a part */
 float meshtools_page(Case *c, float x, float y, float w);    /* page_meshtools.c: Mesh > Tools (A.meshTab 6) */
 void  meshq_open(void);                                       /* page_meshadvice.c: the "What mesh do I need?" dialog */

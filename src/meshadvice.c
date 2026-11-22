@@ -43,6 +43,10 @@ void ma_advise(const MaIn *in, MaOut *o)
     int shape = in->shape >= 0 && in->shape < MA__SHAPES ? in->shape : MA_PART;
     int dims = in->dims >= MA_3D && in->dims <= MA_AXI ? in->dims : MA_3D;
     bool ext = in->flow == MA_EXTERNAL;
+    /* the shapes whose flow the question isn't asked for: a pipe, a channel, a step are flow through; a plate, a cylinder, an
+       airfoil flow round (only a box or a CAD part can be either) */
+    if (shape == MA_PIPE || shape == MA_CHANNEL || shape == MA_STEP) ext = false;
+    if (shape == MA_PLATE || shape == MA_CYLINDER || shape == MA_AIRFOIL) ext = true;
 
     /* ---- the path, from the shape */
     static const int TMPL[MA__SHAPES] = { BT_CAVITY, BT_PIPE, BT_CHANNEL, BT_STEP, BT_PLATE, BT_CYLINDER, BT_AIRFOIL, -1, -1 };
@@ -50,15 +54,15 @@ void ma_advise(const MaIn *in, MaOut *o)
         int f = in->from >= 0 && in->from < MA__FROM ? in->from : MA_FROM_OTHER;
         if (f == MA_FROM_GMSH || f == MA_FROM_SALOME) {
             o->go = MA_GO_IMPORT;
-            snprintf(o->title, sizeof o->title, "Import it: Mesh > SALOME / import reads %s", f == MA_FROM_GMSH ? "Gmsh's .msh" : "SALOME's UNV and MED");
-            step(o, MA_FROM_NAME[f], "Mesh > SALOME / import turns it into constant/polyMesh (%s) and names the walls. Check it afterwards on "
+            snprintf(o->title, sizeof o->title, "Import it: Mesh > SALOME script (Import a mesh) reads %s", f == MA_FROM_GMSH ? "Gmsh's .msh" : "SALOME's UNV and MED");
+            step(o, MA_FROM_NAME[f], "Mesh > SALOME script (Import a mesh) turns it into constant/polyMesh (%s) and names the walls. Check it afterwards on "
                  "Mesh > Quality: a mesh made elsewhere passes through [[checkmesh|checkMesh]] like any other.", f == MA_FROM_GMSH ? "gmshToFoam" : "ideasUnvToFoam");
         } else if (f == MA_FROM_FLUENT) {
             o->go = MA_GO_IMPORT;
             snprintf(o->cmd, sizeof o->cmd, "fluent3DMeshToFoam mesh.msh");
             snprintf(o->title, sizeof o->title, "Convert it with OpenFOAM's fluent3DMeshToFoam");
             step(o, MA_FROM_NAME[f], "OpenFOAM reads Fluent's ASCII .msh: fluent3DMeshToFoam for 3-D meshes (it keeps polyhedra), fluentMeshToFoam "
-                 "for 2-D ones. Mesh > SALOME / import runs the right one on a Fluent .msh (or run it in the case folder yourself); then check the patch "
+                 "for 2-D ones. Mesh > SALOME script (Import a mesh) runs the right one on a Fluent .msh (or run it in the case folder yourself); then check the patch "
                  "types: Fluent's walls arrive as walls, its inlets and outlets as plain patches.");
         } else if (f == MA_FROM_STAR) {
             o->go = MA_GO_IMPORT;
@@ -66,11 +70,11 @@ void ma_advise(const MaIn *in, MaOut *o)
             snprintf(o->title, sizeof o->title, "Convert it with OpenFOAM's star4ToFoam");
             step(o, MA_FROM_NAME[f], "This OpenFOAM reads STAR-CD's .vrt / .cel / .bnd files (star4ToFoam); STAR-CCM+ exports them (File > Export, "
                  "STAR-CD format; mesh.vrt, mesh.cel and mesh.bnd make \"mesh\"). Its .ccm files need ccmToFoam, which this OpenFOAM was built without. "
-                 "Mesh > SALOME / import reads the three files too; star4ToFoam takes them as millimetres.");
+                 "Mesh > SALOME script (Import a mesh) reads the three files too; star4ToFoam takes them as millimetres.");
         } else {
             o->go = MA_GO_IMPORT;
             snprintf(o->title, sizeof o->title, "Export it as UNV or Gmsh .msh, then import it");
-            step(o, MA_FROM_NAME[f], "Nearly every mesher writes UNV or Gmsh's .msh: Mesh > SALOME / import reads both. OpenFOAM also ships converters for "
+            step(o, MA_FROM_NAME[f], "Nearly every mesher writes UNV or Gmsh's .msh: Mesh > SALOME script (Import a mesh) reads both. OpenFOAM also ships converters for "
                  "ANSYS (ansysToFoam), CFX-4, Gambit, Plot3D, TetGen, KIVA, Netgen and VTK, run in the case folder (Overview > Terminal).");
         }
         return;   /* the mesh is made: none of the rest applies */

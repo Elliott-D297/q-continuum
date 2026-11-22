@@ -195,11 +195,11 @@ static bool save(Case *c, bool mesh)
 /* ---- the y+ calculator's first cell, sent here (page_calc.c) */
 bool blocks_wants_first(void) { return A.meshTab == 5 && A.cs && !strcmp(B.path, A.cs->s.path) && B.tmpl >= 0 && bm_template_par(B.tmpl, "first") >= 0; }
 /* "What mesh do I need?" sends a template (and a first cell, 0: none): applied when the page next draws for the case */
-static struct { char path[PL_PATH]; int tmpl; double first; } SUG = { "", -1, 0 };
-void blocks_suggest(int tmpl, double first)
+static struct { char path[PL_PATH]; int tmpl; double first, cells; } SUG = { "", -1, 0, 0 };
+void blocks_suggest(int tmpl, double first, double cells)
 {
     if (!A.cs || tmpl < 0 || tmpl >= BT__N) return;
-    pl_strlcpy(SUG.path, A.cs->s.path, sizeof SUG.path); SUG.tmpl = tmpl; SUG.first = first;
+    pl_strlcpy(SUG.path, A.cs->s.path, sizeof SUG.path); SUG.tmpl = tmpl; SUG.first = first; SUG.cells = cells;
 }
 
 void blocks_take_first(double h1)
@@ -903,6 +903,18 @@ static float blocks_body(Case *c, float x, float y, float w)
             if (fi >= 0 && SUG.first > 0) B.par[t][fi] = SUG.first;
             B.touched = false;
             use_template(t);
+            double cur = B.have ? bm_cells(B.m) : 0;
+            if (SUG.cells > 0 && cur > 0 && !B.err[0]) {      /* the cell counts scaled toward the advised number of cells */
+                bool threeD = t == BT_PIPE || (t == BT_CHANNEL && bm_template_par(t, "W") >= 0 && B.par[t][bm_template_par(t, "W")] > 0);
+                double f = pow(SUG.cells / cur, threeD ? 1.0 / 3 : 0.5);
+                for (int i = 0; i < BM_TEMPLATES[t].nPar; i++) {
+                    const BmParam *pp = &BM_TEMPLATES[t].par[i];
+                    if (pp->key[0] != 'N') continue;           /* the counts: N, Nx, Nq, Nr ... */
+                    double v = round(B.par[t][i] * f);
+                    B.par[t][i] = fmin(pp->hi, fmax(pp->lo, v));
+                }
+                use_template(t);
+            }
             ui_toast(TOAST_OK, "The %s template, from What mesh do I need?: Save writes it to system/blockMeshDict", BM_TEMPLATES[t].name);
         }
     }

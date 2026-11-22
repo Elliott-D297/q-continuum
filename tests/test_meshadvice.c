@@ -83,6 +83,8 @@ int main(void)
     CHECK(c[0] < c[1] && c[1] < c[2], "cells grow with the goal: %g %g %g", c[0], c[1], c[2]);
     { MaIn in = base(MA_CHANNEL); in.dims = MA_2D; ma_advise(&in, &o); double c2 = o.cells; in.dims = MA_3D; ma_advise(&in, &o); CHECK(c2 * 10 < o.cells, "2-D far fewer cells than 3-D"); }
 
+    /* the flow kind follows the shape where it isn't asked: a pipe is internal whatever the stale answer says */
+    { MaIn a = base(MA_PIPE); a.flow = MA_EXTERNAL; ma_advise(&a, &o); double ce = o.cells; a.flow = MA_INTERNAL; ma_advise(&a, &o); CHECK(ce == o.cells, "a pipe's cells don't depend on a hidden flow answer"); }
     /* every answer explains itself, out-of-range answers don't crash */
     for (int s = 0; s < MA__SHAPES; s++) for (int d = 0; d < 3; d++) for (int w = 0; w < MA__WALLS; w++) for (int g = 0; g < MA__GOALS; g++) for (int f = 0; f < 2; f++) {
         MaIn in = base(s); in.dims = d; in.walls = w; in.goal = g; in.flow = f; in.salome = (s + d) % 2;

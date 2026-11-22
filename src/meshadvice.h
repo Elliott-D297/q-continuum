@@ -44,7 +44,7 @@ typedef struct {
 /* where it leads */
 enum { MA_GO_BLOCKS = 0,  /* Mesh > Block builder, template tmpl                                            */
        MA_GO_STL,         /* Mesh > STL mesher, mesher                                                      */
-       MA_GO_IMPORT,      /* Mesh > SALOME / import                                                         */
+       MA_GO_IMPORT,      /* Mesh > SALOME script (Import a mesh)                                                         */
        MA_GO_CONVERT,     /* a converter run by hand (fluentMeshToFoam, ccmToFoam ...): the command is given */
        MA__GO };
 

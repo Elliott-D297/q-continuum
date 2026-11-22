@@ -169,7 +169,7 @@ static void go(const MaOut *o)
     switch (o->go) {
     case MA_GO_BLOCKS:
         if (!c || c->s.prog) { ui_toast(TOAST_INFO, "Open a case first, or make one with New case: the block builder writes into its system/blockMeshDict"); return; }
-        blocks_suggest(o->tmpl, o->layers ? o->h1 : 0);
+        blocks_suggest(o->tmpl, o->layers ? o->h1 : 0, o->cells);
         A.meshTab = 5; app_go(PG_MESH); A.modal = MD_NONE;
         break;
     case MA_GO_STL:
@@ -207,7 +207,12 @@ static float answer(float x, float y, float w)
         if (o.cells >= 1e6) snprintf(cw, sizeof cw, "%.2g million", o.cells / 1e6); else snprintf(cw, sizeof cw, "%.0f thousand", round(o.cells / 1e3));
         if (o.nMeshes > 1) pl_fmt_ui(t, sizeof t, "Three meshes, the finest about %s cells", cw);
         else pl_fmt_ui(t, sizeof t, "About %s cells", cw);
-        if (o.Re > 0) { size_t n = strlen(t); pl_fmt_ui(t + n, sizeof t - n, "  ·  Re %.3g", o.Re); }
+        if (o.Re > 0) {                                    /* a learner reads 99,600, not 9.96e+04 */
+            char re[40]; double r3 = o.Re >= 1000 ? round(o.Re / pow(10, floor(log10(o.Re)) - 2)) * pow(10, floor(log10(o.Re)) - 2) : o.Re;
+            if (r3 >= 1000 && r3 < 1e9) { long v = lround(r3); if (v >= 1000000) snprintf(re, sizeof re, "%ld,%03ld,%03ld", v / 1000000, v / 1000 % 1000, v % 1000); else snprintf(re, sizeof re, "%ld,%03ld", v / 1000, v % 1000); }
+            else snprintf(re, sizeof re, "%.3g", r3);
+            size_t n = strlen(t); pl_fmt_ui(t + n, sizeof t - n, "  ·  Re %s", re);
+        }
         if (o.h1 > 0) { size_t n = strlen(t); pl_fmt_ui(t + n, sizeof t - n, "  ·  first cell %.3g mm (y+ %g)", o.h1 * 1e3, o.yplus); }
         ui_text(F_MED, 13.5f, t, x, y, TH.text2);
         y += 28;

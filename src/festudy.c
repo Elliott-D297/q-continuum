@@ -125,11 +125,12 @@ static void face_load(const FeMesh *m, int f, const double t[3], double *F)
     if (k > c) for (int j = 0; j < c; j++) for (int q = 0; q < 3; q++) F[3 * v[c + j] + q] += wm * t[q];
 }
 
-/* the nodal forces of every load (3 per node; NULL when nothing is loaded) */
+/* the nodal forces of every load (3 per node, zero where nothing is loaded); NULL only when memory ran out */
 static double *loads_of(const FeStudy *s, const FeMesh *m, int *unknown)
 {
     double *F = calloc(3 * (size_t)m->n, sizeof(double));
     char *in = malloc((size_t)m->ng + 1);
+    if (!F || !in) { free(F); free(in); return NULL; }
     for (int i = 0; i < s->nLoad; i++) {
         const FeLoad *d = &s->load[i];
         memset(in, 0, (size_t)m->ng + 1);
@@ -154,6 +155,7 @@ static int fixed_nodes(const FeStudy *s, const FeMesh *m, int i, char *flag, int
 {
     memset(flag, 0, (size_t)m->n);
     char *in = calloc((size_t)m->ng + 1, 1);
+    if (!in) return -1;                                      /* out of memory */
     for (int j = 0; j < s->fix[i].nf; j++) { int g = fe_group(m, s->fix[i].face[j]); if (g < 0) { if (unknown) (*unknown)++; } else in[g] = 1; }
     int n = 0;
     for (int f = 0; f < m->nf; f++) if (in[m->fg[f]]) for (int j = 0; j < m->fk[f]; j++) { int v = m->fn[8 * f + j]; if (!flag[v]) { flag[v] = 1; n++; } }
@@ -165,6 +167,8 @@ void fe_study_summary(const FeStudy *s, const FeMesh *m, FeSummary *o)
 {
     memset(o, 0, sizeof *o);
     char *flag = malloc((size_t)m->n), *any = calloc((size_t)m->n, 1);
+    double *F = flag && any ? loads_of(s, m, &o->unknownFaces) : NULL;
+    if (!F) { free(flag); free(any); snprintf(o->problem, sizeof o->problem, "Not enough memory free to check the study"); return; }
     bool held[3] = { false, false, false };
     for (int i = 0; i < s->nFix; i++) {
         if (fixed_nodes(s, m, i, flag, &o->unknownFaces) > 0) {
@@ -173,7 +177,6 @@ void fe_study_summary(const FeStudy *s, const FeMesh *m, FeSummary *o)
         for (int v = 0; v < m->n; v++) any[v] |= flag[v];
     }
     for (int v = 0; v < m->n; v++) o->fixedNodes += any[v];
-    double *F = loads_of(s, m, &o->unknownFaces);
     for (int v = 0; v < m->n; v++) { bool l = false; for (int q = 0; q < 3; q++) { o->force[q] += F[3 * v + q]; if (F[3 * v + q] != 0) l = true; } o->loadedNodes += l; }
     free(F); free(flag); free(any);
     if (!s->nFix || !o->fixedNodes) snprintf(o->problem, sizeof o->problem, "Nothing holds the part: add a fixture (pick the faces it is bolted or welded at)");
@@ -206,8 +209,12 @@ bool fe_study_write(const FeStudy *s, const FeMesh *m, const char *proj, char *e
         }
     }
     char *flag = malloc((size_t)m->n);
+    double *F = flag ? loads_of(s, m, NULL) : NULL;
+    if (!F) { free(flag); str_free(&o); snprintf(err, (size_t)cap, "Not enough memory free to write the study"); return false; }
     for (int i = 0; i < s->nFix; i++) {
-        if (!fixed_nodes(s, m, i, flag, NULL)) continue;
+        int nfx = fixed_nodes(s, m, i, flag, NULL);
+        if (nfx < 0) { free(flag); free(F); str_free(&o); snprintf(err, (size_t)cap, "Not enough memory free to write the study"); return false; }
+        if (!nfx) continue;
         str_catf(&o, "*NSET, NSET=FIX%d\n", i + 1);
         int col = 0;
         for (int v = 0; v < m->n; v++) if (flag[v]) { str_catf(&o, "%d,%s", m->id[v], ++col % 12 ? " " : "\n"); }
@@ -228,12 +235,11 @@ bool fe_study_write(const FeStudy *s, const FeMesh *m, const char *proj, char *e
     str_cat(&o, "*SOLID SECTION, ELSET=EALL, MATERIAL=");
     str_catf(&o, "%s\n*STEP\n*STATIC\n*BOUNDARY\n", mt->name);
     for (int i = 0; i < s->nFix; i++) {
-        if (!fixed_nodes(s, m, i, flag, NULL)) continue;
+        if (fixed_nodes(s, m, i, flag, NULL) <= 0) continue;   /* (as written above: none, or out of memory) */
         int k = s->fix[i].kind;
         if (k == FX_FIXED) str_catf(&o, "FIX%d, 1, 3\n", i + 1);
         else str_catf(&o, "FIX%d, %d, %d\n", i + 1, k - FX_X + 1, k - FX_X + 1);
     }
-    double *F = loads_of(s, m, NULL);
     bool head = false;
     for (int v = 0; v < m->n; v++) for (int q = 0; q < 3; q++) if (F[3 * v + q] != 0) {
         if (!head) { str_cat(&o, "*CLOAD\n"); head = true; }

@@ -71,7 +71,7 @@ static void hook(FDFile *f, const char *before)
     double span = text_editor_focused() ? 1.0 : 0.05;
     if (last && !strcmp(last->rel, rel) && now - last->t < span && !strcmp(last->after, before) && last->group == curGroup) {
         free(last->after); last->after = pl_strdup(f->text); last->t = now;      /* the same edit, continued */
-        if (!strcmp(last->before, last->after)) { step_free(last); nU--; }      /* ... back where it started */
+        if (!last->after || !strcmp(last->before, last->after)) { step_free(last); nU--; }      /* ... back where it started (or no memory) */
         else { describe(last); if (last->group && groupWhat[0]) pl_strlcpy(last->what, groupWhat, sizeof last->what); }
     } else {
         if (nU == UNDO_MAX) { step_free(&US[0]); memmove(US, US + 1, sizeof US[0] * (UNDO_MAX - 1)); nU--; }
@@ -80,6 +80,7 @@ static void hook(FDFile *f, const char *before)
         pl_strlcpy(s->rel, rel, sizeof s->rel);
         s->before = pl_strdup(before);
         s->after = pl_strdup(f->text);
+        if (!s->before || !s->after) { step_free(s); nU--; return; }   /* out of memory: this edit can't be undone */
         s->t = now;
         describe(s);
         s->group = curGroup;

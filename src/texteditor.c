@@ -42,10 +42,14 @@ static void build_index(const FDFile *f)
     bool com = false;
     for (int i = 0, start = 0;; i++) {
         if (i == 0 || s[i - 1] == '\n') {
-            if (E.nl == E.capl) {
-                E.capl = E.capl ? E.capl * 2 : 1024;
-                E.ls = realloc(E.ls, sizeof(int) * (size_t)E.capl);
-                E.inCom = realloc(E.inCom, (size_t)E.capl);
+            if (E.nl == E.capl) {                      /* out of memory: the lines indexed so far are shown */
+                int nc = E.capl ? E.capl * 2 : 1024;
+                int *nls = realloc(E.ls, sizeof(int) * (size_t)nc);
+                if (!nls) break;
+                E.ls = nls;
+                unsigned char *nic = realloc(E.inCom, sizeof *E.inCom * (size_t)nc);
+                if (!nic) break;
+                E.inCom = nic; E.capl = nc;
             }
             E.ls[E.nl] = i; E.inCom[E.nl] = com; E.nl++;
             start = i;
@@ -105,6 +109,7 @@ static void replace(FDFile *f, int a, int b, const char *ins, int kind)
     E.lastKind = kind; E.lastEdit = now;
     size_t il = strlen(ins), nl = (size_t)f->len - (size_t)(b - a) + il;
     char *nt = malloc(nl + 1);
+    if (!nt) { ui_toast(TOAST_ERR, "Out of memory: the edit was not made"); return; }
     memcpy(nt, f->text, (size_t)a);
     memcpy(nt + a, ins, il);
     memcpy(nt + a + il, f->text + b, (size_t)(f->len - b));

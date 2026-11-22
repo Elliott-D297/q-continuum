@@ -67,6 +67,7 @@ static void build_index(void)
     if (!A.cs) { nKeys = 0; keysFor[0] = 0; return; }
     if (!KEYS) KEYS = malloc(sizeof *KEYS * MAX_KEYS);
     nKeys = 0;
+    if (!KEYS) { keysFor[0] = 0; return; }                 /* out of memory: no keyword search */
     pl_strlcpy(keysFor, A.cs->s.path, sizeof keysFor);
     index_dir(A.cs, "system");
     index_dir(A.cs, "constant");

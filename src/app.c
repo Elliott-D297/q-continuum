@@ -471,8 +471,10 @@ static void list_add(const char *path)
 {
     for (int i = 0; i < A.nList; i++) if (!strcmp(A.list[i].path, path)) return;
     if (A.nList == A.capList) {
-        A.capList = A.capList ? A.capList * 2 : 32;
-        A.list = realloc(A.list, sizeof(CaseSummary) * (size_t)A.capList);
+        int nc = A.capList ? A.capList * 2 : 32;
+        CaseSummary *nl = realloc(A.list, sizeof(CaseSummary) * (size_t)nc);
+        if (!nl) return;                                   /* out of memory: the case isn't listed */
+        A.list = nl; A.capList = nc;
     }
     case_summarize(path, &A.list[A.nList++]);
 }
@@ -709,7 +711,7 @@ void app_duplicate_case(const char *src)
     pl_shell_quote(qs, sizeof qs, src);
     pl_shell_quote(qd, sizeof qd, dst);
     if (!pl_fmt(cmd, sizeof cmd, "cp -a %s %s && chmod -R u+w %s && cd %s && rm -rf processor* postProcessing VTK .qc-history .qc-trash log.* *.foam "
-                                 ".qc-step-rc && for d in [0-9]*; do [ -d \"$d\" ] && [ \"$d\" != 0 ] && awk -v t=\"$d\" 'BEGIN { exit !(t + 0 > 0) }' "
+                                 ".qc-step-rc && for d in [0-9]*; do [ -d \"$d\" ] && [ \"$d\" != 0 ] && awk -v t=\"$d\" 'BEGIN { exit !(t ~ /^[0-9.]+([eE][-+]?[0-9]+)?$/ && t + 0 > 0) }' "
                                  "&& rm -rf \"$d\"; done; true", qs, qd, qd, qd) || pl_run_wait(cmd, NULL, 0) != 0) {
         ui_toast(TOAST_ERR, "Copying the case to %s failed", dst); return;
     }

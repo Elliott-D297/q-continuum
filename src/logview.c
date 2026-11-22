@@ -101,10 +101,14 @@ static void exp_toggle(const char *k)
 
 static void push_row(int line, int hid)
 {
-    if (V.nRows == V.cap) {
-        V.cap = V.cap ? V.cap * 2 : 4096;
-        V.row = realloc(V.row, sizeof(int) * (size_t)V.cap);
-        V.hid = realloc(V.hid, sizeof(int) * (size_t)V.cap);
+    if (V.nRows == V.cap) {                                /* out of memory: the row is left out */
+        int nc = V.cap ? V.cap * 2 : 4096;
+        int *nr = realloc(V.row, sizeof(int) * (size_t)nc);
+        if (!nr) return;
+        V.row = nr;
+        int *nh = realloc(V.hid, sizeof(int) * (size_t)nc);
+        if (!nh) return;
+        V.hid = nh; V.cap = nc;
     }
     V.row[V.nRows] = line; V.hid[V.nRows] = hid; V.nRows++;
 }
@@ -136,8 +140,12 @@ static void rebuild(const LogMon *m, bool fold)
         if (!folding) {
             push_row(i, 0);
             if (V.q[0] && line_has(m, i, V.q)) {
-                if (V.nMatch == V.capMatch) { V.capMatch = V.capMatch ? V.capMatch * 2 : 256; V.match = realloc(V.match, sizeof(int) * (size_t)V.capMatch); }
-                V.match[V.nMatch++] = V.nRows - 1;
+                if (V.nMatch == V.capMatch) {
+                    int nc = V.capMatch ? V.capMatch * 2 : 256;
+                    int *nm = realloc(V.match, sizeof(int) * (size_t)nc);
+                    if (nm) { V.match = nm; V.capMatch = nc; }
+                }
+                if (V.nMatch < V.capMatch) V.match[V.nMatch++] = V.nRows - 1;
             }
             continue;
         }

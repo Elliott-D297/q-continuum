@@ -286,7 +286,8 @@ bool ccx_frd_load(const char *path, CcxFrd *r)
     int cap = 0, maxId = 0, *map = NULL, ecap = 0;
     enum { B_NONE, B_NODES, B_ELEMS, B_DISP, B_STRESS, B_FORC, B_TEMP, B_OTHER } blk = B_NONE;
     int elType = 0, en = 0, enodes[20];
-    for (char *l = t; l && *l; ) {
+    bool oom = false;                                      /* memory ran out (or an absurd id): the file fails to load */
+    for (char *l = t; l && *l && !oom; ) {
         char *e = strchr(l, '\n');
         if (!strncmp(l, "    2C", 6)) blk = B_NODES;
         else if (!strncmp(l, "    3C", 6)) blk = B_ELEMS;
@@ -296,24 +297,34 @@ bool ccx_frd_load(const char *path, CcxFrd *r)
                 : !strncmp(l + 5, "NDTEMP", 6) ? B_TEMP : B_OTHER;
             if (map && r->n) {                       /* a new block of these: this increment's values replace the last's */
                 size_t n = (size_t)r->n;
-                if (blk == B_DISP && !r->u) r->u = calloc(3 * n, sizeof(float));
-                if (blk == B_STRESS && !r->vm) r->vm = calloc(n, sizeof(float));
-                if (blk == B_FORC && !r->rf) r->rf = calloc(3 * n, sizeof(float));
-                if (blk == B_TEMP && !r->T) r->T = calloc(n, sizeof(float));
+                if (blk == B_DISP && !r->u && !(r->u = calloc(3 * n, sizeof(float)))) oom = true;
+                if (blk == B_STRESS && !r->vm && !(r->vm = calloc(n, sizeof(float)))) oom = true;
+                if (blk == B_FORC && !r->rf && !(r->rf = calloc(3 * n, sizeof(float)))) oom = true;
+                if (blk == B_TEMP && !r->T && !(r->T = calloc(n, sizeof(float)))) oom = true;
             }
         }
         else if (!strncmp(l, " -3", 3)) {
             if (blk == B_NODES && r->n) {               /* the nodes are in: a map from id to index */
+                free(map);
                 map = malloc(sizeof(int) * (size_t)(maxId + 1));
+                if (!map) { oom = true; break; }
                 for (int i = 0; i <= maxId; i++) map[i] = -1;
-                for (int i = 0; i < r->n; i++) map[r->id[i]] = i;
+                for (int i = 0; i < r->n; i++) if (r->id[i] >= 0) map[r->id[i]] = i;   /* (a negative id: a damaged file) */
             }
             blk = B_NONE;
         }
         else if (!strncmp(l, " -1", 3)) {
             int id = frd_int(l, 3, 10);
             if (blk == B_NODES) {
-                if (r->n == cap) { cap = cap ? cap * 2 : 4096; r->id = realloc(r->id, sizeof(int) * (size_t)cap); r->x = realloc(r->x, sizeof(float) * 3 * (size_t)cap); }
+                if (r->n == cap) {
+                    int nc = cap ? cap * 2 : 4096;
+                    int *ni = realloc(r->id, sizeof(int) * (size_t)nc);
+                    if (!ni) { oom = true; break; }
+                    r->id = ni;
+                    float *nx = realloc(r->x, sizeof(float) * 3 * (size_t)nc);
+                    if (!nx) { oom = true; break; }
+                    r->x = nx; cap = nc;
+                }
                 r->id[r->n] = id;
                 for (int k = 0; k < 3; k++) r->x[3 * r->n + k] = frd_val(l, 13 + 12 * k);
                 if (id > maxId) maxId = id;
@@ -336,8 +347,13 @@ bool ccx_frd_load(const char *path, CcxFrd *r)
                 static const int E[12][2] = { {0,1},{1,2},{2,3},{3,0},{4,5},{5,6},{6,7},{7,4},{0,4},{1,5},{2,6},{3,7} };
                 for (int k = 0; k < 12; k++) {
                     int a = enodes[E[k][0]], b = enodes[E[k][1]];
-                    if (a > maxId || b > maxId || map[a] < 0 || map[b] < 0) continue;
-                    if (r->nEdges == ecap) { ecap = ecap ? ecap * 2 : 8192; r->edge = realloc(r->edge, sizeof(int) * 2 * (size_t)ecap); }
+                    if (a < 0 || b < 0 || a > maxId || b > maxId || map[a] < 0 || map[b] < 0) continue;
+                    if (r->nEdges == ecap) {
+                        int nc = ecap ? ecap * 2 : 8192;
+                        int *ne = realloc(r->edge, sizeof(int) * 2 * (size_t)nc);
+                        if (!ne) { oom = true; break; }
+                        r->edge = ne; ecap = nc;
+                    }
                     r->edge[2 * r->nEdges] = map[a]; r->edge[2 * r->nEdges + 1] = map[b]; r->nEdges++;
                 }
             }
@@ -345,7 +361,7 @@ bool ccx_frd_load(const char *path, CcxFrd *r)
         l = e ? e + 1 : NULL;
     }
     free(t); free(map);
-    if (!r->n) { ccx_frd_free(r); return false; }
+    if (!r->n || oom) { ccx_frd_free(r); return false; }
     r->uMaxAt = r->vmMaxAt = -1; r->tMin = 1e300; r->tMax = -1e300;
     for (int i = 0; i < r->n; i++) {
         if (r->u) { double m = sqrt(r->u[3*i]*r->u[3*i] + r->u[3*i+1]*r->u[3*i+1] + r->u[3*i+2]*r->u[3*i+2]); if (m > r->uMax) { r->uMax = m; r->uMaxAt = i; } }
@@ -446,8 +462,19 @@ typedef struct {
     int *e; int ne, ecap;                    /* edges as node id pairs */
     MSet set[128]; int nSets;
     int nElems;
+    bool oom;                                /* memory ran out: the mesh isn't shown */
 } MRead;
-static void push_int(int **a, int *n, int *cap, int v) { if (*n == *cap) { *cap = *cap ? *cap * 2 : 1024; *a = realloc(*a, sizeof(int) * (size_t)*cap); } (*a)[(*n)++] = v; }
+static void push_int(MRead *r, int **a, int *n, int *cap, int v)
+{
+    if (r->oom) return;
+    if (*n == *cap) {
+        int nc = *cap ? *cap * 2 : 1024;
+        int *na = realloc(*a, sizeof(int) * (size_t)nc);
+        if (!na) { r->oom = true; return; }
+        *a = na; *cap = nc;
+    }
+    (*a)[(*n)++] = v;
+}
 static MSet *mset(MRead *r, const char *name)
 {
     for (int i = 0; i < r->nSets; i++) if (!strcasecmp(r->set[i].name, name)) return &r->set[i];
@@ -513,26 +540,37 @@ static void mesh_file(const char *dir, const char *rel, MRead *r, int depth)
         char *f[40]; int n = split(buf, f, 40);
         if (!n) continue;
         if (mode == M_NODE && n >= 3) {
-            if (r->nn == r->ncap) { r->ncap = r->ncap ? r->ncap * 2 : 4096; r->nid = realloc(r->nid, sizeof(int) * (size_t)r->ncap); r->nx = realloc(r->nx, sizeof(float) * 3 * (size_t)r->ncap); }
+            if (r->oom) break;
+            if (r->nn == r->ncap) {
+                int nc2 = r->ncap ? r->ncap * 2 : 4096;
+                int *ni = realloc(r->nid, sizeof(int) * (size_t)nc2);
+                if (!ni) { r->oom = true; break; }
+                r->nid = ni;
+                float *nx = realloc(r->nx, sizeof(float) * 3 * (size_t)nc2);
+                if (!nx) { r->oom = true; break; }
+                r->nx = nx; r->ncap = nc2;
+            }
             r->nid[r->nn] = atoi(f[0]);
             for (int k = 0; k < 3; k++) r->nx[3 * r->nn + k] = n > 1 + k ? (float)atof(f[1 + k]) : 0;
-            if (cur) push_int(&cur->id, &cur->n, &cur->cap, r->nid[r->nn]);
+            if (cur) push_int(r, &cur->id, &cur->n, &cur->cap, r->nid[r->nn]);
             r->nn++;
         } else if (mode == M_EL && need) {
             for (int i = 0; i < n && nc < 32; i++) conn[nc++] = atoi(f[i]);   /* the id, then the nodes; may run onto the next line */
             if (nc >= need + 1) {
                 for (int k = 0; k < nEd; k++) {
                     int a = conn[1 + ed[2 * k]], b = conn[1 + ed[2 * k + 1]];
-                    push_int(&r->e, &r->ne, &r->ecap, a < b ? a : b); push_int(&r->e, &r->ne, &r->ecap, a < b ? b : a);
+                    push_int(r, &r->e, &r->ne, &r->ecap, a < b ? a : b); push_int(r, &r->e, &r->ne, &r->ecap, a < b ? b : a);
                 }
                 r->nElems++; nc = 0;
             }
         } else if (mode == M_NSET && cur) {
-            if (gen && n >= 2) { int a = atoi(f[0]), b = atoi(f[1]), s = n > 2 ? atoi(f[2]) : 1; if (s <= 0) s = 1; for (int v = a; v <= b; v += s) push_int(&cur->id, &cur->n, &cur->cap, v); }
+            if (gen && n >= 2) { int a = atoi(f[0]), b = atoi(f[1]), s = n > 2 ? atoi(f[2]) : 1; if (s <= 0) s = 1;
+                          if ((double)b - a > 1e7 * s) continue;     /* a damaged range: ten million ids at most */
+                          for (int v = a; v <= b && !r->oom; v += s) push_int(r, &cur->id, &cur->n, &cur->cap, v); }
             else for (int i = 0; i < n; i++) {
-                if (isdigit((unsigned char)f[i][0])) push_int(&cur->id, &cur->n, &cur->cap, atoi(f[i]));
+                if (isdigit((unsigned char)f[i][0])) push_int(r, &cur->id, &cur->n, &cur->cap, atoi(f[i]));
                 else { MSet *o = NULL; for (int k = 0; k < r->nSets; k++) if (!strcasecmp(r->set[k].name, f[i])) o = &r->set[k];
-                       if (o && o != cur) for (int k = 0; k < o->n; k++) push_int(&cur->id, &cur->n, &cur->cap, o->id[k]); }
+                       if (o && o != cur) for (int k = 0; k < o->n; k++) push_int(r, &cur->id, &cur->n, &cur->cap, o->id[k]); }
             }
         }
     }
@@ -549,18 +587,20 @@ bool ccx_mesh_load(const char *dir, const char *input, const CcxModel *m, CcxMes
     memset(g, 0, sizeof *g);
     MRead r; memset(&r, 0, sizeof r);
     mesh_file(dir, input, &r, 0);
-    bool ok = r.nn > 0;
+    bool ok = r.nn > 0 && !r.oom;
+    int maxId = 0; for (int i = 0; ok && i < r.nn; i++) if (r.nid[i] > maxId) maxId = r.nid[i];
+    int *map = ok ? malloc(sizeof(int) * (size_t)(maxId + 1)) : NULL;
+    if (ok && !map) ok = false;
     if (ok) {
-        int maxId = 0; for (int i = 0; i < r.nn; i++) if (r.nid[i] > maxId) maxId = r.nid[i];
-        int *map = malloc(sizeof(int) * (size_t)(maxId + 1));
         for (int i = 0; i <= maxId; i++) map[i] = -1;
         for (int i = 0; i < r.nn; i++) if (r.nid[i] >= 0) map[r.nid[i]] = i;
         g->n = r.nn; g->id = r.nid; g->x = r.nx; r.nid = NULL; r.nx = NULL;
         g->role = calloc((size_t)g->n, 1);
         g->nElems = r.nElems;
-        if (r.ne) {                                   /* edges shared by neighbouring elements, once */
+        if (r.ne) g->edge = malloc(sizeof(int) * (size_t)r.ne);
+        if (!g->role || (r.ne && !g->edge)) { free(map); map = NULL; ccx_mesh_free(g); ok = false; }
+        if (ok && r.ne) {                             /* edges shared by neighbouring elements, once */
             qsort(r.e, (size_t)r.ne / 2, sizeof(int) * 2, cmp_edge);
-            g->edge = malloc(sizeof(int) * (size_t)r.ne);
             for (int i = 0; i < r.ne; i += 2) {
                 if (i && r.e[i] == r.e[i - 2] && r.e[i + 1] == r.e[i - 1]) continue;
                 int a = r.e[i], b = r.e[i + 1];
@@ -568,7 +608,7 @@ bool ccx_mesh_load(const char *dir, const char *input, const CcxModel *m, CcxMes
                 g->edge[2 * g->nEdges] = map[a]; g->edge[2 * g->nEdges + 1] = map[b]; g->nEdges++;
             }
         }
-        for (int pass = 0; pass < 2 && m; pass++) {   /* the supports' and the point loads' nodes */
+        for (int pass = 0; pass < 2 && m && ok; pass++) {   /* the supports' and the point loads' nodes */
             int nb = pass ? m->nLoad : m->nBc;
             for (int b = 0; b < nb; b++) {
                 const char *sn = pass ? m->load[b].set : m->bc[b].set;
@@ -578,7 +618,7 @@ bool ccx_mesh_load(const char *dir, const char *input, const CcxModel *m, CcxMes
                     for (int dof = m->bc[b].d0; dof <= m->bc[b].d1 && dof <= 11; dof++) bit |= dof >= 1 && dof <= 3 ? (unsigned char)(1 << (dof - 1)) : dof == 11 ? 8 : 0;
                     if (!bit) continue;               /* rotations only */
                 }
-                if (isdigit((unsigned char)sn[0])) { int id = atoi(sn); if (id <= maxId && map[id] >= 0) g->role[map[id]] |= bit; continue; }
+                if (isdigit((unsigned char)sn[0])) { int id = atoi(sn); if (id >= 0 && id <= maxId && map[id] >= 0) g->role[map[id]] |= bit; continue; }
                 for (int k = 0; k < r.nSets; k++)
                     if (!strcasecmp(r.set[k].name, sn))
                         for (int q = 0; q < r.set[k].n; q++) { int id = r.set[k].id[q]; if (id >= 0 && id <= maxId && map[id] >= 0) g->role[map[id]] |= bit; }
@@ -602,6 +642,7 @@ int ccx_locking_risk(const CcxModel *m, const CcxMesh *g)
     if (!(ext[thin] > 0) || mx < 4 * ext[thin]) return 0;            /* not slender or thin: it doesn't bend much */
     if (!g || !g->n) return -1;
     float *v = malloc(sizeof(float) * (size_t)g->n);                  /* node levels through the thin side */
+    if (!v) return -1;
     for (int i = 0; i < g->n; i++) v[i] = g->x[3 * i + thin];
     qsort(v, (size_t)g->n, sizeof(float), cmp_float);
     int levels = 1; float tol = (float)(1e-6 * ext[thin]);
@@ -620,7 +661,8 @@ int ccx_set_element_type(const char *dir, const char *input, const char *from, c
         char *t = pl_read_file(p, NULL);
         if (!t) continue;
         size_t cap = strlen(t) + 4096, o = 0; char *out = malloc(cap); int here = 0;
-        for (char *l = t; l && *l; ) {
+        bool bad = !out;                                   /* memory ran out: this file is left as it was */
+        for (char *l = t; l && *l && !bad; ) {
             char *e = strchr(l, '\n'); size_t len = e ? (size_t)(e - l) : strlen(l);
             char line[1024]; snprintf(line, sizeof line, "%.*s", (int)(len < sizeof line ? len : sizeof line - 1), l);
             char up[1024]; size_t k = 0; for (; line[k] && k < sizeof up - 1; k++) up[k] = (char)toupper((unsigned char)line[k]); up[k] = 0;
@@ -632,13 +674,17 @@ int ccx_set_element_type(const char *dir, const char *input, const char *from, c
                 while (line[vs] == ' ') vs++;
                 size_t ve = vs; while (line[ve] && line[ve] != ',' && line[ve] != ' ') ve++;
                 char nl[1100]; snprintf(nl, sizeof nl, "%.*s%s%s", (int)vs, line, to, line + ve);
-                size_t nlen = strlen(nl); if (o + nlen + 2 > cap) { cap = (o + nlen) * 2 + 16; out = realloc(out, cap); }
+                size_t nlen = strlen(nl);
+                if (o + nlen + 2 > cap) { size_t nc = (o + nlen) * 2 + 16; char *no = realloc(out, nc); if (!no) { bad = true; break; } out = no; cap = nc; }
                 memcpy(out + o, nl, nlen); o += nlen; here++;
-            } else { if (o + len + 2 > cap) { cap = (o + len) * 2 + 16; out = realloc(out, cap); } memcpy(out + o, l, len); o += len; }
+            } else {
+                if (o + len + 2 > cap) { size_t nc = (o + len) * 2 + 16; char *no = realloc(out, nc); if (!no) { bad = true; break; } out = no; cap = nc; }
+                memcpy(out + o, l, len); o += len;
+            }
             if (e) out[o++] = '\n';
             l = e ? e + 1 : NULL;
         }
-        if (here) { pl_write_file(p, out, o); changed += here; }
+        if (here && !bad && pl_write_file(p, out, o)) changed += here;
         free(out); free(t);
     }
     return changed;

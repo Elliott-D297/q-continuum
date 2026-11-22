@@ -18,6 +18,7 @@
 #include <string.h>
 #include <sys/stat.h>
 #include "app.h"
+#include "foamdict.h"
 #include "orbit.h"
 #include "raymath.h"
 #include "rlgl.h"
@@ -93,7 +94,9 @@ static struct {
     VzMesh m; bool mOk, mLoading; char mErr[200];
     pthread_t th; pthread_mutex_t mu; VzMesh mNew; bool mNewReady, thRunning;
     /* fields at the current time */
-    struct { char name[64]; char time[32]; VzField f; bool ok; } cache[24]; int nCache;
+    struct { char name[64]; char time[32]; VzField f; bool ok; long long sig; } cache[24]; int nCache;
+    double rescanAt;                  /* the times and fields looked at again every couple of seconds (a run going on) */
+    long long meshSig;                /* constant/polyMesh/owner as it was read                 */
     double rho;
     Disp   d[MAX_DISP]; int nd, sel;
     /* views */
@@ -211,6 +214,14 @@ static VzField *derived(int k)
     return V.cache[slot].ok ? &V.cache[slot].f : NULL;
 }
 
+/* which version of a field is on disk: its file (a decomposed time: processor0's) */
+static long long field_sig(const char *time, bool proc, const char *name)
+{
+    char rel[PL_PATH], p[PL_PATH]; snprintf(rel, sizeof rel, "%s%s/%s", proc ? "processor0/" : "", time, name);
+    pl_join(p, sizeof p, V.path, rel);
+    FDSig g; return fd_sig(p, &g) ? g.sec * 1000003LL + g.nsec + g.size * 7 + g.ino * 13 : 0;
+}
+
 static VzField *field_of(const char *name)
 {
     if (!name || !name[0] || !V.mOk || V.ti < 0) return NULL;
@@ -220,6 +231,7 @@ static VzField *field_of(const char *name)
     if (V.nCache >= 24) { worker_wait(); cache_clear(); }
     int slot = V.nCache++;
     pl_strlcpy(V.cache[slot].name, name, sizeof V.cache[slot].name); pl_strlcpy(V.cache[slot].time, t, sizeof V.cache[slot].time);
+    V.cache[slot].sig = field_sig(t, V.timeProc[V.ti], name);
     if (V.timeProc[V.ti]) {
         V.cache[slot].ok = V.m.nProc > 0 && vz_field_load_procs(&V.cache[slot].f, &V.m, V.path, t, name);
         if (!V.m.nProc && V.m.err[0]) ui_toast(TOAST_ERR, "%s", V.m.err);
@@ -1368,6 +1380,7 @@ static void open_case(Case *c)
     SimSetup s; V.rho = sim_load(c->s.path, &s, 0) && s.rho > 0 ? s.rho : 1.204;
     V.fitted[0] = V.fitted[1] = false; V.touched[0] = V.touched[1] = false;
     V.loaded = false;
+    V.meshSig = 0; V.rescanAt = ui_time();
     start_load();
 }
 
@@ -1379,6 +1392,59 @@ static void after_mesh(void)
         V.nd = 0;
         Disp *d = add_disp(DK_BOUNDARY);
         if (d) V.sel = 0;
+    }
+}
+
+/* a run going on, or run again (another write interval, the same times written over): new times appear, old ones go, fields
+   change under the same name. Every 2 s: the times listed again (the one shown kept by name, or the newest when it went or
+   the newest was shown) and any cached field whose file changed thrown away, its displayers built again */
+static void refresh_case(void)
+{
+    if (ui_time() - V.rescanAt < 2 || !V.mOk || V.rec || V.thRunning) return;
+    V.rescanAt = ui_time();
+    {   char op[PL_PATH]; pl_join(op, sizeof op, V.path, "constant/polyMesh/owner");
+        FDSig g; long long ms = fd_sig(op, &g) ? g.sec * 1000003LL + g.nsec + g.size * 7 : 0;
+        if (!V.meshSig) V.meshSig = ms;
+        else if (ms && ms != V.meshSig) {                  /* meshed again: everything built on the old one goes */
+            V.meshSig = ms;
+            worker_wait(); cache_clear();
+            for (int i = 0; i < V.nd; i++) { disp_free_built(&V.d[i]); V.d[i].dirty = true; }
+            V.probeOk = false;
+            scan_times(); scan_fields();
+            start_load();
+            return;
+        }
+    }
+    char cur[32] = ""; bool atNewest = V.ti >= 0 && V.ti == V.nTimes - 1;
+    if (V.ti >= 0) pl_strlcpy(cur, V.times[V.ti], sizeof cur);
+    char was[256][32]; int nWas = V.nTimes; memcpy(was, V.times, sizeof was);
+    bool wasProc[256]; memcpy(wasProc, V.timeProc, sizeof wasProc);
+    scan_times();
+    bool listChanged = nWas != V.nTimes || memcmp(was, V.times, sizeof was) || memcmp(wasProc, V.timeProc, sizeof wasProc);
+    if (listChanged) {
+        int ti = -1;
+        for (int i = 0; i < V.nTimes && !atNewest; i++) if (!strcmp(V.times[i], cur)) ti = i;
+        if (ti < 0) ti = V.nTimes - 1;
+        if (ti >= 0 && (strcmp(V.times[ti], cur) || V.ti != ti)) {
+            V.ti = ti; scan_fields();
+            for (int i = 0; i < V.nd; i++) V.d[i].dirty = true;
+            redraw_all();
+        } else V.ti = ti;
+    }
+    /* fields rewritten under the same time */
+    bool stale = false;
+    for (int i = 0; i < V.nCache && !stale; i++) {
+        if (V.cache[i].name[0] == '@') continue;
+        bool proc = false; int k = -1;
+        for (int j = 0; j < V.nTimes; j++) if (!strcmp(V.times[j], V.cache[i].time)) { k = j; proc = V.timeProc[j]; }
+        if (k < 0 || field_sig(V.cache[i].time, proc, V.cache[i].name) != V.cache[i].sig) stale = true;
+    }
+    if (stale) {
+        worker_wait();
+        cache_clear();
+        if (V.ti >= 0) scan_fields();
+        for (int i = 0; i < V.nd; i++) V.d[i].dirty = true;
+        redraw_all();
     }
 }
 
@@ -2046,6 +2112,7 @@ float viz_page(Case *c, float x, float y, float w, float h)
         callout((Rectangle){ x, y, w, ch }, TOAST_ERR, ICON_TRIANGLE_ALERT, "The mesh couldn't be read", V.mErr);
         return ch + 10;
     }
+    refresh_case();
     if (!V.nTimes) {
         const char *t = "No results yet: run the case and its times appear here (a parallel run's too, straight from its processors).";
         float ch = callout_height(w, NULL, t);

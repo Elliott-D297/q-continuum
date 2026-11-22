@@ -1,0 +1,16 @@
+# Bug (user, 2026-11-21): a case run again with another write interval, Results > Visualization kept the old data. The page
+# now looks again every 2 s: a new time shows (the newest followed), and a field rewritten under the same time is read again.
+# Here a "run" writes 0.6 with p = 1000 m2/s2 everywhere (1204 Pa), then writes it again with 2000 (2408 Pa).
+open $SB/ws/cube3d
+click nav:results
+wait 2
+click res-tabs#1
+wait-until text Boundary surfaces timeout 30
+wait 3
+shell cd $SB/ws/cube3d && cp -r 0.5 0.6 && python3 -c "import re,sys; t=open('0.6/p').read(); t=re.sub(r'internalField\s+nonuniform[^;]*;', 'internalField   uniform 1000;', t, flags=re.S); t=re.sub(r'value\s+nonuniform[^;]*;', 'value uniform 1000;', t, flags=re.S); open('0.6/p','w').write(t)"
+wait-until text 602 to 1806 timeout 20
+assert text 0.6
+screenshot $OUT/1_new_time.png
+shell cd $SB/ws/cube3d && sleep 1 && sed -i 's/uniform 1000;/uniform 2000;/g' 0.6/p
+wait-until text 1204 to 3612 timeout 20
+screenshot $OUT/2_rewritten.png

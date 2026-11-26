@@ -19,6 +19,8 @@ const SimSetup *setup_current(Case *c);            /* page_setup.c: NULL without
 #include "monitor.h"
 #include "explain.h"
 #include "sweep.h"
+#include "runctl.h"
+#include "page_runctl.h"
 
 /* Tutorial scripts are "#!/bin/sh" but some use bash features (foamyQuadMesh copies {a,b}.stl.gz), and /bin/sh is
    dash on Debian and Ubuntu: run sh scripts with bash, which runs every sh script the same, and others as they are */
@@ -2086,8 +2088,13 @@ void page_run(Rectangle r)
         if (dv_choice(cd, "application", (Rectangle){ x, y, w, 36 }, SOLVER_APPS, N_SOLVER_APPS, true, "application")) { case_rescan(c); }
         y += 48;
         float hw = (w - 12) / 2;
-        ui_text(F_MED, 13, "End time", x, y, TH.text2);
-        ui_text(F_MED, 13, "Time step", x + hw + 12, y, TH.text2);
+        char appNow[64] = ""; fd_get(cd, "application", appNow, sizeof appNow);
+        const RcSolver *rs = rc_solver(appNow);
+        bool steadyApp = rs->flags & RC_STEADY;
+        char adjNow[16] = ""; fd_get(cd, "adjustTimeStep", adjNow, sizeof adjNow);
+        bool adaptive = (rs->flags & RC_ADJUST) && (!strcmp(adjNow, "yes") || !strcmp(adjNow, "on") || !strcmp(adjNow, "true"));
+        ui_text(F_MED, 13, steadyApp ? "Last iteration" : "End time", x, y, TH.text2);
+        ui_text(F_MED, 13, steadyApp ? "Step (1 = per iteration)" : adaptive ? "First time step" : "Time step", x + hw + 12, y, TH.text2);
         y += 22;
         if (dv_number(cd, "endTime", (Rectangle){ x, y, hw, 36 }, "1")) case_rescan(c);
         if (dv_number(cd, "deltaT", (Rectangle){ x + hw + 12, y, hw, 36 }, "0.001")) case_rescan(c);
@@ -2099,16 +2106,22 @@ void page_run(Rectangle r)
         const char *const *wc; int nwc = suggest_for_key("writeControl", NULL, &wc);
         dv_choice(cd, "writeControl", (Rectangle){ x + hw + 12, y, hw, 36 }, wc, nwc, false, "timeStep");
         y += 50;
-        if (fd_find(cd, "adjustTimeStep")) {
-            ui_text(F_MED, 13, "Adaptive time step", x, y + 2, TH.text);
-            dv_switch(cd, "adjustTimeStep", x + w - 80, y, "no");
-            y += 34;
-            if (fd_find(cd, "maxCo")) {
-                ui_text(F_REG, 13, "Max Courant", x, y + 9, TH.text2);
-                dv_number(cd, "maxCo", (Rectangle){ x + w - 120, y, 120, 34 }, "1");
-                y += 44;
-            }
+        {   /* what the solver can do with its step: adaptive with its limits, or why not and what instead */
+            int prim = logset_primary(&A.logs, c->s.app);
+            LogMon *lm = prim >= 0 ? &A.logs.logs[prim] : NULL;
+            double coPeak = 0;
+            for (int i = 0; lm && i < lm->courant.n; i++) if (lm->courant.v[i] > coPeak) coPeak = lm->courant.v[i];
+            y += runctl_time_rows(c, cd, x, y, w, mine, coPeak, lm && lm->deltaT > 0 ? lm->deltaT : 0);
         }
+        ui_disable(false);
+    }
+    if (case_dict(c, "system/controlDict")) {
+        ui_divider(x, y, w); y += 14;
+        ui_text(F_MED, 13.5f, "Run controls", x, y, TH.text);
+        ui_tooltip((Rectangle){ x, y, w, 20 }, "Everything else in controlDict and fvSolution that changes how the solver runs, "
+                                              "with what this solver reads. Hover a name for what it does.");
+        y += 26;
+        y += runctl_panel(c, x, y, w, mine) + 4;
         ui_disable(false);
     }
     ui_divider(x, y, w); y += 20;

@@ -33,12 +33,17 @@ commits; GUI checks). In addition:
 
 | Step | Contents | Effort | State |
 |---|---|---|---|
-| A0 | Housekeeping: commit the run-controls work; merge into `main`, push; fix the Cases empty state (F-01); `FEATURES.md` refreshed (date, features since 2026-10-19, statuses from the journeys that exist); `FEATURE_GAPS.md` marked superseded; local junk (`*:Zone.Identifier`) removed | S | |
+| A0 | Housekeeping: commit the run-controls work; merge into `main`, push; fix the Cases empty state (F-01); `FEATURES.md` refreshed (date, features since 2026-10-19, statuses from the journeys that exist); `FEATURE_GAPS.md` marked superseded; local junk (`*:Zone.Identifier`) removed | S | **done 2026-11-26** |
 | A1 | Test suite: fix the journeys that fail (`j5_pause_resume`, `t_bh_startfrom`, `perf_bigLog`, `t_mesh_view_off`, `t_away`, `t_error_fix`); deflake (`t_bc_no_remesh`, `j1_first_case`, `t_mesh_import_salome`, `t_stl_salome_algos`); skip when a tool is missing (SPARTA, SALOME) instead of failing; GitHub Actions CI (build, `ctest -L fast`, cppcheck) | M | |
 | A2 | Physics: guided conjugate heat transfer (`chtMultiRegionSimpleFoam` / `chtMultiRegionFoam`) in Physics > Setup from a mesh's cell zones (regions, materials, interfaces); starters with hand-solved answers for `scalarTransportFoam` and `laplacianFoam` | L | |
-| A3 | Compare and report: compare 2+ cases (reports table, residuals and monitors overlaid, scenes side by side); export a report (Markdown + PNGs, PDF when a converter exists); reference / experimental CSV over line probes and monitors | M | |
-| A4 | Run page: compact stats so the chart fits at 1440x900 / 1.5; a run queue (cases and study points one after another, time left); HPC handoff (SLURM / PBS script from Allrun) | M | |
+| A3 | Compare and report: compare any 2+ cases, not only a study's variants (reports table, residuals and monitors overlaid); export a report (Markdown + PNGs, PDF when a converter exists); reference / experimental CSV over Visualization line probes and Run monitors | M | |
+| A4 | Run page: compact stats so the chart fits at 1440x900 / 1.5; the Queue page's time left per item and in all | S | |
 | A5 | Code health: split the largest pages by tab (`page_stlmesh.c`, `page_setup.c`, `page_run.c`), `simsetup.c` by concern; fuzz seeds and cppcheck in CI | M | |
+
+Found already there while starting (the first answer's list missed them): the run queue (Queue page, `page_queue.c`),
+the Slurm handoff (Away Mission, `page_away.c`), Studies' side-by-side comparison of a case's variants with a
+measurements CSV (`page_studies.c`), the Run page's time remaining, per-region editing of multi-region CHT cases (`j6_cht`),
+the Cases empty state (F-01 was fixed before 2026-11-01; journey `t_empty_states`).
 
 Left out unless asked again: particle-laden flow (`DPMFoam` / `MPPICFoam`) and moving / overset meshes (each L; the
 plan called them "later, if wanted"). The CalculiX ideas of the old list (gravity, bearing loads, rollers, contact,
@@ -85,3 +90,4 @@ What OpenFOAM has that a part study lacks, and its CalculiX counterpart:
 | Date | Step | Notes |
 |---|---|---|
 | 2026-11-26 | plan | Written. |
+| 2026-11-26 | A0 | Run controls committed (21711f6). F-01 was already fixed (journey `t_empty_states`); its FEATURES.md row corrected. FEATURES.md gets an "Added since 2026-10-19" table (areas, docs, tests); FEATURE_GAPS.md marked superseded. 454 `*:Zone.Identifier` files (Windows download metadata, untracked) deleted. Work branch merged into `main`, both pushed. Found already there: queue, Slurm handoff, Studies comparison with measurements (A3 / A4 narrowed). |

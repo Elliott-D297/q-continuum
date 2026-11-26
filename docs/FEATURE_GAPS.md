@@ -1,5 +1,8 @@
 # Feature gaps and implementation plan
 
+> **Superseded.** Every step below was done by 2026-11-22 (`MESH_OVERHAUL_PLAN.md`). The live plan is
+> `IMPROVEMENT_PLAN.md` (2026-11-26). Kept for the reasoning behind the rankings.
+
 2026-11-10. Companion to `MESH_AUDIT.md`. Effort: **S** up to half a day, **M** one to two days, **L** three or more.
 Effort figures are estimates, not measurements.
 

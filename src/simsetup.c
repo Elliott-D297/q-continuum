@@ -490,6 +490,9 @@ bool sim_load(const char *casePath, SimSetup *s, double size)
             else if (!strcmp(k, "write_time")) s->writeTime = atof(v);
             else if (!strcmp(k, "adjust_time_step")) s->adjustDt = atoi(v) != 0;
             else if (!strcmp(k, "forces")) s->forces = atoi(v) != 0;
+            else if (!strcmp(k, "write_wall_shear")) s->outWss = atoi(v) != 0;
+            else if (!strcmp(k, "write_q")) s->outQ = atoi(v) != 0;
+            else if (!strcmp(k, "write_vorticity")) s->outVort = atoi(v) != 0;
             else if (!strcmp(k, "force_reference_auto")) s->forceAuto = atoi(v) != 0;
             else if (!strcmp(k, "drag_direction")) vec_parse(v, s->fr.drag);
             else if (!strcmp(k, "lift_direction")) vec_parse(v, s->fr.lift);
@@ -603,6 +606,7 @@ bool sim_save(const char *casePath, const SimSetup *s)
              s->iterations, s->writeEvery, s->endTime, s->deltaT, s->maxCo, s->writeTime, s->adjustDt);
     str_catf(&o, "algorithm = %s\nouter_correctors = %d\ncorrectors = %d\ntime_scheme = %s\n", ALG_WORD[s->algo], s->nOuter, s->nCorr, TS_WORD[s->timeScheme]);
     str_catf(&o, "stop_on_residuals = %d\nresidual_p = %.8g\nresidual_rest = %.8g\n", s->resStop, s->resP, s->resRest);
+    str_catf(&o, "write_wall_shear = %d\nwrite_q = %d\nwrite_vorticity = %d\n", s->outWss, s->outQ, s->outVort);
     str_catf(&o, "forces = %d\nforce_reference_auto = %d\ndrag_direction = %.8g %.8g %.8g\nlift_direction = %.8g %.8g %.8g\nmoment_centre = %.8g %.8g %.8g\n"
                  "reference_speed = %.8g\nreference_length = %.8g\nreference_area = %.8g\n", s->forces, s->forceAuto, s->fr.drag[0], s->fr.drag[1], s->fr.drag[2],
              s->fr.lift[0], s->fr.lift[1], s->fr.lift[2], s->fr.CofR[0], s->fr.CofR[1], s->fr.CofR[2], s->fr.Uinf, s->fr.lRef, s->fr.aRef);
@@ -1560,7 +1564,7 @@ const char *sim_write_replaced(void) { return gReplaced; }
 typedef struct { const char *key[KP_MAX]; int n; } KPath;
 enum { OP_KEEP, OP_INSERT, OP_DELETE };
 typedef struct { int kind; char *path[KP_MAX]; int n; char *text; char *before; } MergeOp;   /* before: an insert goes ahead of this key */
-typedef struct { MergeOp *op; int n, cap; } MergeOps;
+typedef struct { MergeOp *op; int n, cap; bool oom; } MergeOps;   /* oom: an edit could not be noted: no merge */
 
 /* entries equal but for spacing (and comments' spacing) */
 static bool same_text(const char *a, int al, const char *b, int bl)
@@ -1603,7 +1607,13 @@ static void note(char *buf, const char *line)
 
 static void add_op(MergeOps *m, int kind, const KPath *k, const char *last, const char *text, int tl)
 {
-    if (m->n == m->cap) { m->cap = m->cap ? 2 * m->cap : 16; m->op = realloc(m->op, sizeof(MergeOp) * (size_t)m->cap); }
+    if (m->oom) return;
+    if (m->n == m->cap) {
+        int nc = m->cap ? 2 * m->cap : 16;
+        MergeOp *no = realloc(m->op, sizeof(MergeOp) * (size_t)nc);
+        if (!no) { m->oom = true; return; }
+        m->op = no; m->cap = nc;
+    }
     MergeOp *o = &m->op[m->n++];
     o->kind = kind; o->n = 0;
     for (int i = 0; i < k->n && o->n < KP_MAX; i++) o->path[o->n++] = strdup(k->key[i]);
@@ -1615,7 +1625,7 @@ static void add_op(MergeOps *m, int kind, const KPath *k, const char *last, cons
    in their file (a macro's definition before its $uses: pitzDaily's "turbulence" above "div(phi,k) $turbulence") */
 static void insert_before(MergeOps *m, FDEntry *td, int i, FDEntry *rd)
 {
-    if (!m->n || !rd) return;
+    if (!m->n || !rd || m->oom) return;
     for (int j = i + 1; j < td->nChild; j++) {
         const char *key = td->child[j].key;
         if (td->child[j].kind != FD_DIRECTIVE && key && key[0] && fd_child(rd, key)) { m->op[m->n - 1].before = strdup(key); return; }
@@ -1703,9 +1713,21 @@ static char *merge3(const char *rel, const char *theirs, const char *base, const
         }
         for (int i = 0; i < m.n; i++) { for (int j = 0; j < m.op[i].n; j++) free(m.op[i].path[j]); free(m.op[i].text); free(m.op[i].before); }
         free(m.op);
-        if (R->ok) out = strdup(R->text);
+        if (R->ok && !m.oom) out = strdup(R->text);           /* a user's edit not noted: "can't tell" rather than lose it */
     }
     fd_free(T); fd_free(B); fd_free(R);
+    return out;
+}
+
+char *sim_merge3(const char *rel, const char *theirs, const char *base, const char *mine, char *kept, size_t kcap, char *replaced, size_t rcap)
+{
+    char sk[sizeof gKept], sr[sizeof gReplaced];             /* the setup's own notes stay as they were */
+    memcpy(sk, gKept, sizeof sk); memcpy(sr, gReplaced, sizeof sr);
+    gKept[0] = gReplaced[0] = 0;
+    char *out = merge3(rel, theirs, base, mine);
+    if (kept && kcap) snprintf(kept, kcap, "%s", gKept);
+    if (replaced && rcap) snprintf(replaced, rcap, "%s", gReplaced);
+    memcpy(gKept, sk, sizeof sk); memcpy(gReplaced, sr, sizeof sr);
     return out;
 }
 
@@ -2158,6 +2180,13 @@ bool sim_write(const char *casePath, const SimSetup *s, char *err, int cap)
         str_cat(&o, "\n    // the walls' y+ (wall functions want 30 to 300 at the first cell, resolved walls about 1)\n    yPlus\n    {\n        type            yPlus;\n"
                     "        libs            (fieldFunctionObjects);\n        writeControl    writeTime;\n    }\n");
     }
+    /* fields written with the results (plan step 10, E9): v2606's fieldFunctionObjects, at each write */
+    if (s->outWss) str_cat(&o, "\n    // the shear stress the flow puts on each wall (Pa, per unit density for an incompressible solver)\n    wallShearStress\n    {\n"
+                              "        type            wallShearStress;\n        libs            (fieldFunctionObjects);\n        writeControl    writeTime;\n    }\n");
+    if (s->outQ) str_cat(&o, "\n    // Q = (|W|^2 - |S|^2)/2: positive where rotation beats strain (vortex cores)\n    Q\n    {\n        type            Q;\n"
+                            "        libs            (fieldFunctionObjects);\n        writeControl    writeTime;\n    }\n");
+    if (s->outVort) str_cat(&o, "\n    // the vorticity, curl U\n    vorticity\n    {\n        type            vorticity;\n        libs            (fieldFunctionObjects);\n"
+                               "        writeControl    writeTime;\n    }\n");
     if (tr && (appr0 == APPR_LES || appr0 == APPR_DES)) {
         /* the time averages LES and DES are run for, from when the start-up has washed out */
         str_catf(&o, "\n    // the mean flow and its fluctuations from %.6g s (Physics > Setup, Solver: averaging start)\n    fieldAverage\n    {\n"

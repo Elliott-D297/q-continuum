@@ -160,6 +160,7 @@ static double *read_points(const char *path, long *n)
 /* faces as one flat list of point labels plus offsets (faceList or faceCompactList, ASCII or binary) */
 static bool read_faces(const char *path, long **off, long **idx, long *nFaces)
 {
+    *off = *idx = NULL;                                     /* (a failure frees both: never a caller's unset pointer) */
     FList f;
     if (!fl_open(&f, path)) return false;
     bool ok = false;
@@ -256,7 +257,7 @@ static long *read_label_list(const char *path, long *n)
 }
 
 /* boundary: N ( name { type t; nFaces n; startFace s; ... } ... ) */
-typedef struct { char name[64], type[24]; long nFaces, start; } BPatch;
+typedef FrPatch BPatch;
 
 static int read_boundary(const char *path, BPatch *out, int max)
 {
@@ -284,6 +285,17 @@ static int read_boundary(const char *path, BPatch *out, int max)
     }
     fl_close(&f);
     return k;
+}
+
+/* a mesh whose files don't agree (owner shorter than faces, a face naming a point that isn't there) is refused rather than
+   read past its arrays (sweep 2026-11-21) */
+#define DISAGREE "The mesh files don't agree with each other (owner, faces and points): run checkMesh, or make the mesh again."
+static bool mesh_agrees(long np, long nf, long no, const long *off, const long *idx, const long *own)
+{
+    if (no < nf || off[0] < 0) return false;
+    for (long fi = 0; fi < nf; fi++) if (own[fi] < 0 || off[fi] > off[fi + 1]) return false;
+    for (long k = 0; k < off[nf]; k++) if (idx[k] < 0 || idx[k] >= np) return false;
+    return true;
 }
 
 /* ============================================================================ the cross section */
@@ -332,6 +344,11 @@ bool xs_load(XSection *x, const char *casePath)
     long *own = fok ? read_label_list(p, &no) : NULL;
     if (!pt || !fok || !own) {
         unread_reason(x->err, sizeof x->err, d, pt, fok, own);
+        free(pt); free(off); free(idx); free(own);
+        return false;
+    }
+    if (!mesh_agrees(np, nf, no, off, idx, own)) {
+        snprintf(x->err, sizeof x->err, "%s", DISAGREE);
         free(pt); free(off); free(idx); free(own);
         return false;
     }
@@ -498,6 +515,11 @@ bool ms_load(MeshSurf *m, const char *dir, long maxEdges)
         free(pt); free(off); free(idx); free(own);
         return false;
     }
+    if (!mesh_agrees(np, nf, no, off, idx, own)) {
+        snprintf(m->err, sizeof m->err, "%s", DISAGREE);
+        free(pt); free(off); free(idx); free(own);
+        return false;
+    }
     m->nPoints = np; m->nFaces = nf;
     long maxCell = -1; for (long i = 0; i < no; i++) if (own[i] > maxCell) maxCell = own[i];
     m->nCells = maxCell + 1;
@@ -590,6 +612,7 @@ static bool slice_mesh(const char *dir, char *err, int cap)
         sm_free();
         return false;
     }
+    if (!mesh_agrees(SM.np, SM.nf, SM.nOwn, SM.off, SM.idx, SM.own)) { snprintf(err, (size_t)cap, "%s", DISAGREE); sm_free(); return false; }
     pl_strlcpy(SM.dir, dir, sizeof SM.dir); SM.mt = mt;
     return true;
 }
@@ -707,4 +730,144 @@ bool xs_load_slice(XSection *x, const char *dir, int axis, float frac)
     if (!x->nPoly) { snprintf(x->err, sizeof x->err, "The plane misses the mesh here: move it."); x->ok = true; return true; }
     x->ok = true;
     return true;
+}
+
+
+/* ============================================================================ readers for other modules */
+double *fr_points(const char *path, long *n) { return read_points(path, n); }
+bool fr_faces(const char *path, long **off, long **idx, long *nFaces) { return read_faces(path, off, idx, nFaces); }
+long *fr_labels(const char *path, long *n) { return read_label_list(path, n); }
+int fr_boundary(const char *path, FrPatch *out, int max) { return read_boundary(path, out, max); }
+
+/* "uniform v" or "nonuniform List<scalar|vector> N ( ... )" at q: n values of nc components into out (n x nc); the
+   number of values read (n for uniform), -1 when it isn't a list this reads. *end: just after it. A list longer than n
+   is read up to n. */
+static long read_value_list(FList *f, char *q, long n, int nc, double *out, char **end)
+{
+    while (*q == ' ' || *q == '\t' || *q == '\n' || *q == '\r') q++;
+    if (pl_starts_with(q, "uniform")) {
+        q += 7;
+        while (*q == ' ' || *q == '\t') q++;
+        double a[3] = { 0, 0, 0 };
+        char *e = q;
+        if (*q == '(') { a[0] = strtod(q + 1, &e); a[1] = strtod(e, &e); a[2] = strtod(e, &e); }
+        else a[0] = strtod(q, &e);
+        if (e == q) return -1;
+        for (long i = 0; i < n; i++) for (int k = 0; k < nc; k++) out[i * nc + k] = a[k];
+        *end = e;
+        return n;
+    }
+    if (!pl_starts_with(q, "nonuniform")) return -1;
+    char *lt = strstr(q, "List<");
+    if (!lt || lt > q + 40) return -1;
+    int lc = pl_starts_with(lt, "List<vector>") ? 3 : pl_starts_with(lt, "List<scalar>") ? 1 : 0;
+    if (!lc) return -1;
+    f->pos = (size_t)(strchr(lt, '>') + 1 - f->t);
+    long cnt = fl_begin(f);
+    if (cnt < 0) return -1;
+    long take = cnt < n ? cnt : n;
+    if (f->binary) {
+        size_t need = (size_t)cnt * (size_t)lc * 8;
+        if (f->pos + need > f->len) return -1;
+        for (long i = 0; i < take; i++) {
+            double a[3] = { 0, 0, 0 };
+            memcpy(a, f->t + f->pos + (size_t)i * (size_t)lc * 8, (size_t)lc * 8);
+            for (int k = 0; k < nc; k++) out[i * nc + k] = k < lc ? a[k] : 0;
+        }
+        f->pos += need;
+        fl_end(f);
+        *end = f->t + f->pos;
+        return take;
+    }
+    char *r = f->t + f->pos, *e;
+    for (long i = 0; i < cnt; i++) {
+        double a[3] = { 0, 0, 0 };
+        if (lc == 3) {
+            r = strchr(r, '(');
+            if (!r) return -1;
+            r++;
+            a[0] = strtod(r, &e); a[1] = strtod(e, &e); a[2] = strtod(e, &e);
+            r = strchr(e, ')');
+            if (!r) return -1;
+            r++;
+        } else {
+            a[0] = strtod(r, &e);
+            if (e == r) return -1;
+            r = e;
+        }
+        if (i < take) for (int k = 0; k < nc; k++) out[i * nc + k] = k < lc ? a[k] : 0;
+    }
+    f->pos = (size_t)(r - f->t);
+    fl_end(f);
+    *end = f->t + f->pos;
+    return take;
+}
+
+int fr_vol_field(const char *path, long nCells, const FrPatch *pt, int np, long nInternal, long nFaces,
+                 double **cell, double **bnd, char *dims, int dimsCap)
+{
+    *cell = *bnd = NULL;
+    if (dims && dimsCap > 0) dims[0] = 0;
+    FList f;
+    if (!fl_open(&f, path)) return 0;
+    int nc = strstr(f.cls, "Vector") ? 3 : strstr(f.cls, "Scalar") ? 1 : 0;
+    if (!nc || nCells <= 0) { fl_close(&f); return 0; }
+    char *d = strstr(f.t + f.pos, "dimensions");
+    if (d && dims) {
+        char *a = strchr(d, '['), *b = a ? strchr(a, ']') : NULL;
+        if (a && b && b - a < dimsCap - 1) {             /* one space between the numbers, none inside the brackets: */
+            int k = 0;                                    /* foamFormatConvert writes "[ 0 2 -2 0 0 0 0 ]" */
+            dims[k++] = '[';
+            for (char *q = a + 1; q < b && k < dimsCap - 2; q++) {
+                if (isspace((unsigned char)*q)) { if (k > 1 && dims[k - 1] != ' ') dims[k++] = ' '; }
+                else dims[k++] = *q;
+            }
+            if (k > 1 && dims[k - 1] == ' ') k--;
+            dims[k++] = ']'; dims[k] = 0;
+        }
+    }
+    char *in = strstr(f.t + f.pos, "internalField");
+    double *c = malloc(sizeof(double) * (size_t)nCells * (size_t)nc);
+    char *end = NULL;
+    long got = in && c ? read_value_list(&f, in + 13, nCells, nc, c, &end) : -1;
+    if (got != nCells) { free(c); fl_close(&f); return 0; }
+    long nb = nFaces - nInternal;
+    double *b = malloc(sizeof(double) * (size_t)(nb > 0 ? nb : 1) * (size_t)nc);
+    for (long i = 0; i < nb * nc; i++) b[i] = NAN;
+    /* boundaryField { patch { ... value ...; } ... }, the patches in the boundary's order (as the solvers write them). A
+       binary list's bytes may hold NULs and braces, so text is only searched before a list and after it ends: a cursor
+       moves on past each patch, from where the list reader stopped */
+    char *bf = strstr(end ? end : f.t + f.pos, "boundaryField");
+    char *cur = bf ? strchr(bf, '{') : NULL;
+    if (cur) cur++;
+    for (int p = 0; cur && p < np; p++) {
+        if (pt[p].nFaces <= 0 || pt[p].start < nInternal || pt[p].start + pt[p].nFaces > nFaces) continue;
+        size_t L = strlen(pt[p].name);
+        char *q = cur, *open = NULL;
+        while ((q = strstr(q, pt[p].name))) {
+            bool startOk = q == cur || isspace((unsigned char)q[-1]) || q[-1] == '"';
+            char *a2 = q + L;
+            if (*a2 == '"') a2++;
+            while (isspace((unsigned char)*a2)) a2++;
+            if (startOk && *a2 == '{') { open = a2; break; }
+            q += L;
+        }
+        if (!open) continue;                                     /* not written: its cells' values are used */
+        char *close = strchr(open, '}');                          /* a patch entry's first '}' (they don't nest dictionaries before value) */
+        char *v = open;
+        while ((v = strstr(v, "value")) && (!close || v < close)) {
+            if (isspace((unsigned char)v[-1]) && (isspace((unsigned char)v[5]) || v[5] == 0)) break;
+            v += 5;
+        }
+        if (!v || (close && v > close)) { cur = close ? close + 1 : NULL; continue; }
+        char *e2 = NULL;
+        double *dst = b + (pt[p].start - nInternal) * nc;
+        long r = read_value_list(&f, v + 5, pt[p].nFaces, nc, dst, &e2);
+        if (r != pt[p].nFaces) { for (long i = 0; i < pt[p].nFaces * nc; i++) dst[i] = NAN; cur = close ? close + 1 : NULL; continue; }
+        char *c2 = strchr(e2, '}');                                /* after the list: back in text */
+        cur = c2 ? c2 + 1 : NULL;
+    }
+    fl_close(&f);
+    *cell = c; *bnd = b;
+    return nc;
 }

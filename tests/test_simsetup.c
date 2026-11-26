@@ -483,6 +483,7 @@ static int pitz(int argc, char **argv)
     s.ramp = argc > 6 ? atof(argv[6]) : 0;
     s.iterations = argc > 7 ? atof(argv[7]) : 2000; s.writeEvery = s.iterations; s.resStop = true; s.resP = 1e-4; s.resRest = 1e-5;
     s.length = 0.0025; s.intensity = 5;
+    if (getenv("QC_OUT_FIELDS")) s.outWss = s.outQ = s.outVort = true;   /* plan step 10 E9: simsetup_outputs.sh */
     sim_settle(&s);
     char err[300];
     if (!sim_save(dir, &s) || !sim_write(dir, &s, err, sizeof err)) { printf("pitz: %s\n", err); return 1; }

@@ -22,7 +22,7 @@ typedef enum {
 #define MAX_JOBS 8
 
 #define WHATS_NEW_REV 13         /* bump with each batch of changes worth telling about (page_settings.c lists them) */
-typedef enum { MD_NONE = 0, MD_OPEN_FOLDER, MD_CLONE, MD_CLEAN, MD_DELETE, MD_UNSAVED, MD_QUIT_RUNNING, MD_ADD_ENTRY, MD_RUN_RESULTS, MD_NEW_FILE, MD_RUN_SCRIPT, MD_CPL_NEW, MD_CPL_OPEN, MD_CPL_RESULTS, MD_PV_CLAUDE, MD_HIST_CONFIRM, MD_PRECHECK, MD_QUEUE_ADD, MD_MOVIE, MD_STUDY_NEW, MD_STUDY_OUT, MD_STUDY_EXP, MD_PROG_CLEAN, MD_CONFLICT, MD_SHORTCUTS, MD_WHATS_NEW, MD_PALETTE, MD_ENV, MD_REVIEW, MD_PLUME, MD_AWAY, MD_CPL_BUILD, MD_FLAVOUR, MD_BLANK, MD_DEL_FILE, MD_GLOSSARY, MD_CALC } Modal;
+typedef enum { MD_NONE = 0, MD_OPEN_FOLDER, MD_CLONE, MD_CLEAN, MD_DELETE, MD_UNSAVED, MD_QUIT_RUNNING, MD_ADD_ENTRY, MD_RUN_RESULTS, MD_NEW_FILE, MD_RUN_SCRIPT, MD_CPL_NEW, MD_CPL_OPEN, MD_CPL_RESULTS, MD_PV_CLAUDE, MD_HIST_CONFIRM, MD_PRECHECK, MD_QUEUE_ADD, MD_MOVIE, MD_STUDY_NEW, MD_STUDY_OUT, MD_STUDY_EXP, MD_PROG_CLEAN, MD_CONFLICT, MD_SHORTCUTS, MD_WHATS_NEW, MD_PALETTE, MD_ENV, MD_REVIEW, MD_PLUME, MD_AWAY, MD_CPL_BUILD, MD_FLAVOUR, MD_BLANK, MD_DEL_FILE, MD_GLOSSARY, MD_CALC, MD_MESHQ } Modal;
 
 typedef struct {
     Env      env;
@@ -93,6 +93,7 @@ typedef struct {
     int      histAction;                /* MD_HIST_CONFIRM: what is being confirmed            */
     int      numericsTab;
     int      physicsTab;
+    int      resultsTab;                /* Results page: 0 summary, 1 visualization */
 
     /* coupling (preCICE) */
     CouplingSummary cplList[64];
@@ -199,7 +200,8 @@ void logo_draw(int theme, float x, float y, float s);
 void logo_set_icon(int theme, bool desktop);
 int  logo_export(const char *dir);                           /* --export-logos: logo-<theme>.png, 256 px */                           /* page_coupling.c: a coupled case from two cases */
 void page_cpl_case(Rectangle r, int which);                  /* page_coupling.c: a coupled run's pages (0 overview, 1 setup, 2 participants, 3 run) */                                /* page_away.c: AWAY MISSION, a case packed for aerofly (5.1) */
-int  run_steps_script(Case *c, int np, Str *out);             /* page_run.c: the run as a Slurm job's shell steps */                               /* page_cases.c: the impinging-plume starter (4.4) */                       /* page_run.c: its solver's parallel probe has answered */
+int  run_steps_script(Case *c, int np, Str *out);
+bool run_export_allrun(Case *c, int np, char *msg, int cap);   /* page_run.c: Allrun and Allclean in the case (plan step 11) */             /* page_run.c: the run as a Slurm job's shell steps */                               /* page_cases.c: the impinging-plume starter (4.4) */                       /* page_run.c: its solver's parallel probe has answered */
 bool app_deme_running(void);
 void app_generate_mesh(void);
 /* log.checkMesh read for what its failed checks amount to (foamcase.h), re-read when the log changes */
@@ -277,6 +279,7 @@ void page_prog_setup(Rectangle r);
 void page_prog_run(Rectangle r);
 void page_prog_results(Rectangle r);
 void page_foam_results(Rectangle r);
+float viz_page(Case *c, float x, float y, float w, float h);   /* Results > Visualization (page_viz.c) */
 bool app_starter_info(const char *casePath, char *title, int tcap, char *learn, int lcap, char *expect, int ecap);   /* W8 */
 float app_starter_callout(const char *casePath, float x, float y, float w);
 /* page_fea.c: a part study in CalculiX (docs/FEA_PLAN.md) */
@@ -340,6 +343,7 @@ void  stlmesh_new_case(void);                                /* page_stlmesh.c: 
    in constant/, where clearing or copying 0/ (Clean, 0.orig) can't leave the faces with the points from before the layers */
 #define SNAPPY_CMD "snappyHexMesh -overwrite && if [ -f 0/polyMesh/points ]; then mv -f 0/polyMesh/points constant/polyMesh/points " \
                    "&& rm -rf 0/polyMesh && echo 'Q-Continuum: moved the layered points from 0/polyMesh to constant/polyMesh'; fi"
+void  least_case(const char *dir);                           /* page_salome.c: stand-in controlDict, fvSchemes, fvSolution where missing (the mesh tools need them) */
 void  salome_import_new_case(void);                         /* page_salome.c: pick a mesh file (UNV, MED, .msh), make a case for it, import it */
 void  salome_tick(void);                                     /* page_salome.c: follows its file dialog, every frame */
 bool  stlmesh_example_case(int k);                           /* page_stlmesh.c: the meshing tutorial's example k (meshexamples.h) made and opened */
@@ -369,6 +373,11 @@ int   run_procs_for_check(void);
 float blocks_page(Case *c, float x, float y, float w);
 bool  blocks_wants_first(void);                             /* a template with a wall first cell is open */
 void  blocks_take_first(double h1);                          /* ... and the y+ calculator's first cell goes in it */
+void  blocks_suggest(int tmpl, double first, double cells);   /* "What mesh do I need?": this template (first cell, 0 none; counts scaled toward cells) next time the page draws */
+bool  stlmesh_suggest(Case *c, int mesher, bool layers);      /* ... this mesher for the open case's part; false without a part */
+float meshtools_page(Case *c, float x, float y, float w);    /* page_meshtools.c: Mesh > Tools (A.meshTab 6) */
+void  meshq_open(void);                                       /* page_meshadvice.c: the "What mesh do I need?" dialog */
+void  meshq_modal(bool *close);                               /* draw_modals, MD_MESHQ */
 bool  extrude_add_steps(Case *c, Job *j);               /* page_blocks.c: Generate mesh's extrusion steps (mesher/extrude.ini) */                             /* page_run.c: the processes the next run will use */
 /* page_setup.c: the walls' y+ from a run (mean, greatest) against the setup's wall treatment: a line saying so (out), and
    0 it suits, 1 it doesn't (the line says what to change), -1 nothing to say (laminar, no y+) */

@@ -1,0 +1,49 @@
+# Mesh plan step 10 (E6, E7): Mesh > Tools on the cavity: a patch renamed (in the mesh and 0/U), another made a wall, the
+# mesh scaled by 10 (transformPoints) and a cell zone made from a box (topoSet), each checked by checkMesh.
+budget p95 80 max 600
+shell cd $SB/ws/cavity && bash -c '. "$WM_PROJECT_DIR/etc/bashrc" > /dev/null 2>&1; blockMesh > log.blockMesh 2>&1'
+open $SB/ws/cavity
+click nav:mesh
+wait-until page Mesh
+click mesh-tab#3
+wait 5
+assert text movingWall
+assert text frontAndBack
+screenshot $OUT/1_tools.png
+click mt-pname#0
+key A ctrl
+enter lid
+wait 5
+assert log constant/polyMesh/boundary lid
+assert log 0/U lid
+assert not log 0/U movingWall
+# scale by 10
+click mt-scale
+key A ctrl
+enter 10
+click mt-run
+wait-until job running timeout 20
+wait-until job finished timeout 120
+assert log log.checkMesh Mesh OK.
+assert log log.checkMesh bounding box (0 0 0) (1 1 0.1)
+# a cell zone in the lower-left quarter
+choose mt-tool Cell zone from a box
+wait 3
+click mt-zname
+key A ctrl
+enter porous
+click mt-zhi0
+key A ctrl
+enter 0.5
+click mt-zhi1
+key A ctrl
+enter 0.5
+click mt-zhi2
+key A ctrl
+enter 1
+click mt-run
+wait-until job running timeout 20
+wait-until job finished timeout 120
+assert log constant/polyMesh/cellZones porous
+assert log log.topoSet cellZoneSet porous
+screenshot $OUT/2_zone.png

@@ -47,15 +47,23 @@ bool deme_params_load(DemeParams *d, const char *path)
     if (!t) return false;
     d->stamp = deme_params_stamp(path);
     int cap = 64; d->lines = calloc((size_t)cap, sizeof(char *));
-    for (const char *q = t; *q; ) {
+    bool oom = !d->lines;
+    for (const char *q = t; *q && !oom; ) {
         const char *nl = strchr(q, '\n');
         size_t n = nl ? (size_t)(nl - q) : strlen(q);
-        if (d->nLines == cap) { cap *= 2; d->lines = realloc(d->lines, sizeof(char *) * (size_t)cap); }
-        d->lines[d->nLines++] = pl_strndup(q, n);
+        if (d->nLines == cap) {
+            char **nn = realloc(d->lines, sizeof(char *) * (size_t)cap * 2);
+            if (!nn) { oom = true; break; }
+            d->lines = nn; cap *= 2;
+        }
+        char *line = pl_strndup(q, n);
+        if (!line) { oom = true; break; }
+        d->lines[d->nLines++] = line;
         q = nl ? nl + 1 : q + n;
     }
     free(t);
-    d->p = calloc((size_t)(d->nLines ? d->nLines : 1), sizeof *d->p);
+    d->p = oom ? NULL : calloc((size_t)(d->nLines ? d->nLines : 1), sizeof *d->p);
+    if (!d->p) { deme_params_free(d); pl_strlcpy(d->path, path, sizeof d->path); return false; }
     char section[48] = "", comment[512] = "";
     for (int i = 0; i < d->nLines; i++) {
         char b[1024]; pl_strlcpy(b, d->lines[i], sizeof b);
@@ -85,6 +93,7 @@ bool deme_params_save(DemeParams *d)
     size_t len = 0;
     for (int i = 0; i < d->nLines; i++) len += strlen(d->lines[i]) + 1;
     char *b = malloc(len + 1), *w = b;
+    if (!b) return false;
     for (int i = 0; i < d->nLines; i++) { size_t n = strlen(d->lines[i]); memcpy(w, d->lines[i], n); w += n; *w++ = '\n'; }
     bool ok = pl_write_file(d->path, b, (size_t)(w - b));
     free(b);
@@ -120,15 +129,16 @@ bool deme_param_set(DemeParams *d, const char *key, const char *value)
     DemeParam *p = deme_param(d, key);
     if (!p) return false;
     if (!strcmp(p->value, value)) return true;
-    pl_strlcpy(p->value, value, sizeof p->value);
     /* rewrite the line: its indent and a trailing comment stay */
     const char *old = d->lines[p->line], *eq = strchr(old, '='), *h = eq ? strchr(eq, '#') : NULL;
     size_t cap = strlen(old) + strlen(key) + strlen(value) + 8;
     char *nl = malloc(cap);
+    if (!nl) return false;
     if (!eq) snprintf(nl, cap, "%s = %s", key, value);
     else snprintf(nl, cap, "%.*s %s%s%s", (int)(eq - old) + 1, old, value, h ? "  " : "", h ? h : "");
     free(d->lines[p->line]);
     d->lines[p->line] = nl;
+    pl_strlcpy(p->value, value, sizeof p->value);
     d->dirty = true;
     return true;
 }
@@ -274,16 +284,24 @@ void deme_progress_poll(DemeProgress *p, const char *logPath, double now)
 /* ============================================================================ frames */
 void deme_frame_free(DemeFrame *f) { free(f->x); free(f->y); free(f->z); free(f->r); free(f->v); memset(f, 0, sizeof *f); }
 
-static void grow(DemeFrame *f, int need)
+static bool grow(DemeFrame *f, int need)
 {
-    if (need <= f->cap) return;
+    if (need <= f->cap) return true;
     int c = f->cap ? f->cap * 2 : 4096;
     while (c < need) c *= 2;
-    f->x = realloc(f->x, sizeof(float) * (size_t)c); f->y = realloc(f->y, sizeof(float) * (size_t)c);
-    f->z = realloc(f->z, sizeof(float) * (size_t)c); f->r = realloc(f->r, sizeof(float) * (size_t)c);
-    f->v = realloc(f->v, sizeof(float) * (size_t)c);
+    float **a[5] = { &f->x, &f->y, &f->z, &f->r, &f->v };
+    for (int k = 0; k < 5; k++) {                     /* each kept as it was when its realloc fails: cap stays the smaller */
+        float *n = realloc(*a[k], sizeof(float) * (size_t)c);
+        if (!n) return false;
+        *a[k] = n;
+    }
     f->cap = c;
+    return true;
 }
+
+/* the most columns a row is read for, and the highest needed column (a row shorter than it is skipped) */
+#define ROW_COLS 16
+static int need_col(const int *col, int n) { int m = -1; for (int k = 0; k < n; k++) if (col[k] > m) m = col[k]; return m; }
 
 /* a SPARTA (or LAMMPS) dump: "ITEM: ATOMS id type x y z vx vy vz", one particle a line; no radius (drawn as points) */
 static bool dump_load(DemeFrame *f, char *t)
@@ -296,16 +314,18 @@ static bool dump_load(DemeFrame *f, char *t)
     static const char *const NAMES[6] = { "x", "y", "z", "vx", "vy", "vz" };
     for (char *c = strtok(at + 11, " \t\r"); c; c = strtok(NULL, " \t\r"), nc++)
         for (int k = 0; k < 6; k++) if (!strcmp(c, NAMES[k])) col[k] = nc;
-    if (col[0] < 0 || col[1] < 0) return false;
+    for (int k = 2; k < 6; k++) if (col[k] >= ROW_COLS) col[k] = -1;     /* optional ones past what is read: absent */
+    int need = need_col(col, 2);
+    if (col[0] < 0 || col[1] < 0 || need >= ROW_COLS) return false;
     for (int k = 0; k < 3; k++) { f->lo[k] = 1e30f; f->hi[k] = -1e30f; }
     f->vmax = 0; f->rmin = 0; f->rmax = 0;
     for (char *s = nl + 1; *s; ) {
         char *e = strchr(s, '\n');
         if (e) *e = 0;
-        double v[16] = { 0 }; int k = 0;
-        for (char *q = s; k < 16; k++) { char *end; v[k] = strtod(q, &end); if (end == q) break; q = end; }
-        if (k > col[1]) {
-            grow(f, f->n + 1);
+        double v[ROW_COLS] = { 0 }; int k = 0;
+        for (char *q = s; k < ROW_COLS; k++) { char *end; v[k] = strtod(q, &end); if (end == q) break; q = end; }
+        if (k > need) {
+            if (!grow(f, f->n + 1)) break;
             int i = f->n++;
             f->x[i] = (float)v[col[0]]; f->y[i] = (float)v[col[1]]; f->z[i] = col[2] >= 0 && col[2] < k ? (float)v[col[2]] : 0;
             f->r[i] = 0;
@@ -337,14 +357,16 @@ bool deme_frame_load(DemeFrame *f, const char *csv)
     static const char *const NAMES[5] = { "X", "Y", "Z", "r", "absv" };
     for (char *c = strtok(s, ",\r"); c; c = strtok(NULL, ",\r"), nc++)
         for (int k = 0; k < 5; k++) if (!strcmp(trim(c), NAMES[k])) col[k] = nc;
-    if (col[0] < 0 || col[1] < 0 || col[2] < 0) { free(t); return false; }
+    for (int k = 3; k < 5; k++) if (col[k] >= ROW_COLS) col[k] = -1;
+    int need = need_col(col, 3);
+    if (col[0] < 0 || col[1] < 0 || col[2] < 0 || need >= ROW_COLS) { free(t); return false; }
     for (int k = 0; k < 3; k++) { f->lo[k] = 1e30f; f->hi[k] = -1e30f; }
     f->vmax = 0; f->rmin = 1e30f; f->rmax = 0;
     for (s = nl + 1; *s; ) {
         char *e = strchr(s, '\n');
         if (e) *e = 0;
-        double v[16] = { 0 }; int k = 0;
-        for (char *q = s; k < 16; k++) {
+        double v[ROW_COLS] = { 0 }; int k = 0;
+        for (char *q = s; k < ROW_COLS; k++) {
             char *end = NULL;
             v[k] = strtod(q, &end);
             if (end == q) break;
@@ -352,8 +374,8 @@ bool deme_frame_load(DemeFrame *f, const char *csv)
             if (*q != ',') { k++; break; }
             q++;
         }
-        if (k > col[2]) {
-            grow(f, f->n + 1);
+        if (k > need) {
+            if (!grow(f, f->n + 1)) break;
             int i = f->n++;
             f->x[i] = (float)v[col[0]]; f->y[i] = (float)v[col[1]]; f->z[i] = (float)v[col[2]];
             f->r[i] = col[3] >= 0 && col[3] < k ? (float)v[col[3]] : 0;

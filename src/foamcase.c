@@ -285,10 +285,12 @@ static void check_mesh_stale(CaseSummary *s)
 {
     if (!s->meshTime) return;
     /* a mesh imported after the last blockMesh/snappy run (SALOME tab) doesn't come from those dictionaries */
-    const char *logs[] = { "log.ideasUnvToFoam", "log.blockMesh", "log.snappyHexMesh" };
-    time_t lt[3];
-    for (int i = 0; i < 3; i++) { char p[PL_PATH]; pl_join(p, sizeof p, s->path, logs[i]); lt[i] = pl_is_file(p) ? pl_mtime(p) : 0; }
-    if (lt[0] && lt[0] > lt[1] && lt[0] > lt[2]) return;
+    /* (any importer: SALOME's UNV, Gmsh, Fluent, STAR-CD -- sweep 2026-11-21: only the UNV one was known) */
+    const char *logs[] = { "log.ideasUnvToFoam", "log.gmshToFoam", "log.fluentMeshToFoam", "log.star4ToFoam", "log.blockMesh", "log.snappyHexMesh" };
+    time_t lt[6], imp = 0;
+    for (int i = 0; i < 6; i++) { char p[PL_PATH]; pl_join(p, sizeof p, s->path, logs[i]); lt[i] = pl_is_file(p) ? pl_mtime(p) : 0; }
+    for (int i = 0; i < 4; i++) if (lt[i] > imp) imp = lt[i];
+    if (imp && imp > lt[4] && imp > lt[5]) return;
     const char *dicts[] = { "system/blockMeshDict", "system/snappyHexMeshDict", NULL };
     for (int i = 0; dicts[i]; i++) {
         char p[PL_PATH]; pl_join(p, sizeof p, s->path, dicts[i]);
@@ -408,6 +410,10 @@ void case_summarize(const char *path, CaseSummary *s)
     if (cd) {
         char v[128];
         if (fd_get(cd, "application", v, sizeof v)) fd_word(v, s->app, sizeof s->app);
+        /* it is run as a command: a solver's name is a plain word. "application $(...);" in a case from elsewhere must not
+           run (sweep 2026-11-22) */
+        for (const char *q = s->app; *q; q++)
+            if (!isalnum((unsigned char)*q) && !strchr("_.+-", *q)) { s->app[0] = 0; break; }
         if (fd_get(cd, "startTime", v, sizeof v)) s->startTime = atof(v);
         if (fd_get(cd, "endTime", v, sizeof v)) s->endTime = atof(v);
         if (fd_get(cd, "deltaT", v, sizeof v)) s->deltaT = atof(v);
@@ -477,7 +483,7 @@ void case_summarize(const char *path, CaseSummary *s)
     /* a solver log (any log.* but the mesh/pre tools) written in the last 30 s: someone is running this case */
     if (newestLog && difftime(time(NULL), newestLog) < 30) {
         static const char *pre[] = { "log.blockMesh", "log.checkMesh", "log.decomposePar", "log.reconstructPar", "log.topoSet",
-                                      "log.splitMeshRegions", "log.snappyHexMesh", "log.surfaceFeatureExtract", "log.setFields", NULL };
+                                      "log.splitMeshRegions", "log.snappyHexMesh", "log.snappyLayers", "log.surfaceFeatureExtract", "log.setFields", NULL };
         bool isPre = false;
         for (int i = 0; pre[i]; i++) if (pl_starts_with(newestLogName, pre[i])) isPre = true;
         if (!isPre && log_writer_alive(s->path, newestLogName)) pl_strlcpy(s->runningLog, newestLogName, sizeof s->runningLog);
@@ -860,7 +866,7 @@ static bool mesh_log(const char *n)
 {
     static const char *const L[] = { "log.blockMesh", "log.surfaceFeatureExtract", "log.surfaceFeatures", "log.snappyHexMesh",
         "log.checkMesh", "log.extrudeMesh", "log.meshClear", "log.polyDualMesh", "log.ideasUnvToFoam", "log.gmshToFoam",
-        "log.fluentMeshToFoam", "log.meshImport", "log.salome", "log.createPatch", NULL };
+        "log.fluentMeshToFoam", "log.meshImport", "log.salome", "log.createPatch", "log.snappyLayers", "log.decomposePar.mesh", "log.star4ToFoam", NULL };
     for (int i = 0; L[i]; i++) if (!strcmp(n, L[i])) return true;
     return false;
 }
@@ -892,7 +898,12 @@ int case_trash_results(Case *c, int what, bool permanent, const char *reason, ch
         char bm[PL_PATH], pm[PL_PATH];
         pl_join(bm, sizeof bm, c->s.path, "system/blockMeshDict");
         pl_join(pm, sizeof pm, c->s.path, "constant/polyMesh");
-        if (pl_is_file(bm) && pl_is_dir(pm)) names_add(&take, "constant/polyMesh");   /* only regenerable meshes */
+        /* only a mesh blockMesh made can be made again (sweep 2026-11-21: an imported mesh beside a leftover blockMeshDict went) */
+        time_t imp = 0, blk = 0;
+        static const char *const IMP[] = { "log.ideasUnvToFoam", "log.gmshToFoam", "log.fluentMeshToFoam", "log.star4ToFoam", "log.meshImport" };
+        for (int i = 0; i < 5; i++) { char lp[PL_PATH]; pl_join(lp, sizeof lp, c->s.path, IMP[i]); time_t m = pl_is_file(lp) ? pl_mtime(lp) : 0; if (m > imp) imp = m; }
+        { char lp[PL_PATH]; pl_join(lp, sizeof lp, c->s.path, "log.blockMesh"); blk = pl_is_file(lp) ? pl_mtime(lp) : 0; }
+        if (pl_is_file(bm) && pl_is_dir(pm) && !(imp && imp >= blk)) names_add(&take, "constant/polyMesh");
     }
     int removed = 0;
     if (permanent) {

@@ -1,0 +1,52 @@
+# Results > Visualization's scene features (docs/VISUALIZATION_PLAN.md V6): banded colour, mirror copies, two views, a saved
+# view, a screenshot, a line probe's CSV, a movie over time; the scene kept in visualization/scene.ini and read back
+open $SB/ws/cube3d
+click nav:results
+wait 2
+click res-tabs#1
+wait-until text Boundary surfaces timeout 30
+choose vz-add Section plane
+wait 2
+click vz-style#1
+wait 2
+assert widget vz-levels
+screenshot $OUT/scene_banded.png
+click vz-mx
+wait 2
+screenshot $OUT/scene_mirror.png
+click vz-mx
+click vz-lay#1
+wait 3
+assert widget vz-link
+screenshot $OUT/scene_two.png
+click vz-lay#0
+choose vz-views Save this view
+wait 1
+choose vz-shot Screenshot 1x
+wait-until file visualization/screenshot_001.png timeout 20
+choose vz-add Line probe
+wait 2
+click vz-lcsv
+wait-until file visualization/lineprobe_2.csv timeout 10
+shell grep -q '^distance,x,y,z,' $SB/ws/cube3d/visualization/lineprobe_2.csv
+choose vz-movie Movie over time
+wait-until text Recording timeout 10
+wait-until not text Recording timeout 60
+wait 4
+shell ls $SB/ws/cube3d/visualization/frames/00005.png
+wait 3
+shell grep -q 'saved = View 1' $SB/ws/cube3d/visualization/scene.ini
+shell grep -q 'style = 1' $SB/ws/cube3d/visualization/scene.ini
+# away to a case without a mesh, then back: the scene is read from the file
+open $SB/ws/cavity
+click nav:results
+wait 3
+screenshot $OUT/scene_nomesh.png
+open $SB/ws/cube3d
+click nav:results
+wait-until text Line probe timeout 30
+assert text Section plane
+click vz-d#1
+wait 2
+assert widget vz-levels
+screenshot $OUT/scene_reloaded.png

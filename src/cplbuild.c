@@ -144,9 +144,13 @@ bool cplb_write(const CplBuild *b0, const char *outDir, char *err, int cap)
         pl_list_dir(p->src, &l, true, false);
         for (int t = 0; t < l.n; t++) if (pl_is_number(l.names[t]) && atof(l.names[t]) > 0) str_catf(&ex, "--exclude='./%s' ", l.names[t]);
         names_free(&l);
-        pl_fmt(cmd, sizeof cmd, "mkdir -p %s && cd %s && tar --exclude='./processor*' --exclude='./log.*' --exclude=./postProcessing "
-               "--exclude='./.qc*' --exclude=./.qcontinuum --exclude='./*.foam' %s -cf - . | (cd %s && tar xf -)", qd, qs, ex.s ? ex.s : "", qd);
+        bool fits = pl_fmt(cmd, sizeof cmd, "mkdir -p %s && cd %s && tar --exclude='./processor*' --exclude='./log.*' --exclude=./postProcessing "
+                           "--exclude='./.qc*' --exclude=./.qcontinuum --exclude='./*.foam' %s -cf - . | (cd %s && tar xf -)", qd, qs, ex.s ? ex.s : "", qd);
         str_free(&ex);
+        if (!fits) {                                          /* a cut-off command would copy the results too, or fail half-way */
+            snprintf(err, (size_t)cap, "%s has too many result times to leave out: clean its results first (Run > Clean results)", p->src);
+            return false;
+        }
         if (pl_run_wait(cmd, NULL, 0) != 0) { snprintf(err, (size_t)cap, "Copying %s failed", p->src); return false; }
         /* preciceDict */
         char pd[2048];

@@ -9,6 +9,7 @@
 #include <unistd.h>
 #include <sys/wait.h>
 #include "app.h"
+#include "allrun.h"
 #include "program.h"
 #include "simsetup.h"
 const SimSetup *setup_current(Case *c);            /* page_setup.c: NULL without a simulation.ini */
@@ -18,6 +19,8 @@ const SimSetup *setup_current(Case *c);            /* page_setup.c: NULL without
 #include "monitor.h"
 #include "explain.h"
 #include "sweep.h"
+#include "runctl.h"
+#include "page_runctl.h"
 
 /* Tutorial scripts are "#!/bin/sh" but some use bash features (foamyQuadMesh copies {a,b}.stl.gz), and /bin/sh is
    dash on Debian and Ubuntu: run sh scripts with bash, which runs every sh script the same, and others as they are */
@@ -110,6 +113,7 @@ static int allrun_decomp_dicts(const Case *c, char (*out)[160], int max)
     for (int f = 0; f < 2; f++) {
         char p[PL_PATH]; pl_join(p, sizeof p, c->s.path, names[f]);
         size_t len; char *t = pl_read_file(p, &len);
+        if (t && strstr(t, ALLRUN_MARK)) { free(t); return false; }   /* ours (Export Allrun): the built-in steps are the same, without re-meshing each run */
         for (char *line = t ? strtok(t, "\n") : NULL; line; line = strtok(NULL, "\n")) {
             while (*line == ' ' || *line == '\t') line++;
             if (*line == '#') continue;
@@ -2084,8 +2088,13 @@ void page_run(Rectangle r)
         if (dv_choice(cd, "application", (Rectangle){ x, y, w, 36 }, SOLVER_APPS, N_SOLVER_APPS, true, "application")) { case_rescan(c); }
         y += 48;
         float hw = (w - 12) / 2;
-        ui_text(F_MED, 13, "End time", x, y, TH.text2);
-        ui_text(F_MED, 13, "Time step", x + hw + 12, y, TH.text2);
+        char appNow[64] = ""; fd_get(cd, "application", appNow, sizeof appNow);
+        const RcSolver *rs = rc_solver(appNow);
+        bool steadyApp = rs->flags & RC_STEADY;
+        char adjNow[16] = ""; fd_get(cd, "adjustTimeStep", adjNow, sizeof adjNow);
+        bool adaptive = (rs->flags & RC_ADJUST) && (!strcmp(adjNow, "yes") || !strcmp(adjNow, "on") || !strcmp(adjNow, "true"));
+        ui_text(F_MED, 13, steadyApp ? "Last iteration" : "End time", x, y, TH.text2);
+        ui_text(F_MED, 13, steadyApp ? "Step (1 = per iteration)" : adaptive ? "First time step" : "Time step", x + hw + 12, y, TH.text2);
         y += 22;
         if (dv_number(cd, "endTime", (Rectangle){ x, y, hw, 36 }, "1")) case_rescan(c);
         if (dv_number(cd, "deltaT", (Rectangle){ x + hw + 12, y, hw, 36 }, "0.001")) case_rescan(c);
@@ -2097,16 +2106,22 @@ void page_run(Rectangle r)
         const char *const *wc; int nwc = suggest_for_key("writeControl", NULL, &wc);
         dv_choice(cd, "writeControl", (Rectangle){ x + hw + 12, y, hw, 36 }, wc, nwc, false, "timeStep");
         y += 50;
-        if (fd_find(cd, "adjustTimeStep")) {
-            ui_text(F_MED, 13, "Adaptive time step", x, y + 2, TH.text);
-            dv_switch(cd, "adjustTimeStep", x + w - 80, y, "no");
-            y += 34;
-            if (fd_find(cd, "maxCo")) {
-                ui_text(F_REG, 13, "Max Courant", x, y + 9, TH.text2);
-                dv_number(cd, "maxCo", (Rectangle){ x + w - 120, y, 120, 34 }, "1");
-                y += 44;
-            }
+        {   /* what the solver can do with its step: adaptive with its limits, or why not and what instead */
+            int prim = logset_primary(&A.logs, c->s.app);
+            LogMon *lm = prim >= 0 ? &A.logs.logs[prim] : NULL;
+            double coPeak = 0;
+            for (int i = 0; lm && i < lm->courant.n; i++) if (lm->courant.v[i] > coPeak) coPeak = lm->courant.v[i];
+            y += runctl_time_rows(c, cd, x, y, w, mine, coPeak, lm && lm->deltaT > 0 ? lm->deltaT : 0);
         }
+        ui_disable(false);
+    }
+    if (case_dict(c, "system/controlDict")) {
+        ui_divider(x, y, w); y += 14;
+        ui_text(F_MED, 13.5f, "Run controls", x, y, TH.text);
+        ui_tooltip((Rectangle){ x, y, w, 20 }, "Everything else in controlDict and fvSolution that changes how the solver runs, "
+                                              "with what this solver reads. Hover a name for what it does.");
+        y += 26;
+        y += runctl_panel(c, x, y, w, mine) + 4;
         ui_disable(false);
     }
     ui_divider(x, y, w); y += 20;
@@ -2292,6 +2307,12 @@ void page_run(Rectangle r)
     if (ui_button(ui_id("run-away"), (Rectangle){ x, y, w, 34 }, ICON_HARD_DRIVE, term(T_AWAY), BTN_SECONDARY)) A.modal = MD_AWAY;   /* 5.1 */
     ui_tooltip((Rectangle){ x, y, w, 34 }, "Pack this case for aerofly (OpenFOAM v2412, Slurm): checked with v2412 here, a batch script, and "
                "the commands to copy it there");
+    y += 44;
+    if (ui_button(ui_id("run-allrun"), (Rectangle){ x, y, w, 34 }, ICON_FILE_CODE, "Export Allrun", BTN_SECONDARY)) {
+        char m[300]; bool ok = run_export_allrun(c, procs(), m, sizeof m); ui_toast(ok ? TOAST_OK : TOAST_ERR, "%s", m);
+    }
+    ui_tooltip((Rectangle){ x, y, w, 34 }, "Allrun and Allclean scripts in the case: the mesh exactly as it was last made here, then the run "
+               "on these processes. Run them anywhere OpenFOAM is loaded (a cluster, a script, a colleague's machine).");
     y += 50;
     y += case_scripts(c, x, y, w);
     ui_scroll_end(sc, y - top);
@@ -2597,15 +2618,21 @@ void page_run(Rectangle r)
 
 /* AWAY MISSION (5.1): the run as a shell script for a Slurm batch job: the same steps the app runs here, the solver
    started by srun. Each step writes its own log and a failing one ends the job. Returns the step count. */
-int run_steps_script(Case *c, int np, Str *out)
+static int steps_script(Case *c, int np, bool slurm, bool noMesh, Str *out)
 {
     static Job tmp;
     memset(&tmp, 0, sizeof tmp);
     tmp.pid = -1;
     bool cont = A.continueRun; A.continueRun = false;
-    int mode = A.runMode;
-    build_steps(c, &tmp, np, true);
-    A.continueRun = cont; A.runMode = mode;
+    int mode = A.runMode; if (!slurm) A.runMode = 0;        /* Allrun: the built-in steps (never the Allrun it replaces) */
+    bool on[ST_COUNT]; memcpy(on, A.stepOn, sizeof on);
+    if (noMesh) A.stepOn[ST_BLOCKMESH] = A.stepOn[ST_FEATURES] = A.stepOn[ST_SNAPPY] = A.stepOn[ST_CHECK] = false;   /* the recipe makes the mesh */
+    build_steps(c, &tmp, np, slurm);
+    A.continueRun = cont; A.runMode = mode; memcpy(A.stepOn, on, sizeof on);
+    for (int i = 0; i < tmp.n; i++) {                       /* the app's Pause switch means nothing outside it */
+        char *q = strstr(tmp.steps[i].cmd, " " PAUSE_SIGNAL_OPT);
+        if (q) memmove(q, q + strlen(" " PAUSE_SIGNAL_OPT), strlen(q + strlen(" " PAUSE_SIGNAL_OPT)) + 1);
+    }
     str_cat(out, SH_RUN);
     for (int i = 0; i < tmp.n; i++) {
         const JobStep *st = &tmp.steps[i];
@@ -2614,4 +2641,33 @@ int run_steps_script(Case *c, int np, Str *out)
         else str_catf(out, "( %s\n) || exit 1\n", st->cmd);
     }
     return tmp.n;
+}
+
+int run_steps_script(Case *c, int np, Str *out) { return steps_script(c, np, true, false, out); }
+
+/* Run > Export Allrun (plan step 11): Allrun (the mesh recipe, then these run steps on np processes) and Allclean */
+bool run_export_allrun(Case *c, int np, char *msg, int cap)
+{
+    if (!c || c->s.prog) { snprintf(msg, (size_t)cap, "Open an OpenFOAM case first"); return false; }
+    if (A.cs == c) init_steps();                           /* the steps as the Run page has them (or would on opening) */
+    Str probe; str_init(&probe);
+    bool haveMesh = recipe_mesh_steps(c->s.path, &probe);
+    str_free(&probe);
+    if (np > 1) {                                           /* the decomposition for np, as starting a run here writes it */
+        char n[16]; snprintf(n, sizeof n, "%d", np);
+        FDFile *dp = case_dict(c, "system/decomposeParDict");
+        if (!dp) {
+            char body[256]; snprintf(body, sizeof body, "numberOfSubdomains %d;\n\nmethod          scotch;\n", np);
+            dp = case_create_dict(c, "system/decomposeParDict", "dictionary", body);
+        } else { fd_put(dp, "numberOfSubdomains", n); fix_decomposition(dp, np); }
+        if (!dp || !fd_save(dp)) { snprintf(msg, (size_t)cap, "Could not write system/decomposeParDict"); return false; }
+    }
+    Str steps; str_init(&steps);
+    steps_script(c, np, false, haveMesh, &steps);
+    char what[400]; snprintf(what, sizeof what, "%s, %s on %d process%s", c->s.name, c->s.app[0] ? c->s.app : "the solver", np, np == 1 ? "" : "es");
+    bool ok = allrun_write(c->s.path, steps.s, what, msg, cap);
+    str_free(&steps);
+    if (ok) snprintf(msg, (size_t)cap, "Wrote Allrun and Allclean in %s (%s)%s", c->s.name, haveMesh ? "the mesh as last made, then the run" : "the run; the mesh comes with the case", "");
+    case_rescan(c);
+    return ok;
 }

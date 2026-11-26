@@ -68,6 +68,7 @@ static void feature_edges(void)
     const FeMesh *m = &F.m;
     int cap = m->nf * 4 + 4, n = 0;
     int (*e)[3] = malloc(sizeof(int) * 3 * (size_t)cap);
+    if (!e) return;                                        /* out of memory: no face edges drawn */
     for (int f = 0; f < m->nf; f++) {
         int c = m->fk[f] == 4 || m->fk[f] == 8 ? 4 : 3;
         for (int j = 0; j < c; j++) {
@@ -77,6 +78,7 @@ static void feature_edges(void)
     }
     qsort(e, (size_t)n, sizeof e[0], cmp_edge3);
     F.fedge = malloc(sizeof(int) * 2 * (size_t)(n + 1));
+    if (!F.fedge) { free(e); return; }
     for (int i = 0; i + 1 < n; i++)
         if (e[i][0] == e[i + 1][0] && e[i][1] == e[i + 1][1]) {
             if (e[i][2] != e[i + 1][2]) { F.fedge[2 * F.nFedge] = e[i][0]; F.fedge[2 * F.nFedge + 1] = e[i][1]; F.nFedge++; }
@@ -679,8 +681,11 @@ static void load_results(const char *proj)
     if (F.rOk) {
         int mx = 0; for (int i = 0; i < F.r.n; i++) if (F.r.id[i] > mx) mx = F.r.id[i];
         F.rmapN = mx + 1; F.rmap = malloc(sizeof(int) * (size_t)F.rmapN);
-        for (int i = 0; i < F.rmapN; i++) F.rmap[i] = -1;
-        for (int i = 0; i < F.r.n; i++) if (F.r.id[i] >= 0) F.rmap[F.r.id[i]] = i;
+        if (!F.rmap) { F.rmapN = 0; F.rOk = false; }
+        else {
+            for (int i = 0; i < F.rmapN; i++) F.rmap[i] = -1;
+            for (int i = 0; i < F.r.n; i++) if (F.r.id[i] >= 0) F.rmap[F.r.id[i]] = i;
+        }
     }
     F.dirty = true;
 }

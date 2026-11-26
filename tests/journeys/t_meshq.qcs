@@ -1,0 +1,66 @@
+# Mesh overhaul plan step 7, "What mesh do I need?": opened from Mesh's Which mesh?, filled in from the case; a 2-D step
+# with resolved walls leads to the block builder's step template with the first cell from the Calculators; the button
+# opens the builder on it; a CAD part leads to the STL mesher, a Fluent mesh to fluent3DMeshToFoam (copied).
+budget p95 80 max 600
+open $SB/ws/cavity
+click nav:mesh
+wait-until page Mesh
+click mesh-which
+wait 5
+assert modal meshq
+assert text What are you meshing?
+screenshot $OUT/1_open.png
+# a backward-facing step, 2-D, heat transfer at the walls: block builder, step template, y+ 1
+click mq-shape
+wait 3
+click text:A backward-facing step
+wait 3
+click mq-dims#1
+click mq-walls
+wait 3
+click text:Heat transfer, separation, exact drag
+click mq-fluid
+wait 3
+click text:Air, 20 °C
+click mq-U
+key A ctrl
+enter 10
+click mq-L
+key A ctrl
+enter 1
+wait 5
+assert text Block builder, "Backward-facing step" template
+assert text Resolve the viscous sublayer
+assert text Re 660,000
+screenshot $OUT/2_step.png
+# a part from CAD: the STL mesher; a Fluent mesh: the converter's command
+click mq-shape
+wait 3
+click text:Any other shape
+wait 5
+assert text STL mesher with
+click mq-shape
+wait 3
+click text:A mesh already made elsewhere
+wait 3
+click mq-from
+wait 3
+click text:Fluent (.msh)
+wait 3
+assert text fluent3DMeshToFoam
+screenshot $OUT/3_fluent.png
+# back to the step, and open the block builder with it
+click mq-shape
+wait 3
+click text:A backward-facing step
+wait 3
+click mq-go
+wait 10
+assert modal none
+assert text Backward-facing step
+assert text First cell at the walls
+screenshot $OUT/4_builder.png
+# the palette action opens it too
+action help.meshq
+wait 5
+assert modal meshq

@@ -931,8 +931,10 @@ static float text_wrap_marked(UiFamily f, float size, const char *s, Rectangle r
         WrapWord nwd = { (int)(w - plain), (int)(p - plain) };
         if (nwd.b > nwd.a) {
             int cl = 0;                                         /* the line with this word on the end */
-            for (int i = 0; i < nw; i++) cl += snprintf(cand + cl, sizeof cand - (size_t)cl, "%s%.*s", i ? " " : "", wd[i].b - wd[i].a, plain + wd[i].a);
-            if (cl > (int)sizeof cand - 1) cl = (int)sizeof cand - 1;
+            for (int i = 0; i < nw && cl < (int)sizeof cand - 1; i++) {     /* (snprintf gives the would-be length: clamp each time) */
+                cl += snprintf(cand + cl, sizeof cand - (size_t)cl, "%s%.*s", i ? " " : "", wd[i].b - wd[i].a, plain + wd[i].a);
+                if (cl > (int)sizeof cand - 1) cl = (int)sizeof cand - 1;
+            }
             snprintf(cand + cl, sizeof cand - (size_t)cl, "%s%.*s", nw ? " " : "", nwd.b - nwd.a, plain + nwd.a);
             if ((nw && ui_text_w(f, size, cand) > r.width) || nw == 160) {
                 if (draw) wrap_line_draw(f, size, plain, wd, nw, sp, ns, r.x, y, c);
@@ -2036,7 +2038,10 @@ static void edit_insert(const char *s)
 {
     edit_delete_sel();
     size_t n = strlen(s), L = strlen(U.editBuf);
-    if (L + n + 1 > sizeof U.editBuf) n = sizeof U.editBuf - L - 1;
+    if (L + n + 1 > sizeof U.editBuf) {
+        n = sizeof U.editBuf - L - 1;
+        while (n > 0 && ((unsigned char)s[n] & 0xC0) == 0x80) n--;   /* cut at a character, not inside one (°, ², Greek) */
+    }
     memmove(U.editBuf + U.editCur + n, U.editBuf + U.editCur, L - (size_t)U.editCur + 1);
     memcpy(U.editBuf + U.editCur, s, n);
     U.editCur += (int)n;

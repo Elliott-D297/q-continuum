@@ -47,6 +47,8 @@ static void info_write(const char *path, const char *k1, const char *v1, const c
     char b[1024];
     int len = snprintf(b, sizeof b, "%s=%s\nlatest=%s\nwhen=%lld\nitems=%d\ndone=%d\n", k1, v1, latest ? latest : "",
                        (long long)time(NULL), n, done ? 1 : 0);
+    if (len < 0) return;
+    if (len >= (int)sizeof b) len = (int)sizeof b - 1;          /* snprintf's would-be length: never past the buffer */
     pl_write_file(path, b, (size_t)len);
 }
 

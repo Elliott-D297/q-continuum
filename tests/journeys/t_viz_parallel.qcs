@@ -1,0 +1,16 @@
+# Results > Visualization on a parallel run that was never reconstructed: the times come from processor*/ and the fields
+# are put back on the whole mesh (decomposePar's maps), so the scene looks as it does for the serial run (t_viz)
+open $SB/ws/cube3dpar
+click nav:results
+wait 2
+click res-tabs#1
+wait-until text Boundary surfaces timeout 30
+assert text 0.5
+assert not text No results yet
+choose vz-add Section plane
+wait 2
+choose vz-add Streamlines
+wait 3
+assert not text No streamline left
+assert not text isn't at time
+screenshot $OUT/parallel.png

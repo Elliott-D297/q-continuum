@@ -105,14 +105,14 @@ configure_file(${QC_ASSETS_C}.tmp ${QC_ASSETS_C} COPYONLY)
 
 # ---------------------------------------------------------------- core (no graphics) + app
 add_library(qc_core STATIC
-  src/pl_util.c src/foamdict.c src/foamcase.c src/runner.c src/env.c src/xmlspan.c src/coupling.c src/safety.c src/precheck.c src/monitor.c src/xsection.c src/explain.c src/physics.c src/fieldinfo.c src/redalert.c src/sweep.c src/demeparams.c src/program.c src/params.c src/textdiff.c src/runlog.c src/plume.c src/cplbuild.c src/stlmesh.c src/meshopts.c src/meshexamples.c src/simsetup.c src/simmodels.c src/qjson.c src/ccxmodel.c src/femesh.c src/festudy.c src/progblank.c src/glossary.c src/working.c src/calc.c src/quality.c src/bmesh.c src/extrude.c
+  src/pl_util.c src/foamdict.c src/foamcase.c src/runner.c src/env.c src/xmlspan.c src/coupling.c src/safety.c src/precheck.c src/monitor.c src/xsection.c src/explain.c src/physics.c src/fieldinfo.c src/redalert.c src/sweep.c src/demeparams.c src/program.c src/params.c src/textdiff.c src/runlog.c src/plume.c src/cplbuild.c src/stlmesh.c src/meshopts.c src/meshexamples.c src/simsetup.c src/simmodels.c src/qjson.c src/ccxmodel.c src/femesh.c src/festudy.c src/progblank.c src/glossary.c src/working.c src/calc.c src/quality.c src/bmesh.c src/extrude.c src/viz.c src/meshadvice.c src/gci.c src/meshtools.c src/allrun.c src/runctl.c
   ${QC_ASSETS_C})   # the embedded fonts and starters (program.c writes the Chrono starter)
 target_include_directories(qc_core PUBLIC src)
 target_link_libraries(qc_core PUBLIC m)
 
 add_executable(q-continuum
   src/app.c src/app_widgets.c src/suggest.c src/ui.c src/input.c src/script.c
-  src/page_cases.c src/page_case.c src/page_bc.c src/page_dicts.c src/page_run.c src/logview.c src/undo.c src/actions.c src/palette.c src/page_settings.c src/page_env.c src/texteditor.c src/page_coupling.c src/page_salome.c src/page_history.c src/page_queue.c src/page_studies.c src/page_deme.c src/page_prog.c src/page_review.c src/page_away.c src/flavour.c src/logo.c src/terms.c src/page_movie.c src/page_xsection.c src/page_meshview.c src/orbit.c src/tour.c src/sound.c src/page_stlmesh.c src/page_setup.c src/salometool.c src/page_meshquality.c src/page_meshadv.c src/intro.c src/page_results.c src/gpu.c src/page_fea.c src/teach.c src/page_calc.c src/page_blocks.c)
+  src/page_cases.c src/page_case.c src/page_bc.c src/page_dicts.c src/page_run.c src/logview.c src/undo.c src/actions.c src/palette.c src/page_settings.c src/page_env.c src/texteditor.c src/page_coupling.c src/page_salome.c src/page_history.c src/page_queue.c src/page_studies.c src/page_deme.c src/page_prog.c src/page_review.c src/page_away.c src/flavour.c src/logo.c src/terms.c src/page_movie.c src/page_xsection.c src/page_meshview.c src/orbit.c src/tour.c src/sound.c src/page_stlmesh.c src/page_setup.c src/salometool.c src/page_meshquality.c src/page_meshadv.c src/intro.c src/page_results.c src/gpu.c src/page_fea.c src/teach.c src/page_calc.c src/page_blocks.c src/page_viz.c src/vizcolor.c src/page_meshadvice.c src/page_meshtools.c src/page_runctl.c)
 target_link_libraries(q-continuum PRIVATE qc_core raylib)
 target_compile_definitions(q-continuum PRIVATE QC_VERSION="${PROJECT_VERSION}")
 
@@ -165,7 +165,7 @@ function(qc_unit name)
   target_link_libraries(${name} PRIVATE qc_core m)
   qc_target(${name})
 endfunction()
-foreach(t test_foamdict test_logparse test_xml test_coupling test_sync test_tutorials test_oracle test_props test_dictsem test_units test_explain test_sweep test_deme test_program test_params test_textdiff test_plume test_cplbuild test_monitor test_simsetup test_stlmesh test_qjson test_xsection test_meshverdict test_meshopts test_ccxmodel test_femesh test_glossary test_calc test_quality test_bmesh test_extrude)
+foreach(t test_foamdict test_logparse test_xml test_coupling test_sync test_tutorials test_oracle test_props test_dictsem test_units test_explain test_sweep test_deme test_program test_params test_textdiff test_plume test_cplbuild test_monitor test_simsetup test_stlmesh test_qjson test_xsection test_meshverdict test_meshopts test_ccxmodel test_femesh test_glossary test_calc test_quality test_bmesh test_extrude test_viz test_meshadvice test_gci test_meshtools test_runctl)
   qc_unit(${t})
 endforeach()
 target_compile_definitions(test_units PRIVATE QC_LOG_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/logs")
@@ -212,8 +212,12 @@ add_test(NAME preflight_shape COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tests/pre
 set_tests_properties(preflight_shape PROPERTIES LABELS full)
 add_test(NAME extrude COMMAND test_extrude unit)
 set_tests_properties(extrude PROPERTIES LABELS fast)
+add_test(NAME meshtools_openfoam COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tests/meshtools_openfoam.sh $<TARGET_FILE:test_meshtools> ${QC_BASHRC} ${QC_SCRATCH} ${QC_TUTORIALS})
 add_test(NAME extrude_openfoam COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tests/extrude_openfoam.sh $<TARGET_FILE:test_extrude> $<TARGET_FILE:test_bmesh> ${QC_BASHRC} ${QC_SCRATCH})
 set_tests_properties(extrude_openfoam PROPERTIES LABELS full)
+# the visualization engine (Results > Visualization, docs/VISUALIZATION_PLAN.md) on a real cube with known fields, ASCII and binary
+add_test(NAME viz_openfoam COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tests/viz_openfoam.sh $<TARGET_FILE:test_viz> ${QC_BASHRC} ${QC_SCRATCH})
+set_tests_properties(viz_openfoam PROPERTIES LABELS full)
 add_test(NAME bmesh_openfoam COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tests/bmesh_openfoam.sh $<TARGET_FILE:test_bmesh> ${QC_BASHRC} ${QC_SCRATCH})
 set_tests_properties(bmesh_openfoam PROPERTIES LABELS full TIMEOUT 1800)
 add_test(NAME parser_oracle COMMAND test_oracle ${QC_TUTORIALS} ${QC_BASHRC} ${QC_SCRATCH} 400)
@@ -271,12 +275,17 @@ add_test(NAME stlmesh_smooth COMMAND test_stlmesh smooth ${CMAKE_CURRENT_SOURCE_
 set_tests_properties(stlmesh_smooth PROPERTIES LABELS fast)
 # small end caps on long pipes stay their own regions (inlets), not folded into the wall as slivers (user, 2026-11-20)
 add_test(NAME stlmesh_regions COMMAND test_stlmesh regions ${QC_SCRATCH}/stl_regions)
+add_test(NAME stlmesh_handedit COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tests/stlmesh_handedit.sh $<TARGET_FILE:test_stlmesh> ${QC_SCRATCH})
+set_tests_properties(stlmesh_handedit PROPERTIES LABELS fast)
 set_tests_properties(stlmesh_regions PROPERTIES LABELS fast)
 add_test(NAME meshopts COMMAND test_meshopts ${QC_SCRATCH})
 # the glossary and "show the working" (mesh overhaul plan step 1); every [[term]] in src/ must be an entry
 add_test(NAME glossary COMMAND test_glossary ${CMAKE_CURRENT_SOURCE_DIR}/src)
 # the calculators (mesh overhaul plan step 2) against the hand-worked examples in docs/CALCULATORS.md
 add_test(NAME calc COMMAND test_calc)
+add_test(NAME meshadvice COMMAND test_meshadvice)
+add_test(NAME gci COMMAND test_gci)
+add_test(NAME meshtools COMMAND test_meshtools unit ${QC_SCRATCH})
 # the mesh quality explainer (mesh overhaul plan step 4): log.checkMesh read, limits against meshQualityDict and checkMesh's source
 add_test(NAME quality COMMAND test_quality ${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures ${QC_FOAM_GUESS}/etc/caseDicts/meshQualityDict ${QC_FOAM_GUESS}/src)
 set_tests_properties(quality PROPERTIES LABELS fast)
@@ -300,6 +309,8 @@ set_tests_properties(simsetup_heat PROPERTIES LABELS full TIMEOUT 1800)
 # turbulent natural convection: the buoyantCavity tutorial's tall cavity against Betts and Bokhari's temperatures
 add_test(NAME simsetup_adopt COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tests/simsetup_adopt.sh $<TARGET_FILE:test_simsetup> ${QC_BASHRC} ${QC_SCRATCH})
 set_tests_properties(simsetup_adopt PROPERTIES LABELS full TIMEOUT 900)
+add_test(NAME simsetup_outputs COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tests/simsetup_outputs.sh $<TARGET_FILE:test_simsetup> ${QC_BASHRC} ${QC_SCRATCH})
+set_tests_properties(simsetup_outputs PROPERTIES LABELS full TIMEOUT 900)
 add_test(NAME simsetup_cavity COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tests/simsetup_cavity.sh $<TARGET_FILE:test_simsetup> ${QC_BASHRC} ${QC_SCRATCH})
 set_tests_properties(simsetup_cavity PROPERTIES LABELS full TIMEOUT 1800)
 # step 4 (compressible): nozzles against isentropic theory, the aerofoilNACA0012 tutorial against the setup's own
@@ -333,3 +344,8 @@ add_test(NAME salome_tool COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tests/salome_
 set_tests_properties(salome_tool PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 900)
 add_test(NAME salome_import COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tests/salome_import.sh ${QC_BASHRC} ${QC_SCRATCH} ${CMAKE_CURRENT_SOURCE_DIR}/assets/salome/mesh_import.py)
 set_tests_properties(salome_import PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 900 ENVIRONMENT "FOAM_TUTORIALS=${QC_TUTORIALS}")
+# run controls (Run page): the solver table, and icoFoam / pisoFoam turned into pimpleFoam with an adaptive step, then run
+add_test(NAME runctl COMMAND test_runctl ${QC_TUTORIALS}/incompressible/icoFoam/cavity/cavity ${QC_SCRATCH})
+add_test(NAME runctl_pimple COMMAND bash -c "source ${QC_FOAM_GUESS}/etc/bashrc >/dev/null 2>&1; d=$(mktemp -d ${QC_SCRATCH}/rcp.XXXXXX) && for t in icoFoam/cavity/cavity pisoFoam/RAS/cavity; do $<TARGET_FILE:test_runctl> ${QC_TUTORIALS}/incompressible/$t $d >/dev/null || exit 1; foamDictionary -entry endTime -set 0.1 $d/rc_case/system/controlDict >/dev/null && foamDictionary -entry writeInterval -set 0.05 $d/rc_case/system/controlDict >/dev/null && (cd $d/rc_case && { [ -d 0 ] || cp -r 0.orig 0; } && blockMesh >log.blockMesh 2>&1 && pimpleFoam >log.pimpleFoam 2>&1) || { tail -20 $d/rc_case/log.pimpleFoam; exit 1; }; grep -q '^deltaT = ' $d/rc_case/log.pimpleFoam || exit 1; ls $d/rc_case | grep -q '^0.05$' || { echo no write at 0.05; exit 1; }; done")
+set_tests_properties(runctl PROPERTIES LABELS fast)
+set_tests_properties(runctl_pimple PROPERTIES LABELS full DEPENDS runctl)

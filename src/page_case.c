@@ -61,6 +61,7 @@ void app_generate_mesh(void)
         return;
     }
     app_save_all(true);
+    least_case(A.cs->s.path);                              /* a new case with only controlDict: checkMesh needs fvSchemes and fvSolution (plan step 12 walk-through) */
     job_reset(A.cj, "Mesh");
     if (bm) job_add(A.cj, "blockMesh", "blockMesh", "blockMesh", "log.blockMesh", false);
     if (sn) {
@@ -601,7 +602,7 @@ void page_mesh(Rectangle r)
                                                : "No mesh yet, and no blockMeshDict to make one: build it on the SALOME tab, or convert one into constant/polyMesh.", mt, mt);
     {   /* an STL mesher case: its dictionaries are the mesher's output, not the place to change it */
         char mi[PL_PATH]; pl_join(mi, sizeof mi, c->s.path, "mesher/mesher.ini");
-        if (mt && pl_is_file(mi)) snprintf(sub, sizeof sub, "The STL mesher writes system/%sDict from its settings: change them on the STL mesher tab.", mt);
+        if (mt && pl_is_file(mi)) snprintf(sub, sizeof sub, "The STL mesher writes system/%sDict from its settings (change them on the STL mesher tab); hand edits here are kept when it writes again.", mt);
     }
     if (A.meshTab == 1) snprintf(sub, sizeof sub, "Import a mesh made in SALOME (UNV, MED, or the saved study) or Gmsh, or build one with a SALOME script.");
     if (A.meshTab == 3) snprintf(sub, sizeof sub, "Mesh any STL or STEP part: snappyHexMesh here, or SALOME's tetrahedra, polyhedra and body-fitted hexahedra.");
@@ -611,8 +612,11 @@ void page_mesh(Rectangle r)
         snprintf(sub, sizeof sub, "No mesh yet: make one on the %s tab first.", mt && !strcmp(mt, "blockMesh") ? "Dictionaries" : "STL mesher");
     else if (A.meshTab == 2) snprintf(sub, sizeof sub, "The mesh in constant/polyMesh: a cross section through it, or its surface in 3-D.");
     else if (A.meshTab == 4) snprintf(sub, sizeof sub, "How good the mesh in constant/polyMesh is: checkMesh's numbers, what each one means and what to do when one fails.");
-    float bw = ui_button_width(ICON_PLAY, "Generate mesh"), bw2 = ui_button_width(ICON_CIRCLE_CHECK, "Check mesh");
-    y += page_header(x, y, w - bw - bw2 - 30, "Mesh", sub);
+    else if (A.meshTab == 6) snprintf(sub, sizeof sub, "Change the mesh on disk: rename patches or change their type, move, scale, mirror or refine it, make zones and baffles.");
+    float bw = ui_button_width(ICON_PLAY, "Generate mesh"), bw2 = ui_button_width(ICON_CIRCLE_CHECK, "Check mesh"), bw3 = ui_button_width(ICON_SPARKLES, "Which mesh?");
+    y += page_header(x, y, w - bw - bw2 - bw3 - 40, "Mesh", sub);
+    if (ui_button(ui_id("mesh-which"), (Rectangle){ x + w - bw - bw2 - bw3 - 20, top + 32, bw3, 36 }, ICON_SPARKLES, "Which mesh?", BTN_GHOST)) meshq_open();
+    ui_tooltip((Rectangle){ x + w - bw - bw2 - bw3 - 20, top + 32, bw3, 36 }, "What mesh do I need? A few questions about the flow, the way to mesh it and why");
     y += case_steps(c, x, y, w);                           /* where the case is, on every tab (workflow plan W1) */
     ui_disable(A.cj->active || !mt);
     /* secondary when the steps bar is there: its Next is the page's one primary action (workflow plan W1) */
@@ -671,11 +675,11 @@ void page_mesh(Rectangle r)
         src = pl_is_file(st) ? 1 : pl_is_file(q) || pl_is_file(im) ? 2 : pl_is_file(bk) ? 3 : 0;
     }
     for (int k = 0; k < 4; k++) if (A.meshTab == SRC_TAB[k]) src = k;   /* a source chosen: the first tab */
-    const char *tabs3[3] = { SRC_NAME[src], "View", "Quality" };
+    const char *tabs3[4] = { SRC_NAME[src], "View", "Quality", "Tools" };
     static const int OLD_ID[4][3] = { { 0, 3, 4 }, { 1, 3, 4 }, { 2, 3, 4 }, { 5, 3, 4 } };
-    int shown = A.meshTab == 2 ? 1 : A.meshTab == 4 ? 2 : 0;
+    int shown = A.meshTab == 2 ? 1 : A.meshTab == 4 ? 2 : A.meshTab == 6 ? 3 : 0;
     float tth;
-    if (ui_tabs(ui_id("mesh-tab"), x, y, tabs3, 3, &shown, &tth)) A.meshTab = shown == 0 ? SRC_TAB[src] : shown == 1 ? 2 : 4;
+    if (ui_tabs(ui_id("mesh-tab"), x, y, tabs3, 4, &shown, &tth)) A.meshTab = shown == 0 ? SRC_TAB[src] : shown == 1 ? 2 : shown == 2 ? 4 : 6;
     for (int k = 0; k < 3; k++) {                           /* the old ids on the same tabs, for scripts and the tours */
         const UiWidget *wd = ui_widget_find(ui_idn(ui_id("mesh-tab"), k));
         if (wd) {                                           /* registered in screen pixels: back to the page's units */
@@ -732,6 +736,11 @@ void page_mesh(Rectangle r)
         } else h = meshview_panel((Rectangle){ x, y, vw, h }, c);
         y += h + 20;
         ui_scroll_end(sc, y - top + 20);
+        return;
+    }
+    if (A.meshTab == 6) {                                  /* Tools (plan step 10): patches, mesh utilities */
+        y += meshtools_page(c, x, y, w);
+        ui_scroll_end(sc, y - top + 40);
         return;
     }
     if (A.meshTab == 4) {                                  /* the mesh's quality, and its export */

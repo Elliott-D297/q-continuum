@@ -122,7 +122,12 @@ static void set_text(char *t)
     free(H.text); H.text = t; H.nLines = 0;
     if (!t) return;
     for (char *p = t; ; ) {
-        if (H.nLines == H.capLines) { H.capLines = H.capLines ? H.capLines * 2 : 1024; H.lineStart = realloc(H.lineStart, sizeof(int) * (size_t)H.capLines); }
+        if (H.nLines == H.capLines) {                      /* out of memory: the lines so far */
+            int nc = H.capLines ? H.capLines * 2 : 1024;
+            int *nl = realloc(H.lineStart, sizeof(int) * (size_t)nc);
+            if (!nl) break;
+            H.lineStart = nl; H.capLines = nc;
+        }
         H.lineStart[H.nLines++] = (int)(p - t);
         char *e = strchr(p, '\n');
         if (!e) break;

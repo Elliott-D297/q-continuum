@@ -112,10 +112,12 @@ bool pl_is_number(const char *s)
 }
 void pl_shell_quote(char *dst, size_t cap, const char *s)
 {
-    size_t o = 0;
+    size_t o = 0, need = 3;
     if (cap < 3) { if (cap) dst[0] = 0; return; }
+    for (const char *c = s; *c; c++) need += *c == '\'' ? 4 : 1;
+    if (need > cap) { memcpy(dst, "''", 3); return; }   /* never a cut-off path (rm -rf on a prefix of it): an empty word, the command fails */
     dst[o++] = '\'';
-    for (; *s && o + 5 < cap; s++) {
+    for (; *s; s++) {                                    /* it fits (need above) */
         if (*s == '\'') { memcpy(dst + o, "'\\''", 4); o += 4; }
         else dst[o++] = *s;
     }

@@ -704,11 +704,13 @@ static void indent_of(const FDFile *f, int p, char *out, int cap)
     out[k] = 0;
 }
 
-static void format_entry(char *out, size_t cap, const char *indent, const char *key, const char *value)
+static void format_entry(Str *out, const char *indent, const char *key, const char *value)   /* any length: never cut */
 {
     int pad = 16 - (int)strlen(key);
     if (pad < 1) pad = 1;
-    snprintf(out, cap, "%s%s%*s%s;\n", indent, key, pad, "", value);
+    str_catf(out, "%s%s%*s", indent, key, pad, "");
+    str_cat(out, value);
+    str_cat(out, ";\n");
 }
 
 /* insert a ready-made line(s) of text as the last item of dict d */
@@ -782,8 +784,10 @@ bool fd_put_entry(FDFile *f, FDEntry *e, const char *value)
     if (!e || e->kind != FD_VALUE) return false;
     if (e->valStart == e->valEnd) {                          /* "key;" -> "key value;" */
         if (!*value) return true;                            /* nothing to put: leave the bytes alone */
-        char buf[1024]; snprintf(buf, sizeof buf, " %s", value);
-        return fd_replace_span(f, e->keyEnd, e->keyEnd, buf);
+        Str b; str_init(&b); str_cat(&b, " "); str_cat(&b, value);   /* any length (a long list must not be cut) */
+        bool ok = fd_replace_span(f, e->keyEnd, e->keyEnd, b.s);
+        str_free(&b);
+        return ok;
     }
     return fd_replace_span(f, e->valStart, e->valEnd, value);
 }
@@ -798,9 +802,11 @@ bool fd_put(FDFile *f, const char *path, const char *value)
     FDEntry *pd = parent[0] ? fd_find(f, parent) : &f->root;
     if (!pd) return false;
     char ind[64]; child_indent(f, pd, ind, sizeof ind);
-    char body[2048];
-    format_entry(body, sizeof body, ind, key, value);
-    return insert_into(f, pd, body);
+    Str body; str_init(&body);
+    format_entry(&body, ind, key, value);
+    bool ok = insert_into(f, pd, body.s);
+    str_free(&body);
+    return ok;
 }
 
 bool fd_remove(FDFile *f, const char *path)

@@ -1,0 +1,31 @@
+# Mesh plan step 10 (E7): Fluent and STAR-CD meshes imported (tests/tools/meshes: the cavity written by foamMeshToFluent and
+# foamToStarMesh): fluent3DMeshToFoam and star4ToFoam, the walls named, checkMesh OK, the same 400 cells.
+budget p95 60 max 400
+shell mkdir -p $SB/ws/flu/system $SB/ws/sta/system && for c in flu sta; do printf 'FoamFile { version 2.0; format ascii; class dictionary; object controlDict; }\napplication icoFoam;\nstartTime 0;\nendTime 1;\ndeltaT 1;\nwriteControl timeStep;\nwriteInterval 1;\n' > $SB/ws/$c/system/controlDict; done && cp $QC_TESTS/tools/meshes/cavity_* $SB/ws/
+open $SB/ws/flu
+click nav:mesh
+wait-until page Mesh
+click text:SALOME script
+wait 5
+click sa-imp-path
+enter $SB/ws/cavity_fluent.msh
+wait-until job running timeout 20
+wait-until job finished timeout 120
+assert log log.fluentMeshToFoam fluent3DMeshToFoam
+assert log log.checkMesh Mesh OK.
+assert log log.checkMesh cells:            400
+assert log log.checkMesh bounding box (0 0 0) (0.1 0.1 0.01)
+screenshot $OUT/1_fluent.png
+open $SB/ws/sta
+click nav:mesh
+wait-until page Mesh
+click text:SALOME script
+wait 5
+click sa-imp-path
+enter $SB/ws/cavity_star.vrt
+wait-until job running timeout 20
+wait-until job finished timeout 120
+assert log log.checkMesh Mesh OK.
+assert log log.checkMesh cells:            400
+screenshot $OUT/2_star.png
+assert log log.checkMesh bounding box (0 0 0) (0.1 0.1 0.01)

@@ -53,9 +53,9 @@ static const char *len(double m)
 int calc_layers_to_total(double h1, double r, double T, double *total)
 {
     int n = 1;
-    if (h1 > 0 && T > h1) {
-        if (r > 1.0001) n = (int)ceil(log(1 + T * (r - 1) / h1) / log(r) - 1e-9);
-        else n = (int)ceil(T / h1 - 1e-9);
+    if (h1 > 0 && T > h1) {                              /* clamped as a double: a tiny h1 would overflow the int */
+        double nf = r > 1.0001 ? ceil(log(1 + T * (r - 1) / h1) / log(r) - 1e-9) : ceil(T / h1 - 1e-9);
+        n = !(nf < 200) ? 200 : (int)nf;
     }
     if (n < 1) n = 1;
     if (n > 200) n = 200;
@@ -218,6 +218,7 @@ bool calc_grading(const CalcGradeIn *in, CalcGradeOut *o, Working *wk)
         if (!(d1 > 0) || !(dn > 0) || d1 >= L || dn >= L) { if (wk) wk_note(wk, "Needs a first and last cell, each shorter than the edge."); return false; }
         double r = fabs(dn - d1) < 1e-15 ? 1 : (L - d1) / (L - dn);      /* L = (r dn - d1) / (r - 1) */
         double Nf = fabs(r - 1) < 1e-12 ? L / d1 : 1 + log(dn / d1) / log(r);
+        if (!(Nf < 1e6)) { if (wk) wk_note(wk, "That is over a million cells on one edge: use larger cells."); return false; }
         o->N = (int)fmax(fabs(dn - d1) > 1e-15 ? 2 : 1, round(Nf));   /* two sizes need two cells */
         o->rounded = fabs(Nf - o->N) > 1e-6;
         o->R = dn / d1;                                      /* keep the ratio asked for; the cells shift a little */
@@ -238,6 +239,7 @@ bool calc_grading(const CalcGradeIn *in, CalcGradeOut *o, Working *wk)
         if (!(d1 > 0) || d1 >= L || !(r > 0)) { if (wk) wk_note(wk, "Needs a first cell shorter than the edge and a growth ratio."); return false; }
         double Nf = fabs(r - 1) < 1e-12 ? L / d1 : log(1 + L * (r - 1) / d1) / log(r);
         if (!(Nf > 0) || !isfinite(Nf)) { if (wk) wk_note(wk, "Those cells shrink to nothing before the edge ends: use a ratio above 1, or a larger first cell."); return false; }
+        if (!(Nf < 1e6)) { if (wk) wk_note(wk, "That is over a million cells on one edge: use a larger first cell or growth ratio."); return false; }
         o->N = (int)fmax(1, round(Nf));
         o->rounded = fabs(Nf - o->N) > 1e-6;
         o->d1 = o->N == 1 ? L : d1;                         /* one cell is the whole edge */

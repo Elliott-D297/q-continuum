@@ -56,6 +56,8 @@ static void a_resume(void) { app_resume_run(); app_go(PG_RUN); }
 static void a_clean(void) { A.modal = MD_CLEAN; A.mFlag = A.mFlag2 = false; }
 static void a_mesh(void) { app_generate_mesh(); }
 static void a_away(void) { A.modal = MD_AWAY; }
+extern int run_procs_for_check(void);
+static void a_allrun(void) { char m[300]; bool ok = run_export_allrun(A.cs, run_procs_for_check(), m, sizeof m); ui_toast(ok ? TOAST_OK : TOAST_ERR, "%s", m); }
 static const char *b_away(void) { return !A.cs ? "No case is open" : A.cs->s.prog ? "Only OpenFOAM cases go to aerofly" : NULL; }
 static void a_pv(void) { app_open_paraview(); }
 static void a_pvc(void) { A.modal = MD_PV_CLAUDE; A.mText2[0] = 0; }
@@ -77,6 +79,7 @@ static void a_computer(void) { palette_open(); }
 static void a_news(void) { A.modal = MD_WHATS_NEW; }
 static void a_glossary(void) { teach_glossary_open(NULL); }
 static void a_calc(void) { calc_open(-1); }
+static void a_meshq(void) { meshq_open(); }
 static void a_tour(void) { tour_start(); }
 static void a_mesh_tour(void) { tour_start_mesh(); }
 static void a_intro(void) { intro_start(); }
@@ -136,6 +139,8 @@ static const Action ACTIONS[] = {
       "Move the results and logs to the trash (asks first)", b_clean, a_clean, false },
     { "case.away",      "Prepare for the cluster", NULL,           0,             0,              "run-away",     "tar czf case.tar.gz; scp; sbatch",
       "Pack the case for aerofly (v2412, Slurm): checked with v2412 here, a batch script, the commands to copy", b_away, a_away, false },
+    { "case.allrun",    "Export Allrun",          NULL,            0,             0,              "run-allrun",   "./Allrun; ./Allclean",
+      "Allrun and Allclean scripts: the mesh as it was last made, then the run, for anywhere OpenFOAM is loaded", b_away, a_allrun, false },
     { "view.paraview",  "Open in ParaView",       "Ctrl+P",        KEY_P,         M_CTRL,         "top-pv",       "paraFoam",
       "Open the case in ParaView", no_case, a_pv, false },
     { "view.claude",    "ParaView with Claude",   NULL,            0,             0,              "top-pvc",      NULL,
@@ -160,6 +165,8 @@ static const Action ACTIONS[] = {
       "The words of CFD and meshing in fluid-mechanics terms, with numbers to know", NULL, a_glossary, false },
     { "help.calc",      "Calculators",            NULL,            0,             0,              NULL,           NULL,
       "Wall spacing from y+ (cryogens too), cell grading, memory and run time, the dimensionless numbers, worked out by hand", NULL, a_calc, false },
+    { "help.meshq",     "What mesh do I need?",   NULL,            0,             0,              NULL,           NULL,
+      "A few questions about the flow and the geometry: the way to mesh it (block builder, STL mesher, SALOME, import) and why", NULL, a_meshq, false },
     { "help.tour",      "Take the tour",          NULL,            0,             0,              "set-tour",     NULL,
       "A walk through every page: what it is for and how to work it", NULL, a_tour, false },
     { "help.meshtour",  "Meshing tutorial",       NULL,            0,             0,              "set-meshtour", NULL,

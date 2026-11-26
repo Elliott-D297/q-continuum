@@ -14,6 +14,7 @@
 #include <strings.h>
 #include <glob.h>
 #include "stlmesh.h"
+#include "simsetup.h"
 #include "meshopts.h"
 #include <unistd.h>
 #include "assets.h"
@@ -69,6 +70,8 @@ const MesherInfo MESHERS[MESHER__N] = {
         "Prisms swept from one face of each solid to the opposite one: for a part extruded along a line (a pipe of any section, a "
         "fin). Triangles on the source face at the target size. No prism layers.", NULL },
 };
+const char *mesher_short_name(int m) { return m >= 0 && m < MESHER__N ? MESHERS[m].shortName : ""; }
+
 
 const char *const GMSH_ALGO_WORD[GMSH_ALGOS] = { "delaunay", "frontal", "hxt", "mmg3d", "rtree" };
 const char *const GMSH_ALGO_NAME[GMSH_ALGOS] = { "Delaunay", "Frontal", "HXT", "MMG3D", "R-tree" };
@@ -111,15 +114,26 @@ bool mesher_available(int k, const char *foamRoot, bool salome, char *why, int c
 }
 
 /* ============================================================================ reading */
-static void grow_tris(Stl *s, int *cap, int need)
+/* false when memory runs out (a 5 M-triangle export needs ~600 MB here): what was read stays valid at the old cap */
+static bool grow_tris(Stl *s, int *cap, int need)
 {
-    if (need <= *cap) return;
+    if (need <= *cap) return true;
     int nc = *cap ? *cap * 2 : 4096;
     while (nc < need) nc *= 2;
-    s->tri = realloc(s->tri, sizeof(float) * 9 * (size_t)nc);
-    s->solid = realloc(s->solid, sizeof *s->solid * (size_t)nc);
-    if (s->face) { s->face = realloc(s->face, sizeof(int) * (size_t)nc); memset(s->face + *cap, 0, sizeof(int) * (size_t)(nc - *cap)); }
+    float *t = realloc(s->tri, sizeof(float) * 9 * (size_t)nc);
+    if (!t) return false;
+    s->tri = t;
+    char (*so)[64] = realloc(s->solid, sizeof *s->solid * (size_t)nc);
+    if (!so) return false;
+    s->solid = so;
+    if (s->face) {
+        int *f = realloc(s->face, sizeof(int) * (size_t)nc);
+        if (!f) return false;
+        s->face = f;
+        memset(s->face + *cap, 0, sizeof(int) * (size_t)(nc - *cap));
+    }
     *cap = nc;
+    return true;
 }
 
 static bool load_ascii(Stl *s, const char *buf, size_t len)
@@ -148,12 +162,12 @@ static bool load_ascii(Stl *s, const char *buf, size_t len)
             }
         } else if (n >= 7 && !strncmp(ls, "endloop", 7)) {
             if (nv == 3) {
-                grow_tris(s, &cap, s->nTri + 1);
+                if (!grow_tris(s, &cap, s->nTri + 1)) { s->oom = true; return false; }
                 memcpy(s->tri + 9 * (size_t)s->nTri, v, sizeof v);
                 pl_strlcpy(s->solid[s->nTri], solid, 64);
                 int fid = 0;
                 if (!strncmp(solid, "face_", 5) && sscanf(solid + 5, "%d", &fid) == 1 && fid > 0) {
-                    if (!s->face) s->face = calloc((size_t)cap, sizeof(int));
+                    if (!s->face && !(s->face = calloc((size_t)cap, sizeof(int)))) { s->oom = true; return false; }
                     s->face[s->nTri] = fid;
                     if (fid > s->nFaces) s->nFaces = fid;
                 }
@@ -190,16 +204,25 @@ bool stl_load(const char *path, Stl *s)
     uint32_t cnt = 0;
     if (len >= 84) memcpy(&cnt, buf + 80, 4);
     bool bin = len >= 84 && (size_t)84 + (size_t)cnt * 50 == len;
+    bool ascii_ok = false;
     if (bin) {
         s->binary = true;
         int cap = 0;
-        grow_tris(s, &cap, (int)cnt);
-        for (uint32_t i = 0; i < cnt; i++) {
-            memcpy(s->tri + 9 * (size_t)i, buf + 84 + (size_t)i * 50 + 12, 36);
-            strcpy(s->solid[i], "surface");
-        }
-        s->nTri = (int)cnt;
-    } else if (!load_ascii(s, buf, len)) {
+        if (grow_tris(s, &cap, (int)cnt)) {
+            for (uint32_t i = 0; i < cnt; i++) {
+                memcpy(s->tri + 9 * (size_t)i, buf + 84 + (size_t)i * 50 + 12, 36);
+                strcpy(s->solid[i], "surface");
+            }
+            s->nTri = (int)cnt;
+        } else s->oom = true;
+    } else ascii_ok = load_ascii(s, buf, len);
+    if (s->oom) {
+        free(buf);
+        snprintf(s->err, sizeof s->err, "%s is too big for the memory free now (%.0f MB file): close other programs, or export it coarser",
+                 pl_basename(path), fsz / 1048576.0);
+        return false;
+    }
+    if (!bin && !ascii_ok) {
         free(buf);
         snprintf(s->err, sizeof s->err, "%s has no triangles: it is not an STL file, or an empty one", pl_basename(path));
         return false;
@@ -242,6 +265,7 @@ bool stl_load(const char *path, Stl *s)
         if (!w) { snprintf(s->err, sizeof s->err, "%s has only degenerate triangles", pl_basename(path)); return false; }
     }
     s->region = calloc((size_t)s->nTri, sizeof(int));
+    if (!s->region) { snprintf(s->err, sizeof s->err, "%s is too big for the memory free now", pl_basename(path)); return false; }
     return true;
 }
 
@@ -272,8 +296,9 @@ static int *weld(const Stl *s, int *nVert)
     size_t n = 3 * (size_t)s->nTri, cap = 1;
     while (cap < n * 2) cap <<= 1;
     Slot *h = malloc(sizeof(Slot) * cap);
-    for (size_t i = 0; i < cap; i++) h[i].key = INT64_MIN;
     int *id = malloc(sizeof(int) * n);
+    if (!h || !id) { free(h); free(id); return NULL; }
+    for (size_t i = 0; i < cap; i++) h[i].key = INT64_MIN;
     int nv = 0;
     for (size_t i = 0; i < n; i++) {
         const float *p = s->tri + 3 * i;
@@ -308,9 +333,41 @@ static void tri_normal(const float *t, double n[3], double *area)
     if (l > 0) { n[0] /= l; n[1] /= l; n[2] /= l; }
 }
 
+static const double *g_rArea;
+static int cmp_area_desc(const void *a, const void *b)
+{
+    double x = g_rArea[*(const int *)a], y = g_rArea[*(const int *)b];
+    if (x != y) return x > y ? -1 : 1;
+    return *(const int *)a - *(const int *)b;            /* equal areas keep their order (qsort isn't stable) */
+}
+
+/* memory ran out: the whole surface as one wall, which meshes; the page says the faces could not be told apart */
+static void split_as_one(Stl *s)
+{
+    s->oom = true;
+    s->nRegions = 1;
+    memset(s->reg, 0, sizeof s->reg);
+    StlRegion *R = &s->reg[0];
+    pl_strlcpy(R->name, "walls", sizeof R->name);
+    R->type = BT_WALL;
+    R->nTri = s->nTri;
+    for (int t = 0; t < s->nTri; t++) {
+        if (s->region) s->region[t] = 0;
+        double n[3], a; tri_normal(s->tri + 9 * (size_t)t, n, &a);
+        R->area += a;
+    }
+    s->area = R->area;
+}
+
 void stl_split(Stl *s, double angleDeg)
 {
     int N = s->nTri;
+    int *vid = NULL, *et0 = NULL, *et1 = NULL, *ec = NULL, *triEdge = NULL, *stack = NULL, *solidOf = NULL, *remap = NULL;
+    int *best = NULL, *live = NULL, *final = NULL;
+    int64_t *ek = NULL;
+    double *nrm = NULL, *ar = NULL, *rArea = NULL, *bLen = NULL, *bSharp = NULL;
+    float *kap = NULL;
+    if (!s->region) { split_as_one(s); return; }
     for (int k = 0; k < 3; k++) { s->bmin[k] = 1e30f; s->bmax[k] = -1e30f; }
     for (size_t i = 0; i < 3 * (size_t)N; i++)
         for (int k = 0; k < 3; k++) {
@@ -319,14 +376,17 @@ void stl_split(Stl *s, double angleDeg)
             if (v > s->bmax[k]) s->bmax[k] = v;
         }
     int nv = 0;
-    int *vid = weld(s, &nv);
+    vid = weld(s, &nv);
     /* edges: (a, b) with a < b, the triangles on each */
     size_t ne = 3 * (size_t)N, cap = 1;
     while (cap < ne * 2) cap <<= 1;
-    int64_t *ek = malloc(sizeof(int64_t) * cap);
-    int *et0 = malloc(sizeof(int) * cap), *et1 = malloc(sizeof(int) * cap), *ec = calloc(cap, sizeof(int));
+    ek = malloc(sizeof(int64_t) * cap);
+    et0 = malloc(sizeof(int) * cap); et1 = malloc(sizeof(int) * cap); ec = calloc(cap, sizeof(int));
+    triEdge = malloc(sizeof(int) * ne);
+    nrm = malloc(sizeof(double) * 3 * (size_t)N); ar = malloc(sizeof(double) * (size_t)N);
+    stack = malloc(sizeof(int) * (size_t)N);
+    if (!vid || !ek || !et0 || !et1 || !ec || !triEdge || !nrm || !ar || !stack) goto oom;
     for (size_t i = 0; i < cap; i++) ek[i] = -1;
-    int *triEdge = malloc(sizeof(int) * ne);
     for (int t = 0; t < N; t++)
         for (int e = 0; e < 3; e++) {
             int a = vid[3 * t + e], b = vid[3 * t + (e + 1) % 3];
@@ -345,7 +405,6 @@ void stl_split(Stl *s, double angleDeg)
         if (ec[j] == 1) s->openEdges++;
         else if (ec[j] > 2) s->nonManifold++;
     }
-    double *nrm = malloc(sizeof(double) * 3 * (size_t)N), *ar = malloc(sizeof(double) * (size_t)N);
     s->area = 0; s->volume = 0;
     for (int t = 0; t < N; t++) {
         tri_normal(s->tri + 9 * (size_t)t, nrm + 3 * t, ar + t);
@@ -358,8 +417,7 @@ void stl_split(Stl *s, double angleDeg)
     double cosA = cos((angleDeg > 0 ? angleDeg : 181) * M_PI / 180);
     int *reg = s->region, nr = 0;
     for (int t = 0; t < N; t++) reg[t] = -1;
-    int *stack = malloc(sizeof(int) * (size_t)N);
-    int *solidOf = NULL; int nSolidNames = 0, solidCap = 0;   /* region -> its solid's first triangle (for its name) */
+    int nSolidNames = 0, solidCap = 0;   /* region -> its solid's first triangle (for its name) */
     for (int t0 = 0; t0 < N; t0++) {
         if (reg[t0] >= 0) continue;
         int sp = 0; stack[sp++] = t0; reg[t0] = nr;
@@ -374,15 +432,23 @@ void stl_split(Stl *s, double angleDeg)
                 reg[o] = nr; stack[sp++] = o;
             }
         }
-        if (nr >= solidCap) { solidCap = solidCap ? solidCap * 2 : 64; solidOf = realloc(solidOf, sizeof(int) * (size_t)solidCap); }
+        if (nr >= solidCap) {
+            int nc = solidCap ? solidCap * 2 : 64;
+            int *ns = realloc(solidOf, sizeof(int) * (size_t)nc);
+            if (!ns) goto oom;
+            solidOf = ns; solidCap = nc;
+        }
         solidOf[nr] = t0;
         nr++;
     }
     (void)nSolidNames;
     /* by solid only (no angle): one region a solid, even where a solid has disconnected pieces */
-    double *rArea = calloc((size_t)nr, sizeof(double));
+    rArea = calloc((size_t)nr, sizeof(double));
+    remap = malloc(sizeof(int) * (size_t)nr);
+    live = malloc(sizeof(int) * (size_t)nr); final = malloc(sizeof(int) * (size_t)nr);
+    kap = calloc((size_t)N, sizeof(float));
+    if (!rArea || !remap || !live || !final || !kap) goto oom;
     for (int t = 0; t < N; t++) rArea[reg[t]] += ar[t];
-    int *remap = malloc(sizeof(int) * (size_t)nr);
     for (int r = 0; r < nr; r++) remap[r] = r;
     if (angleDeg <= 0) {
         for (int r = 0; r < nr; r++)
@@ -394,8 +460,9 @@ void stl_split(Stl *s, double angleDeg)
            A small region whose border is mostly a sharp edge (over 60 degrees) is a real face, not faceting noise, and stays:
            an inlet cap on a long pipe is a tiny share of the area (user's exhaust manifold, 2026-11-20: four 2347 mm² runner
            ends of a 765,000 mm² surface had been folded into the runner walls) */
-        int *best = malloc(sizeof(int) * (size_t)nr);
-        double *bLen = malloc(sizeof(double) * (size_t)nr), *bSharp = malloc(sizeof(double) * (size_t)nr);
+        best = malloc(sizeof(int) * (size_t)nr);
+        bLen = malloc(sizeof(double) * (size_t)nr); bSharp = malloc(sizeof(double) * (size_t)nr);
+        if (!best || !bLen || !bSharp) goto oom;
         const double cosSharp = cos(60 * M_PI / 180);
         for (int round = 0; round < 4; round++) {
             for (int r = 0; r < nr; r++) { best[r] = -1; bLen[r] = bSharp[r] = 0; }
@@ -427,14 +494,13 @@ void stl_split(Stl *s, double angleDeg)
             }
             if (!changed) break;
         }
-        free(best); free(bLen); free(bSharp);
+        free(best); free(bLen); free(bSharp); best = NULL; bLen = bSharp = NULL;
     }
     /* number the live regions 0.., largest first; past the limit everything left goes into the last one */
-    int *live = malloc(sizeof(int) * (size_t)nr), nl = 0;
+    int nl = 0;
     for (int r = 0; r < nr; r++) if (remap[r] == r) live[nl++] = r;
-    for (int a = 0; a < nl; a++)
-        for (int b = a + 1; b < nl; b++) if (rArea[live[b]] > rArea[live[a]]) { int x = live[a]; live[a] = live[b]; live[b] = x; }
-    int *final = malloc(sizeof(int) * (size_t)nr);
+    g_rArea = rArea;
+    qsort(live, (size_t)nl, sizeof(int), cmp_area_desc);   /* (a faceted surface split by angle: tens of thousands) */
     for (int r = 0; r < nr; r++) final[r] = -1;
     for (int k = 0; k < nl; k++) final[live[k]] = k < STL_MAX_REGIONS ? k : STL_MAX_REGIONS - 1;
     s->nRegions = nl < STL_MAX_REGIONS ? nl : STL_MAX_REGIONS;
@@ -447,7 +513,6 @@ void stl_split(Stl *s, double angleDeg)
         for (int k = 0; k < 3; k++) R->n[k] += (float)(nrm[3 * t + k] * ar[t]);
     }
     {   /* curvature and edge angles for the cell estimate: across each edge two triangles share, the bend between them */
-        float *kap = calloc((size_t)N, sizeof(float));
         for (size_t j = 0; j < cap; j++) {
             if (ek[j] == -1 || ec[j] != 2) continue;
             int a = et0[j], b = et1[j];
@@ -478,7 +543,6 @@ void stl_split(Stl *s, double angleDeg)
             if (k >= STL_KBINS) k = STL_KBINS - 1;
             s->reg[reg[t]].kArea[k] += (float)ar[t];
         }
-        free(kap);
     }
     int firstTri[STL_MAX_REGIONS];
     for (int k = 0; k < STL_MAX_REGIONS; k++) firstTri[k] = -1;
@@ -498,6 +562,12 @@ void stl_split(Stl *s, double angleDeg)
         else snprintf(R->name, sizeof R->name, nl == 1 ? "walls" : "wall_%d", k + 1);
         for (char *c = R->name; *c; c++) if (!((*c >= 'a' && *c <= 'z') || (*c >= 'A' && *c <= 'Z') || (*c >= '0' && *c <= '9') || *c == '_')) *c = '_';
     }
+    s->oom = false;
+    goto done;
+oom:
+    split_as_one(s);
+done:
+    free(best); free(bLen); free(bSharp); free(kap);
     free(live); free(final); free(remap); free(rArea); free(solidOf); free(stack);
     free(nrm); free(ar); free(triEdge); free(ek); free(et0); free(et1); free(ec); free(vid);
 }
@@ -509,6 +579,7 @@ StlName *faces_load(const char *casePath, int nFaces)
     char *t = pl_read_file(p, NULL);
     if (!t) return NULL;
     StlName *g = calloc((size_t)nFaces + 1, sizeof *g);
+    if (!g) { free(t); return NULL; }
     for (char *l = strtok(t, "\n"); l; l = strtok(NULL, "\n")) {
         int id; char nm[64];
         if (sscanf(l, "face_%d = %63s", &id, nm) == 2 && id > 0 && id <= nFaces) pl_strlcpy(g[id], nm, 64);
@@ -534,11 +605,12 @@ void faces_default(Stl *s, double angleDeg, StlName *group)
 {
     /* split by angle across faces (the solid names put aside), then each face goes to the region most of its area is in */
     char (*keep)[64] = malloc(sizeof *keep * (size_t)s->nTri);
+    double *a = calloc((size_t)(s->nFaces + 1) * STL_MAX_REGIONS, sizeof(double));
+    if (!keep || !a) { free(keep); free(a); stl_split(s, angleDeg > 0 ? angleDeg : 30); return; }   /* no grouping: each face its own */
     memcpy(keep, s->solid, sizeof *keep * (size_t)s->nTri);
     for (int t = 0; t < s->nTri; t++) strcpy(s->solid[t], "surface");
     stl_split(s, angleDeg > 0 ? angleDeg : 30);
     int nf = s->nFaces;
-    double *a = calloc((size_t)(nf + 1) * STL_MAX_REGIONS, sizeof(double));
     for (int t = 0; t < s->nTri; t++) {
         int f = s->face ? s->face[t] : 0;
         if (f < 1 || f > nf) continue;
@@ -562,7 +634,11 @@ void stl_split_part(Stl *s, double angleDeg, const char *casePath)
     if (!s->face || s->nFaces < 1) { stl_split(s, angleDeg); return; }
     StlName *g = casePath && casePath[0] ? faces_load(casePath, s->nFaces) : NULL;
     bool made = false;
-    if (!g) { g = calloc((size_t)s->nFaces + 1, sizeof *g); faces_default(s, angleDeg, g); made = true; }
+    if (!g) {
+        g = calloc((size_t)s->nFaces + 1, sizeof *g);
+        if (!g) { stl_split(s, angleDeg); return; }
+        faces_default(s, angleDeg, g); made = true;
+    }
     for (int f = 1; f <= s->nFaces; f++) if (!g[f][0]) snprintf(g[f], 64, "face_%d", f);   /* a face no group has: its own */
     for (int t = 0; t < s->nTri; t++) {
         int f = s->face[t];
@@ -802,9 +878,15 @@ bool stl_is_cad(const char *path)
 
 static void ini_path(const char *casePath, char *out, size_t cap) { char d[PL_PATH]; pl_join(d, sizeof d, casePath, "mesher"); pl_join(out, cap, d, "mesher.ini"); }
 
+static bool mesher_load_file(const char *p, MeshCfg *m);
 bool mesher_load(const char *casePath, MeshCfg *m)
 {
     char p[PL_PATH]; ini_path(casePath, p, sizeof p);
+    return mesher_load_file(p, m);
+}
+
+static bool mesher_load_file(const char *p, MeshCfg *m)
+{
     char *ini = pl_read_file(p, NULL);
     if (!ini) return false;
     m->cad[0] = m->stl[0] = 0;                                /* defaults keep these: nothing from another case */
@@ -841,6 +923,11 @@ bool mesher_load(const char *casePath, MeshCfg *m)
     m->prismPct = ini_num(ini, "prism_thickness_pct", m->prismPct); m->stretch = ini_num(ini, "prism_stretching", m->stretch);
     m->evenLayers = (int)ini_num(ini, "prism_even_surface", -1);
     m->maxNonOrtho = ini_num(ini, "max_non_ortho", 65); m->maxSkew = ini_num(ini, "max_skewness", 4);
+    {   double v[3]; char w[128] = ""; ini_str(ini, "location_in_mesh", w, sizeof w);
+        m->locPicked = sscanf(w, "%lf %lf %lf", &v[0], &v[1], &v[2]) == 3 && isfinite(v[0]) && isfinite(v[1]) && isfinite(v[2]);
+        if (m->locPicked) for (int k = 0; k < 3; k++) m->loc[k] = v[k]; }
+    m->meshProcs = (int)ini_num(ini, "mesh_processes", 1);
+    if (m->meshProcs < 1 || m->meshProcs > 1024) m->meshProcs = 1;
     m->nZones = (int)ini_num(ini, "zones", 0);
     if (m->nZones > STL_MAX_ZONES) m->nZones = STL_MAX_ZONES;
     for (int i = 0; i < m->nZones; i++) {
@@ -895,6 +982,9 @@ static void cfg_text(const MeshCfg *m, Str *bp, bool sig)
     if (m->evenLayers >= 0)                                /* not written while it follows the kind of mesh: older meshes stay current */
         str_catf(&b, "# the layered walls' surface cells all the minimum size, so the layers don't break where the size steps\nprism_even_surface = %d\n", m->evenLayers);
     str_catf(&b, "max_non_ortho = %g\nmax_skewness = %g\n", m->maxNonOrtho, m->maxSkew);
+    if (m->locPicked) str_catf(&b, "# the point in the fluid, picked (else worked out from the part)\nlocation_in_mesh = %.10g %.10g %.10g\n", m->loc[0], m->loc[1], m->loc[2]);
+    if (!sig && m->meshProcs > 1)                          /* how it is run, not what it makes: not in the mesh's signature */
+        str_catf(&b, "# snappyHexMesh on this many processes (decomposePar, -parallel, reconstructParMesh)\nmesh_processes = %d\n", m->meshProcs);
     str_catf(&b, "# zoneN = kind  a(x y z)  b(x y z)  radius  size_pct   (box: a = min, b = max; sphere: a = centre; cylinder: a, b = ends)\nzones = %d\n", m->nZones);
     for (int i = 0; i < m->nZones; i++) {
         const MeshZone *z = &m->zone[i];
@@ -903,6 +993,61 @@ static void cfg_text(const MeshCfg *m, Str *bp, bool sig)
     str_catf(&b, "# boundaryN = name type, in the order of the regions in constant/triSurface/geometry.stl\nboundaries = %d\n", m->nNames);
     for (int i = 0; i < m->nNames; i++) str_catf(&b, "boundary%d = %s %s\n", i, m->names[i], sig ? foam_type(m->types[i]) : BT_NAME[m->types[i]]);
     *bp = b;
+}
+
+/* ---- presets (plan step 10, E10): the sizing and the mesher's choices, kept by name for other parts. The base size is kept
+   as a share of the part's size too, so a preset made on a 1 m part meshes a 10 cm one as finely for its size */
+static double part_size(const Stl *s)
+{
+    double L = 0; if (s && s->nTri) for (int k = 0; k < 3; k++) L = fmax(L, s->bmax[k] - s->bmin[k]);
+    return L;
+}
+
+bool mesher_preset_save(const char *dir, const char *name, const MeshCfg *m, const Stl *s)
+{
+    if (!name || !name[0] || strchr(name, '/') || name[0] == '.') return false;
+    if (!pl_mkdirs(dir)) return false;
+    Str b; str_init(&b);
+    str_catf(&b, "# Q-Continuum STL mesher preset \"%s\": the sizes and choices, for any part\n", name);
+    cfg_text(m, &b, false);
+    double L = part_size(s);
+    if (L > 0 && m->base > 0) str_catf(&b, "[preset]\nbase_fraction = %.10g\n", m->base / L);
+    char f[160], p[PL_PATH]; snprintf(f, sizeof f, "%s.ini", name); pl_join(p, sizeof p, dir, f);
+    bool ok = pl_write_file(p, b.s, b.len);
+    str_free(&b);
+    return ok;
+}
+
+int mesher_preset_list(const char *dir, char names[][64], int max)
+{
+    NameList l = { 0 };
+    pl_list_dir(dir, &l, false, false);
+    int n = 0;
+    for (int i = 0; i < l.n && n < max; i++) {
+        size_t k = strlen(l.names[i]);
+        if (k > 4 && k - 4 < 64 && !strcmp(l.names[i] + k - 4, ".ini")) { snprintf(names[n], 64, "%.*s", (int)(k - 4), l.names[i]); n++; }
+    }
+    names_free(&l);
+    for (int i = 0; i < n; i++) for (int j = i + 1; j < n; j++) if (strcmp(names[j], names[i]) < 0) { char t[64]; memcpy(t, names[i], 64); memcpy(names[i], names[j], 64); memcpy(names[j], t, 64); }
+    return n;
+}
+
+bool mesher_preset_apply(const char *dir, const char *name, MeshCfg *m, const Stl *s)
+{
+    char f[160], p[PL_PATH]; snprintf(f, sizeof f, "%s.ini", name); pl_join(p, sizeof p, dir, f);
+    MeshCfg t; memset(&t, 0, sizeof t);
+    if (!mesher_load_file(p, &t)) return false;
+    char *ini = pl_read_file(p, NULL);
+    double frac = ini ? ini_num(ini, "base_fraction", 0) : 0;
+    free(ini);
+    double L = part_size(s);
+    m->base = frac > 0 && L > 0 ? frac * L : t.base;
+    m->mesher = t.mesher; m->remesh = t.remesh; m->polyConvert = t.polyConvert; m->gmshAlgo = t.gmshAlgo; m->surfRemesher = t.surfRemesher;
+    m->targetPct = t.targetPct; m->minPct = t.minPct; m->curvature = t.curvature; m->surfGrowth = t.surfGrowth; m->volGrowth = t.volGrowth;
+    m->featureAngle = t.featureAngle; m->prism = t.prism; m->layers = t.layers; m->prismPct = t.prismPct; m->stretch = t.stretch;
+    m->evenLayers = t.evenLayers; m->maxNonOrtho = t.maxNonOrtho; m->maxSkew = t.maxSkew; m->meshProcs = t.meshProcs;
+    if (t.domain == m->domain) { m->up = t.up; m->down = t.down; m->side = t.side; m->top = t.top; m->below = t.below; }   /* the tunnel, in reference lengths */
+    return true;
 }
 
 bool mesher_save(const char *casePath, const MeshCfg *m)
@@ -1241,6 +1386,7 @@ static bool write_binary_region(const Stl *s, int r, const char *path)
     uint32_t n = (uint32_t)s->reg[r].nTri;
     size_t len = 84 + (size_t)n * 50;
     char *buf = calloc(1, len);
+    if (!buf) return false;
     snprintf(buf, 80, "Q-Continuum region %s", s->reg[r].name);
     memcpy(buf + 80, &n, 4);
     size_t o = 84;
@@ -1266,6 +1412,7 @@ static const MeshOverrides *g_ov;
 static MeshPreview *g_dry;
 
 /* our dictionary over theirs: the first time, theirs is kept as <file>.orig */
+static char g_kept[2048], g_replaced[2048];               /* hand edits kept / replaced by the last mesher_prepare */
 static bool put_dict(const char *casePath, const char *rel, const char *text, char *err, int cap)
 {
     if (g_dry) {
@@ -1279,18 +1426,36 @@ static bool put_dict(const char *casePath, const char *rel, const char *text, ch
     if (g_ov && !mo_apply(g_ov, rel, &t, err, cap)) { str_free(&t); return false; }
     text = t.s;
     char p[PL_PATH]; pl_join(p, sizeof p, casePath, rel);
-    char *old = pl_read_head(p, 400);
-    if (old && !strstr(old, "Q-Continuum's STL mesher")) {
+    char *old = pl_read_file(p, NULL);
+    if (old && !strstr(old, "Q-Continuum's STL mesher")) {   /* not ours: kept once as .orig */
         char bak[PL_PATH + 8]; snprintf(bak, sizeof bak, "%s.orig", p);
-        if (!pl_exists(bak)) { char *all = pl_read_file(p, NULL); if (all) { pl_write_file(bak, all, strlen(all)); free(all); } }
+        if (!pl_exists(bak)) pl_write_file(bak, old, strlen(old));
     }
-    free(old);
+    /* hand edits (plan step 9, E1): what was written last is kept in mesher/written/; the file on disk differing from it has
+       been edited, and the edits go into what is written now (a three-way merge, as Physics > Setup does): an entry the
+       user added or changed stays, unless the mesher now writes something else for it (then the mesher's wins, listed) */
+    char sub[PL_PATH], bp[PL_PATH]; snprintf(sub, sizeof sub, "mesher/written/%s", rel); pl_join(bp, sizeof bp, casePath, sub);
+    char *base = old ? pl_read_file(bp, NULL) : NULL, *merged = NULL;
+    if (old && base && strcmp(old, base)) {
+        char k[1024] = "", r[1024] = "";
+        merged = sim_merge3(rel, old, base, text, k, sizeof k, r, sizeof r);
+        if (merged) {
+            size_t n = strlen(g_kept); snprintf(g_kept + n, sizeof g_kept - n, "%s", k);
+            n = strlen(g_replaced); snprintf(g_replaced + n, sizeof g_replaced - n, "%s", r);
+        }
+    }
+    free(old); free(base);
     char d[PL_PATH]; pl_dirname(d, sizeof d, p); pl_mkdirs(d);
-    bool ok = pl_write_file(p, text, strlen(text));
+    const char *out = merged ? merged : text;
+    bool ok = pl_write_file(p, out, strlen(out));
+    free(merged);
+    if (ok) { pl_dirname(d, sizeof d, bp); pl_mkdirs(d); pl_write_file(bp, text, strlen(text)); }
     str_free(&t);
     if (!ok) { snprintf(err, (size_t)cap, "Could not write %s", rel); return false; }
     return true;
 }
+const char *mesher_write_kept(void) { return g_kept; }
+const char *mesher_write_replaced(void) { return g_replaced; }
 static void put_if_missing(const char *casePath, const char *rel, const char *text)
 {
     char p[PL_PATH]; pl_join(p, sizeof p, casePath, rel);
@@ -1300,8 +1465,21 @@ static void put_if_missing(const char *casePath, const char *rel, const char *te
 }
 
 /* a point in the fluid, away from the surface: inside the part (internal), in the tunnel ahead of it (external) */
+static void location_in_mesh(const MeshCfg *m, const Stl *s, double out[3]);
+bool mesher_in_fluid(const MeshCfg *m, const Stl *s, const double p[3])
+{
+    if (m->domain != DOMAIN_EXTERNAL) return stl_inside(s, p);
+    double lo[3], hi[3];
+    mesher_domain(m, s, lo, hi);
+    for (int k = 0; k < 3; k++) if (p[k] <= lo[k] || p[k] >= hi[k]) return false;
+    return !stl_inside(s, p);
+}
+
+void mesher_location(const MeshCfg *m, const Stl *s, double out[3]) { location_in_mesh(m, s, out); }
+
 static void location_in_mesh(const MeshCfg *m, const Stl *s, double out[3])
 {
+    if (m->locPicked) { for (int k = 0; k < 3; k++) out[k] = m->loc[k]; return; }   /* chosen by hand (plan step 9, E8) */
     double lo[3], hi[3];
     mesher_domain(m, s, lo, hi);
     if (m->domain == DOMAIN_EXTERNAL) {
@@ -1897,6 +2075,7 @@ bool mesher_prepare(const char *casePath, const MeshCfg *m, Stl *s, char *err, i
         one.nRegions = 1; one.reg[0] = s->reg[r];
         int *keep = one.region;
         one.region = malloc(sizeof(int) * (size_t)s->nTri);
+        if (!one.region) { snprintf(err, (size_t)cap, "Out of memory writing the region files"); return false; }
         for (int t = 0; t < s->nTri; t++) one.region[t] = keep[t] == r ? 0 : -1;
         char f[96]; snprintf(f, sizeof f, "%s.stl", s->reg[r].name);
         pl_join(p, sizeof p, td, f);
@@ -1934,6 +2113,7 @@ bool mesher_prepare(const char *casePath, const MeshCfg *m, Stl *s, char *err, i
         "laplacianSchemes { default Gauss linear corrected; }\ninterpolationSchemes { default linear; }\nsnGradSchemes { default corrected; }\n");
     put_if_missing(casePath, "system/fvSolution", HEADER("dictionary", "fvSolution") "\nsolvers {}\nSIMPLE {}\n");
     MeshOverrides ov; mo_init(&ov); mo_load(casePath, &ov);
+    g_kept[0] = g_replaced[0] = 0;
     g_ov = &ov;
     bool ok = write_mesher_dicts(casePath, m, s, err, cap);
     g_ov = NULL;

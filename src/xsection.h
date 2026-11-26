@@ -59,6 +59,17 @@ typedef struct {
     long   nPoints, nFaces, nCells, nInternal;
     time_t meshTime;
 } MeshSurf;
+/* ---- the polyMesh and field readers, for other modules (viz.c): ASCII or binary, faceList or faceCompactList */
+typedef struct { char name[64], type[24]; long nFaces, start; } FrPatch;
+double *fr_points(const char *path, long *n);                               /* malloc'd, 3 a point */
+bool    fr_faces(const char *path, long **off, long **idx, long *nFaces);   /* off has nFaces + 1 entries */
+long   *fr_labels(const char *path, long *n);                               /* owner, neighbour */
+int     fr_boundary(const char *path, FrPatch *out, int max);
+/* a volScalarField or volVectorField: returns its components (1 or 3; 0 when it can't be read). cell: nCells x ncomp;
+   bnd: one value (x ncomp) per boundary face, in face order from nInternal, NAN where the patch has no value entry (it
+   then takes its cell's); dims: the dimensions text, "[0 2 -2 0 0 0 0]" */
+int     fr_vol_field(const char *path, long nCells, const FrPatch *pt, int np, long nInternal, long nFaces,
+                     double **cell, double **bnd, char *dims, int dimsCap);
 bool ms_load(MeshSurf *m, const char *polyMeshDir, long maxEdges);   /* edges only when the boundary has at most maxEdges */
 void ms_free(MeshSurf *m);
 

@@ -9,6 +9,7 @@
 #include <sys/wait.h>
 #include <unistd.h>
 #include "app.h"
+#include "allrun.h"
 #include "teach.h"
 #include "intro.h"
 #include "salometool.h"
@@ -470,8 +471,10 @@ static void list_add(const char *path)
 {
     for (int i = 0; i < A.nList; i++) if (!strcmp(A.list[i].path, path)) return;
     if (A.nList == A.capList) {
-        A.capList = A.capList ? A.capList * 2 : 32;
-        A.list = realloc(A.list, sizeof(CaseSummary) * (size_t)A.capList);
+        int nc = A.capList ? A.capList * 2 : 32;
+        CaseSummary *nl = realloc(A.list, sizeof(CaseSummary) * (size_t)nc);
+        if (!nl) return;                                   /* out of memory: the case isn't listed */
+        A.list = nl; A.capList = nc;
     }
     case_summarize(path, &A.list[A.nList++]);
 }
@@ -708,7 +711,7 @@ void app_duplicate_case(const char *src)
     pl_shell_quote(qs, sizeof qs, src);
     pl_shell_quote(qd, sizeof qd, dst);
     if (!pl_fmt(cmd, sizeof cmd, "cp -a %s %s && chmod -R u+w %s && cd %s && rm -rf processor* postProcessing VTK .qc-history .qc-trash log.* *.foam "
-                                 ".qc-step-rc && for d in [0-9]*; do [ -d \"$d\" ] && [ \"$d\" != 0 ] && awk -v t=\"$d\" 'BEGIN { exit !(t + 0 > 0) }' "
+                                 ".qc-step-rc && for d in [0-9]*; do [ -d \"$d\" ] && [ \"$d\" != 0 ] && awk -v t=\"$d\" 'BEGIN { exit !(t ~ /^[0-9.]+([eE][-+]?[0-9]+)?$/ && t + 0 > 0) }' "
                                  "&& rm -rf \"$d\"; done; true", qs, qd, qd, qd) || pl_run_wait(cmd, NULL, 0) != 0) {
         ui_toast(TOAST_ERR, "Copying the case to %s failed", dst); return;
     }
@@ -1794,8 +1797,53 @@ static void fast_gpu_copies(char **argv)
 #endif
 }
 
+/* the command-line mode (plan step 11, E5): no window. allrun writes Allrun and Allclean, mesh makes the mesh as the app last
+   made it (the case's recipe), run writes Allrun and runs it; each in the case folder with the active OpenFOAM loaded */
+static int cli_main(int argc, char **argv)
+{
+    const char *verb = argv[1];
+    char path[PL_PATH];
+    if (!realpath(argv[2], path)) { fprintf(stderr, "q-continuum %s: no such folder: %s\n", verb, argv[2]); return 2; }
+    if (!case_is_case(path)) { fprintf(stderr, "q-continuum %s: %s isn't an OpenFOAM case (no system/controlDict)\n", verb, path); return 2; }
+    env_detect(&A.env);
+    settings_load(&A.set, &A.env);
+    const char *br = app_bashrc();
+    if (!br[0]) { fprintf(stderr, "q-continuum %s: no OpenFOAM found (Settings > Environment in the app)\n", verb); return 2; }
+    char qp[PL_PATH + 8], qb[PL_PATH + 8], cmd[3 * PL_PATH + 200];
+    pl_shell_quote(qp, sizeof qp, path); pl_shell_quote(qb, sizeof qb, br);
+    if (!strcmp(verb, "mesh")) {
+        Str st; str_init(&st);
+        if (!recipe_mesh_steps(path, &st)) { fprintf(stderr, "q-continuum mesh: nothing records how this case's mesh is made (make it once in the app)\n"); str_free(&st); return 1; }
+        char sp[PL_PATH]; pl_join(sp, sizeof sp, path, ".qc-recipe/run-mesh.sh");
+        Str sh; str_init(&sh); str_cat(&sh, "#!/bin/bash\n"); str_cat(&sh, st.s); str_cat(&sh, "\necho \"== mesh done\"\n");
+        pl_write_file(sp, sh.s, sh.len); str_free(&sh); str_free(&st);
+        snprintf(cmd, sizeof cmd, "cd %s && set -- && . %s > /dev/null 2>&1; bash .qc-recipe/run-mesh.sh", qp, qb);
+        return system(cmd) == 0 ? 0 : 1;
+    }
+    A.cj = &A.jobs[MAX_JOBS];
+    Case *c = case_open(path);
+    if (!c) { fprintf(stderr, "q-continuum %s: could not read %s\n", verb, path); return 1; }
+    A.cs = c;
+    int np = argc > 3 ? atoi(argv[3]) : 1;
+    if (np < 1) np = 1;
+    char msg[400];
+    if (!run_export_allrun(c, np, msg, sizeof msg)) { fprintf(stderr, "q-continuum %s: %s\n", verb, msg); return 1; }
+    printf("%s\n", msg);
+    if (!strcmp(verb, "allrun")) return 0;
+    snprintf(cmd, sizeof cmd, "cd %s && set -- && . %s > /dev/null 2>&1; ./Allrun", qp, qb);
+    return system(cmd) == 0 ? 0 : 1;
+}
+
 int main(int argc, char **argv)
 {
+    if (argc >= 3 && (!strcmp(argv[1], "allrun") || !strcmp(argv[1], "mesh") || !strcmp(argv[1], "run"))) return cli_main(argc, argv);
+    if (argc >= 2 && (!strcmp(argv[1], "help") || !strcmp(argv[1], "--help") || !strcmp(argv[1], "-h"))) {
+        printf("Q-Continuum %s\n\n  q-continuum [case]              the app (opening that case)\n"
+               "  q-continuum allrun <case> [np]  write Allrun and Allclean: the mesh as last made, then the run on np processes\n"
+               "  q-continuum mesh <case>         make the mesh again as the app last made it\n"
+               "  q-continuum run <case> [np]     write Allrun and run it\n", QC_VERSION);
+        return 0;
+    }
     fast_gpu_copies(argv);
     const char *shot = NULL, *casePath = NULL, *pageName = NULL;
     int frames = 3, theme = -1, bcF = -1, bcP = -1;

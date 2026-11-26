@@ -151,6 +151,16 @@ static void walk(const char *dir)
 
 int main(int argc, char **argv)
 {
+    {   /* sweep 2026-11-21: a long value put whole (it went into a 2048-byte buffer) */
+        FDFile *lf = fd_from_text("", "a 1;\n");
+        Str big; str_init(&big); str_cat(&big, "(");
+        for (int i = 0; i < 1500; i++) str_catf(&big, " %d", i);
+        str_cat(&big, " )");
+        if (!fd_put(lf, "pts", big.s) || !strstr(lf->text, " 1499 )") || !lf->ok) { fprintf(stderr, "FAIL: a long value cut short\n"); return 1; }
+        FDFile *ef = fd_from_text("", "k;\n");
+        if (!fd_put(ef, "k", big.s) || !strstr(ef->text, " 1499 )")) { fprintf(stderr, "FAIL: a long value into an empty entry cut short\n"); return 1; }
+        fd_free(lf); fd_free(ef); str_free(&big);
+    }
     if (argc < 2) { fprintf(stderr, "usage: %s <dir> [<dir> ...]\n", argv[0]); return 2; }
     snprintf(scratch, sizeof scratch, "/tmp/qc-roundtrip-%d", (int)getpid());
     for (int i = 1; i < argc; i++) walk(argv[i]);

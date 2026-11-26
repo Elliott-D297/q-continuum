@@ -1,0 +1,40 @@
+# Mesh plan step 12, the learner walk-through: "a pipe with water at 2 m/s" to a checked mesh, as someone with fluid
+# mechanics and no CFD would go: Mesh > Which mesh? (a straight pipe, 3-D, pressure drop at the walls, water, 2 m/s, 50 mm)
+# -> the block builder's pipe O-grid with the first cell for y+ 50 -> Save and mesh -> checkMesh OK.
+budget p95 80 max 800
+shell mkdir -p $SB/ws/pipe/system && printf 'FoamFile { version 2.0; format ascii; class dictionary; object controlDict; }\napplication simpleFoam;\nstartTime 0;\nendTime 100;\ndeltaT 1;\nwriteControl timeStep;\nwriteInterval 100;\n' > $SB/ws/pipe/system/controlDict
+open $SB/ws/pipe
+click nav:mesh
+wait-until page Mesh
+click mesh-which
+wait 5
+click mq-shape
+wait 3
+click text:A straight round pipe
+click mq-dims#0
+click mq-walls
+wait 3
+click text:Pressure drop, lift, drag (a few %)
+click mq-fluid
+wait 3
+click text:Water, 20 °C
+click mq-U
+key A ctrl
+enter 2
+click mq-L
+key A ctrl
+enter 0.05
+wait 5
+assert text Block builder, "Pipe (O-grid)" template, graded to the walls
+assert text Re 99,600
+screenshot $OUT/1_advice.png
+click mq-go
+wait 10
+assert text Pipe (O-grid)
+assert text cells. Makes: inlet, outlet (patch), wall (wall).
+screenshot $OUT/2_builder.png
+click bk-savemesh
+wait-until job running timeout 20
+wait-until job finished timeout 300
+assert log log.checkMesh Mesh OK.
+screenshot $OUT/3_meshed.png

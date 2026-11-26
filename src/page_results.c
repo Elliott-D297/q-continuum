@@ -114,9 +114,24 @@ void page_foam_results(Rectangle r)
     UiScroll *sc = &A.scr[11];
     float top = ui_scroll_begin(sc, r);
     float x = r.x + PAGE_PAD, w = fminf(r.width - 2 * PAGE_PAD, CONTENT_MAX);
-    float y = top + 30;
-    y += page_header(x, y, w, "Results", "What the run produced, and how far to trust it. ParaView has the whole flow field.");
-    y += case_steps(c, x, y, w);
+    float y = top + (A.resultsTab == 1 ? 14 : 30);
+    y += page_header(x, y, w, "Results", A.resultsTab == 1 ? NULL : "What the run produced, and how far to trust it. ParaView has the whole flow field.");
+    if (A.resultsTab != 1) y += case_steps(c, x, y, w);
+    {
+        static const char *tabs[2] = { "Summary", "Visualization" };
+        int shown = A.resultsTab == 1 ? 1 : 0;
+        float th;
+        if (ui_tabs(ui_id("res-tabs"), x, y, tabs, 2, &shown, &th)) A.resultsTab = shown;
+        ui_divider(x, y + th, w);
+        y += th + 18;
+    }
+    if (A.resultsTab == 1) {                                  /* the 3-D results (docs/VISUALIZATION_PLAN.md): the page's full width */
+        float vx = r.x + PAGE_PAD, vw = r.width - 2 * PAGE_PAD;
+        float vh = fmaxf(400, r.height - (y - top) - 24);
+        y += viz_page(c, vx, y, vw, vh);
+        ui_scroll_end(sc, y - top + 20);
+        return;
+    }
     bool running = A.cj->active && !strcmp(A.cj->casePath, c->s.path);
     bool steady = c->s.app[0] && (strstr(c->s.app, "simple") || strstr(c->s.app, "Simple"));
     LogMon *m = solver_log(c);

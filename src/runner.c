@@ -1,6 +1,7 @@
 /* runner.c -- background jobs (bash with the OpenFOAM environment) and log parsing */
 #define _GNU_SOURCE
 #include "runner.h"
+#include "allrun.h"
 #include "program.h"
 
 #include <ctype.h>
@@ -643,6 +644,9 @@ bool job_start(Job *j, const char *casePath, const char *bashrc, double now)
     j->finished = j->failed = j->stopped = j->stopping = false;
     j->startedAt = now;
     if (!launch(j, now)) { j->active = false; j->failed = j->finished = true; j->finishedAt = now; return false; }
+    /* the mesh made this way is the case's recipe from now on (Run > Export Allrun replays it) */
+    if (!strcmp(j->title, "Mesh")) recipe_record(casePath, j, false);
+    else if (!strcmp(j->title, "Mesh tool")) recipe_record(casePath, j, true);
     return true;
 }
 

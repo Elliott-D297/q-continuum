@@ -81,6 +81,7 @@ bool script_load(const char *path)
     size_t len; char *t = pl_read_file(path, &len);
     if (!t) { fprintf(stderr, "--script: cannot read %s\n", path); return false; }
     S.line = calloc(MAX_LINES, sizeof(char *));
+    if (!S.line) { free(t); fprintf(stderr, "--script: out of memory\n"); return false; }
     int no = 0;
     for (char *l = t, *e; l && *l && S.n < MAX_LINES; l = e ? e + 1 : NULL) {
         e = strchr(l, '\n');
@@ -138,7 +139,7 @@ static bool resolve(const char *t, Rectangle *vis, Rectangle *whole, Rectangle *
 /* ---------------------------------------------------------------- conditions */
 static const char *const MODAL_NAMES[] = { "none", "open-folder", "clone", "clean", "delete", "unsaved", "quit-running", "add-entry",
     "run-results", "new-file", "run-script", "cpl-new", "cpl-open", "cpl-results", "pv-claude", "hist-confirm", "precheck", "queue-add",
-    "movie", "study-new", "study-out", "study-exp", "deme-new", "conflict", "shortcuts", "whats-new", "palette", "environment", "review", "plume", "away", "cpl-build", "flavour", "blank", "del-file", "glossary", "calc" };
+    "movie", "study-new", "study-out", "study-exp", "deme-new", "conflict", "shortcuts", "whats-new", "palette", "environment", "review", "plume", "away", "cpl-build", "flavour", "blank", "del-file", "glossary", "calc", "meshq" };
 
 const char *app_page_title(int p);
 
@@ -310,8 +311,8 @@ void script_tick(int frame)
         if (!strcmp(cmd, "theme")) { A.set.theme = atoi(arg); ui_set_theme(A.set.theme); next(); S.waitFrames = 3; continue; }
         if (!strcmp(cmd, "screenshot")) { shot(arg); say("screenshot %s", arg); next(); return; }
         if (!strcmp(cmd, "dump")) {
-            char *t = malloc(1 << 20); int n = ui_text_dump(t, 1 << 20);
-            pl_write_file(arg, t, (size_t)n); free(t);
+            char *t = malloc(1 << 20);
+            if (t) { int n = ui_text_dump(t, 1 << 20); pl_write_file(arg, t, (size_t)n); free(t); }
             next(); continue;
         }
         if (!strcmp(cmd, "quit")) { S.at = S.n; break; }

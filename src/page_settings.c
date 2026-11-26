@@ -914,6 +914,9 @@ void draw_modals(void)
     case MD_CALC:
         calc_modal(&close);
         break;
+    case MD_MESHQ:
+        meshq_modal(&close);
+        break;
     case MD_REVIEW:
         review_modal(&close);
         break;

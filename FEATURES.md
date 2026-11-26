@@ -1,6 +1,9 @@
 # Q-Continuum feature inventory
 
 Every user-visible feature, from reading the source on 2026-10-19 (branch `usability-overhaul`, baseline 686a204).
+Rows added later were appended at the end of each section. **Refreshed 2026-11-26**: the section "Added since 2026-10-19"
+at the end lists the feature areas built since, with their tests; statuses in the older rows were not re-audited, so a row
+still marked *untested* may now be exercised by a journey (`ls tests/journeys`).
 This table drives the test plan: a feature is only *verified* when an automated test exercises it.
 
 **Status** values:
@@ -68,7 +71,7 @@ Test IDs refer to `ctest` names (`ctest --test-dir build -N` lists them).
 | Category filter | `page_cases.c` | All / Incompressible / Heat transfer / Multiphase / Other / DEME | none | untested |
 | Delete (hover icon) | `page_cases.c`, `app.c` `app_ask_delete_case` | Delete dialog: type name / confirm / don't ask; Trash (gio) or permanent; refuses running cases | Manual | untested |
 | Open folder dialog | `page_settings.c` `MD_OPEN_FOLDER` | Add any case folder to the list | none | untested |
-| Empty state | `page_cases.c` | "No cases here yet" with Start from a tutorial / Open a case folder | none | **broken** (hidden when DEME projects exist, see friction log F-01) |
+| Empty state | `page_cases.c` | "No cases here yet" with Start from a tutorial / Open a case folder | `t_empty_states` (empty and no-match states) | verified-fakes (F-01 fixed: every program's projects are cases, and "No cases match" covers filters) |
 | OpenFOAM missing callout | `page_cases.c` | Points to Settings | none | untested |
 | DEME project cards | `page_deme.c` `deme_card` | DEME projects shown among cases | Manual | untested |
 | Adopt external runs | `app.c` `adopt_running` | A run started in a terminal shows as running, with Stop/Pause | Manual (2026-10-18) | untested |
@@ -311,3 +314,20 @@ Test IDs refer to `ctest` names (`ctest --test-dir build -N` lists them).
 | Screen and game themes | `ui.c` make_theme / retro_face / retro_backdrop / CRT pass, `flavour.c`, `terms.c`, `sound.c` PACKS | Severance, Alien (CRT shader: curvature, scanlines, glow, vignette, flicker; mouse unwarped), Pip-Boy (STAT/INV/DATA, Geiger on the continuity error), NERV (Unit-0N, sync ratio, PATTERN BLUE), Portal (test chambers, the facility AI on checkMesh, cake), Dark Souls (HP/stamina, bonfires per write, YOU DIED + respawn from latestTime), Factorio (assembler, belt of time folders, sim s per wall h, biters), Windows 95 (progress window, paperclip at Co > 1, blue screen); own names, sounds, fonts (SIL OFL) | `t_themes`, `t_theme_moments` | verified-real |
 | Star Citizen theme | `ui.c` (RETRO_STARCITIZEN palette, star backdrop, cut-corner MFD panels, Electrolize), `flavour.c`, `terms.c`, `sound.c` | mobiGlas look: runs are contracts in Stanton, quantum-drive bar to endTime on Run, 30k disconnect on failure, aUEC payout on completion; own names and sounds | `t_themes` | verified-real |
 | Theme logos + icon | `logo.c`, Settings > Themes grid (`theme#<id>`) | A Q mark per theme; window icon and desktop icon (~/.local/share/icons, WSLg's Start-menu .ico) follow the theme; `--export-logos <dir>` writes all 15 + sheet.png | `t_themes`, `t_actions` | verified-real |
+
+## Added since 2026-10-19
+
+Each area has its own plan or guide in `docs/`, where every feature is described with its tests. Test names are ctest
+names (`ctest --test-dir build -N`) or journeys (`tests/journeys/<name>.qcs`).
+
+| Area | Doc | Tests |
+|---|---|---|
+| Guided Physics > Setup (solvers by physics switches, heat, gas, turbulence and walls, reports, zones, free surface, starting values, numerics presets, adopting a tutorial) | `WORKFLOW_PLAN.md`, setup plan in git history | `simsetup*` (real OpenFOAM), `t_setup_models`, `t_zones`, `t_vof_dambreak`, `t_reports`, `t_workflow_w*` |
+| STL mesher (snappyHexMesh, cfMesh, SALOME routes, layers, stages, hand-edit merge, STEP / IGES) | `MESH_GUIDE.md`, `MESH_OVERHAUL_PLAN.md` | `stlmesh_*`, `salome_*`, `t_stl_*` |
+| Glossary, calculators, pre-flight, quality explainer, What mesh do I need?, GCI | `CALCULATORS.md` | `glossary`, `calc`, `quality`, `meshadvice`, `gci`, `preflight_shape`, `t_glossary`, `t_calc`, `t_meshq`, `t_gci` |
+| Block builder, templates, extrusion | `BLOCKMESH.md` | `bmesh`, `bmesh_openfoam`, `extrude*`, `t_blocks*`, `t_extrude` |
+| Mesh tools, Fluent / STAR-CD import, presets, Allrun export, command-line mode | `MESH_OVERHAUL_PLAN.md` | `meshtools*`, `t_mesh_tools`, `t_mesh_import*`, `t_allrun` |
+| Results > Visualization | `VISUALIZATION.md` | `viz_openfoam`, `t_viz*` |
+| CalculiX part studies; program pages for CalculiX, DEME and others | `FEA_PLAN.md`, `WORKFLOW_PLAN.md` | `femesh`, `fea_routes`, `ccxmodel`, `programs`, `t_fea_part`, `t_workflow_c*`, `t_deme`, `t_programs` |
+| Run controls per solver | `IMPROVEMENT_PLAN.md` (log) | `runctl`, `runctl_pimple`, `t_run_controls` |
+| Start-up intros, Star Wars themes | git history | `t_intro`, `t_themes` |

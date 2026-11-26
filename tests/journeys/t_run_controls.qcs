@@ -1,0 +1,46 @@
+# Run controls (2026-11-25, "why am I not allowed to have adaptive time step here?"): icoFoam says its step is fixed and
+# why, the solver's own groups open (PISO loop, linear solvers), Switch to pimpleFoam converts the case (two clicks), and
+# then the adaptive switch and its limits show
+open $SB/ws/cavity
+click nav:run
+wait-until page Run
+wait 10
+assert text always takes the same time step
+assert widget rc-to-pimple
+wheel 0 rc-to-pimple
+wait 10
+screenshot $OUT/01_icofoam.png
+click rc-g#2
+click rc-g#4
+wait 10
+assert widget dict:system/fvSolution:PISO/nCorrectors
+assert widget dict:system/fvSolution:solvers/p/tolerance
+screenshot $OUT/02_piso_solvers.png
+click rc-g#2
+click rc-g#4
+click rc-to-pimple
+wait 5
+assert log system/controlDict application     icoFoam;
+screenshot $OUT/02b_armed.png
+click rc-to-pimple
+wait 10
+assert toast Now pimpleFoam
+assert log system/controlDict adjustTimeStep  yes;
+assert log system/controlDict writeControl    adjustable;
+assert log system/fvSolution UFinal
+assert log constant/turbulenceProperties simulationType  laminar;
+assert widget rc-adjust
+assert widget dict:system/controlDict:maxCo
+wheel 0 rc-adjust
+wait 10
+screenshot $OUT/03_pimple_adaptive.png
+click rc-g#0
+click rc-g#1
+click rc-g#2
+wait 10
+assert widget dict:system/fvSolution:PIMPLE/nOuterCorrectors
+assert widget rc-sw:PIMPLE/momentumPredictor
+screenshot $OUT/04_groups.png
+wheel 0 rc-sw:PIMPLE/momentumPredictor
+wait 10
+screenshot $OUT/05_groups_lower.png

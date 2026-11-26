@@ -1,0 +1,20 @@
+# Mesh overhaul plan step 8: Studies' "Is the mesh fine enough?" on a three-mesh cavity study (tests/make_gci_study.sh:
+# 4500, 8000, 18000 cells, a coefficient with Celik et al.'s worked-example values) gives their numbers: order 1.53,
+# estimate 6.169, GCI 2.2 %, fine enough; the working opens; the chart has the estimate.
+budget p95 80 max 600
+shell bash $QC_TESTS/make_gci_study.sh $SB/ws $SB/ws/cavity
+open $SB/ws/cavity
+click nav:studies
+wait-until page Studies
+wait 20
+assert text cavity mesh independence
+assert text Is the mesh fine enough? (Cd)
+assert text Fine enough
+assert text GCI 2.17 %
+assert text order 1.53
+assert text Mesh-independent estimate 6.168
+screenshot $OUT/1_gci.png
+click st-gci-wk0
+wait 5
+assert text Richardson extrapolation
+screenshot $OUT/2_working.png

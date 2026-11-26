@@ -1,0 +1,80 @@
+# Mesh plan step 9 (E3, E4, E1): snappyHexMesh's stages and parallel meshing in the STL mesher. Generate with prism layers
+# runs castellate+snap, keeps the mesh before the layers, then the layers; "Redo the layers only" re-runs just the layers
+# with new layer settings; 2 processes mesh decomposed and reconstruct; a hand edit to snappyHexMeshDict survives.
+budget p95 80 max 800
+shell mkdir -p $SB/ws/stg/system && python3 "$QC_TESTS/tools/gen_named_box.py" $SB/ws/box.stl && printf 'FoamFile { version 2.0; format ascii; class dictionary; object controlDict; }\napplication simpleFoam;\nstartTime 0;\nendTime 10;\ndeltaT 1;\nwriteControl timeStep;\nwriteInterval 10;\n' > $SB/ws/stg/system/controlDict
+open $SB/ws/stg
+click nav:mesh
+wait-until page Mesh
+click text:STL mesher
+wait 5
+click stl-path
+enter $SB/ws/box.stl
+wait 10
+click stl-next
+wait 3
+click stl-next
+wait 5
+click stl-name-kinds
+wait 5
+click stl-next
+wait 3
+click stl-next
+wait 5
+click stl-gen
+wait-until job running timeout 20
+wait-until job finished timeout 900
+assert log log.checkMesh Mesh OK.
+assert file mesher/snapped/polyMesh/owner
+assert log log.snappyHexMesh mesh before the layers kept
+assert log log.snappyLayers Layer mesh
+screenshot $OUT/1_generated.png
+# a hand edit to a layer setting (E1), then the layers redone (E3)
+shell sed -i 's/nLayerIter 15;/nLayerIter 30;/' $SB/ws/stg/system/snappyHexMeshDict
+wait 10
+click stl-relayer
+wait-until job running timeout 20
+wait-until job finished timeout 900
+assert log log.meshClear the mesh before the layers, from mesher/snapped
+assert log log.checkMesh Mesh OK.
+assert log system/snappyHexMeshDict nLayerIter 30
+assert text Kept 1 hand edit
+screenshot $OUT/2_relayered.png
+# two processes (E4)
+click stl-nprocs
+key A ctrl
+enter 2
+wait 3
+click stl-gen
+wait-until job running timeout 20
+wait-until job finished timeout 900
+assert log log.snappyHexMesh reconstructParMesh
+assert log log.checkMesh Mesh OK.
+assert file system/decomposeParDict.qc-mesh
+assert not file processor0
+screenshot $OUT/3_parallel.png
+# the point in the fluid (E8): worked out, then picked by a click on the part, checked and saved
+wait 10
+click stl-step#1
+wait 10
+screenshot $OUT/3b_flow.png
+assert text worked out  ·  in the fluid
+click stl-loc-pick
+wait 2
+click stl-view
+wait 5
+assert text picked  ·  in the fluid
+assert log mesher/mesher.ini location_in_mesh
+screenshot $OUT/4_location.png
+click stl-loc-auto
+wait 3
+assert text worked out  ·  in the fluid
+# a preset of these settings (E10), saved and listed
+click stl-step#3
+wait 5
+click stl-preset-name
+type box fine
+click stl-preset-save
+wait 5
+assert text Use a preset
+assert file $SB/cfg/q-continuum/mesh-presets/box fine.ini

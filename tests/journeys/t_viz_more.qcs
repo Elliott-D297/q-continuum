@@ -1,0 +1,40 @@
+# Visualization improvements (2026-11-21): a section plane's report (area, mean, flow through it, mass flow), a displayer
+# duplicated, saved views forgotten, a movie sweeping the plane through the cube.
+budget p95 80 max 900
+open $SB/ws/cube3d
+click nav:results
+wait 2
+click res-tabs#1
+wait-until text Boundary surfaces timeout 30
+choose vz-add Section plane
+wait 10
+assert text On this plane
+assert text area 1 m²
+assert text flow through it along the normal
+assert text kg/s
+screenshot $OUT/1_report.png
+click vz-dup#1
+wait 10
+assert text Section plane copy
+# a probe click, then streamlines seeded there
+click vz-view#0
+wait 10
+screenshot $OUT/2b_probe.png
+assert widget vz-seed-here
+click vz-seed-here
+wait 15
+assert not text No streamline left
+assert text Streamlines
+screenshot $OUT/3_seed_here.png
+choose vz-views Save this view
+wait 3
+choose vz-views Forget the saved views
+wait 3
+assert text Saved views forgotten
+click vz-d#1
+wait 3
+choose vz-movie Movie: sweep the plane
+wait-until text Recording timeout 20
+wait-until job finished timeout 600
+assert log log.vizmovie wrote visualization/movie_sweep_
+screenshot $OUT/2_after.png

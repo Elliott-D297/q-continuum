@@ -10,6 +10,9 @@
 #include <string.h>
 #include "app.h"
 #include "fieldinfo.h"
+#include "gci.h"
+#include "teach.h"
+#include "xsection.h"
 
 #define MAX_STUDIES 64
 #define MAX_VARIANTS 64
@@ -858,7 +861,7 @@ void study_new_modal(bool *close)
 }
 
 /* ============================================================================ results */
-typedef struct { char path[PL_PATH]; double at; CaseSummary s; MonSet *ms; double clock; char resid[16][24]; double residV[16]; int nResid; } RowData;
+typedef struct { char path[PL_PATH]; double at; CaseSummary s; MonSet *ms; double clock; char resid[16][24]; double residV[16]; int nResid; int dims; } RowData;
 static RowData R[MAX_VARIANTS];
 static int nR;
 
@@ -913,6 +916,7 @@ static RowData *row_data(const char *path)
         if (!d->ms) { d->ms = calloc(1, sizeof(MonSet)); monset_open(d->ms, path); }
         else monset_poll(d->ms, GetTime());
         log_tail(d);
+        d->dims = 0;                                            /* the mesh may have changed: mesh_dims reads it again */
     }
     return d;
 }
@@ -961,6 +965,8 @@ static double nice(double range)
     return (n < 1.5 ? 1 : n < 3 ? 2 : n < 7 ? 5 : 10) * mag;
 }
 
+static int refine_param(const Study *s);
+static int study_gci(const Study *s, int oi, const char *group, GciOut *o, Working *wk, bool *fromCells);
 static void study_chart(Rectangle r, Study *s, int oi)
 {
     ui_rect(r, 12, TH.chartBg);
@@ -1019,6 +1025,14 @@ static void study_chart(Rectangle r, Study *s, int oi)
             ui_text(F_MED, 12, gl, r.x + r.width - 220, r.y + 12 + g * 18, col);
         }
     }
+    if (refine_param(s) >= 0 && s->nParams == 1) {             /* a mesh study: the mesh-independent estimate, dashed */
+        GciOut go; int nm = study_gci(s, oi, "", &go, NULL, NULL);
+        if (nm >= 2 && go.ok && go.fExt >= y0 && go.fExt <= y1) {
+            float yy = PY(go.fExt);
+            for (float xx = p.x; xx < p.x + p.width; xx += 14) DrawLineEx((Vector2){ xx, yy }, (Vector2){ fminf(xx + 8, p.x + p.width), yy }, 1.5f, TH.ok);
+            ui_text(F_REG, 11.5f, "mesh-independent estimate", p.x + p.width - ui_text_w(F_REG, 11.5f, "mesh-independent estimate") - 4, yy - 16, TH.ok);
+        }
+    }
     for (int i = 0; i < ne; i++) {                              /* measurements: hollow squares */
         Rectangle q = { PX(ex[i]) - 4, PY(ey[i]) - 4, 8, 8 };
         DrawRectangleLinesEx(q, 1.5f, TH.text);
@@ -1026,6 +1040,94 @@ static void study_chart(Rectangle r, Study *s, int oi)
     if (ne) ui_text(F_REG, 12, "squares: measurements", r.x + 32 + ui_text_w(F_MED, 13, t), r.y + 13, TH.text2);
 #undef PX
 #undef PY
+}
+
+/* ============================================================================ mesh independence (plan step 8) */
+/* 2 for a 2-D or axisymmetric mesh (an empty or wedge patch with faces), else 3 */
+static int mesh_dims(const char *path)
+{
+    FrPatch p[128]; char b[PL_PATH]; pl_join(b, sizeof b, path, "constant/polyMesh/boundary");
+    int n = fr_boundary(b, p, 128);
+    for (int i = 0; i < n; i++) if ((!strcmp(p[i].type, "empty") || !strcmp(p[i].type, "wedge")) && p[i].nFaces > 0) return 2;
+    return 3;
+}
+
+static int refine_param(const Study *s)
+{
+    for (int i = 0; i < s->nParams; i++) if (!strcmp(s->p[i].key, "@refine")) return i;
+    return -1;
+}
+
+/* the GCI of output oi over the study's meshes, among the variants whose other setting is `group` ("" for none); the
+   size of each mesh from its cell count (its own polyMesh), else 1 / the refinement factor. Returns how many meshes */
+static int study_gci(const Study *s, int oi, const char *group, GciOut *o, Working *wk, bool *fromCells)
+{
+    int rp = refine_param(s);
+    if (rp < 0 || oi < 0 || oi >= s->nOut) { memset(o, 0, sizeof *o); return 0; }
+    GciIn in = { .n = 0, .formalOrder = 2 };
+    bool cells = true;
+    int idx[GCI_MAX], n = 0;
+    for (int i = 0; i < s->nV && n < GCI_MAX; i++) {
+        const char *other = rp == 0 ? s->v[i].v2 : s->v[i].v1;
+        if (s->nParams > 1 && strcmp(other, group)) continue;
+        RowData *d = row_data(s->v[i].path);
+        double f = output_value(d, &s->out[oi]);
+        if (!isfinite(f) || d->s.status == CS_RUNNING || d->s.status == CS_QUEUED) continue;
+        idx[n++] = i;
+        in.f[in.n] = f;
+        if (!d->dims && d->s.nCells > 0) d->dims = mesh_dims(s->v[i].path);   /* read once per refresh, not every frame */
+        in.h[in.n] = d->s.nCells > 0 ? gci_h((double)d->s.nCells, d->dims) : 0;
+        if (!(in.h[in.n] > 0)) cells = false;
+        in.n++;
+    }
+    if (!cells)                                                 /* a mesh without its cell count: all by the factor */
+        for (int k = 0; k < n; k++) { double fct = atof(rp == 0 ? s->v[idx[k]].v1 : s->v[idx[k]].v2); in.h[k] = fct > 0 ? 1 / fct : 0; }
+    if (fromCells) *fromCells = cells;
+    gci_compute(&in, o, wk);
+    return n;
+}
+
+static float gci_panel(float x, float y, float w, const Study *s, int oi)
+{
+    float y0 = y;
+    int rp = refine_param(s);
+    if (rp < 0 || oi < 0 || oi >= s->nOut) return 0;
+    char groups[8][64]; int ng = 0;
+    if (s->nParams > 1)
+        for (int i = 0; i < s->nV && ng < 8; i++) {
+            const char *g = rp == 0 ? s->v[i].v2 : s->v[i].v1;
+            int k = 0; while (k < ng && strcmp(groups[k], g)) k++;
+            if (k == ng) pl_strlcpy(groups[ng++], g, 64);
+        }
+    else { groups[0][0] = 0; ng = 1; }
+    char lab[96]; output_label(&s->out[oi], lab, sizeof lab);
+    char head[160]; pl_fmt_ui(head, sizeof head, "Is the mesh fine enough? (%s)", lab);
+    y += section_head(x, y, w, head, "Richardson extrapolation and Roache's [[mesh-independence|Grid Convergence Index]] over the study's meshes "
+                                     "(Celik et al. 2008): the value an infinitely fine mesh would give, and how far the finest one is from it.") + 4;
+    for (int g = 0; g < ng; g++) {
+        GciOut o; Working wk; bool fromCells = true;
+        int n = study_gci(s, oi, groups[g], &o, &wk, &fromCells);
+        if (ng > 1) { char gl[120]; pl_fmt_ui(gl, sizeof gl, "%s = %s", param_name(&s->p[1 - rp]), groups[g]); ui_text(F_MED, 13, gl, x, y, TH.text); y += 22; }
+        if (!o.ok) {
+            char t[260]; pl_fmt_ui(t, sizeof t, "%s. It fills in as the meshes finish (%d with a value).", o.why[0] ? o.why : "Not enough meshes yet", n);
+            ui_text_wrap(F_REG, 12.5f, t, (Rectangle){ x, y, w, 40 }, 18, TH.text3, true);
+            y += 30;
+            continue;
+        }
+        const char *vt = o.verdict == 0 ? "Fine enough" : o.verdict == 1 ? "Close" : "Not yet";
+        int lvl = o.verdict == 0 ? TOAST_OK : o.verdict == 1 ? TOAST_WARN : TOAST_ERR;
+        float ch = callout_height(w, vt, o.verdictText);
+        callout((Rectangle){ x, y, w, ch }, lvl, o.verdict == 0 ? ICON_CIRCLE_CHECK : ICON_TRIANGLE_ALERT, vt, o.verdictText);
+        y += ch + 8;
+        char a[40], b[40], t[300]; wk_num(a, sizeof a, o.fExt); wk_num(b, sizeof b, o.p);
+        pl_fmt_ui(t, sizeof t, "Mesh-independent estimate %s  ·  GCI %.3g %%  ·  order %s%s  ·  %s  ·  %d meshes, sizes from %s", a, o.gci * 100, b,
+                  o.pAssumed ? " (assumed)" : "", GCI_KIND_NAME[o.kind], o.used, fromCells ? "their cell counts" : "the refinement factors");
+        ui_text_wrap(F_MONO, 12, t, (Rectangle){ x, y, w, 40 }, 18, TH.text2, true);
+        y += 26;
+        char wid[48]; snprintf(wid, sizeof wid, "st-gci-wk%d", g);
+        y += teach_working(wid, x, y, w, &wk) + 8;
+    }
+    return y - y0 + 8;
 }
 
 static int chartOut;
@@ -1145,6 +1247,7 @@ void page_studies(Rectangle r)
     }
     if (delOut >= 0) { memmove(&s->out[delOut], &s->out[delOut + 1], sizeof s->out[0] * (size_t)(s->nOut - delOut - 1)); s->nOut--; study_save(s); if (chartOut >= s->nOut) chartOut = 0; }
     y += 20;
+    if (s->nOut && refine_param(s) >= 0) y += gci_panel(x, y, w, s, chartOut);
     if (s->nOut) { study_chart((Rectangle){ x, y, w, 340 }, s, chartOut); y += 360; }
     ui_scroll_end(sc, y - top + 40);
 }

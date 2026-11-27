@@ -615,6 +615,7 @@ void draw_modals(void)
     case MD_STUDY_NEW: study_new_modal(&close); break;
     case MD_STUDY_OUT: study_out_modal(&close); break;
     case MD_STUDY_EXP: study_exp_modal(&close); break;
+    case MD_STUDY_CMP: study_compare_modal(&close); break;
     case MD_PROG_CLEAN: prog_clean_modal(&close); break;
     case MD_ENV: env_modal(&close); break;
     case MD_PLUME: plume_modal(&close); break;

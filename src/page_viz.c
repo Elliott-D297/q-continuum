@@ -64,6 +64,8 @@ typedef struct {
     int    licRes; double licSize;
     int    volN; float volAlpha;
     double la[3], lb[3]; int lN;
+    char   lref[PL_PATH];             /* a line probe's reference data (plan A3): CSV, distance (m) and value */
+    double *rx, *ry; int rn;
     /* built */
     bool   dirty, texDirty, built, building;
     int    uid;                       /* which displayer a finished build belongs to             */
@@ -339,6 +341,31 @@ static void poll_load(void)
 }
 
 /* ================================================================ displayers */
+/* a line probe's reference data: the first two numbers of each line of a CSV (or space-separated) file, header lines
+   skipped: distance along the line from its start (m), value (plan A3: measurements or another code's answer) */
+static void load_ref(Disp *d)
+{
+    free(d->rx); free(d->ry); d->rx = d->ry = NULL; d->rn = 0;
+    if (!d->lref[0]) return;
+    char p[PL_PATH]; pl_expand_home(p, sizeof p, d->lref);
+    char *t = pl_read_file(p, NULL);
+    if (!t) return;
+    int cap = 0;
+    for (char *l = strtok(t, "\n"); l; l = strtok(NULL, "\n")) {
+        for (char *q = l; *q; q++) if (*q == ',' || *q == ';' || *q == '\t') *q = ' ';
+        double a, b;
+        if (sscanf(l, "%lf %lf", &a, &b) != 2 || !isfinite(a) || !isfinite(b)) continue;
+        if (d->rn == cap) {
+            cap = cap ? cap * 2 : 256;
+            double *nx = realloc(d->rx, sizeof(double) * (size_t)cap), *ny = nx ? realloc(d->ry, sizeof(double) * (size_t)cap) : NULL;
+            if (!nx || !ny) { free(nx ? nx : d->rx); free(d->ry); d->rx = d->ry = NULL; d->rn = 0; free(t); return; }
+            d->rx = nx; d->ry = ny;
+        }
+        d->rx[d->rn] = a; d->ry[d->rn] = b; d->rn++;
+    }
+    free(t);
+}
+
 static void disp_free_cpu(Disp *d)
 {
     vz_tris_free(&d->t); vz_lines_free(&d->l); vz_lines_free(&d->il);
@@ -346,6 +373,7 @@ static void disp_free_cpu(Disp *d)
     free(d->lic); free(d->licVal); d->lic = d->licVal = NULL;
     free(d->vol); d->vol = NULL;
     free(d->px); free(d->pv); d->px = d->pv = NULL; d->pn = 0;
+    free(d->rx); free(d->ry); d->rx = d->ry = NULL; d->rn = 0;
 }
 
 static void disp_free_built(Disp *d)
@@ -1276,6 +1304,7 @@ static void scene_save(void)
         str_catf(&o, "stream = %d %g %d\nvector = %d %.10g %.10g %d %d %d\nlic = %d %.10g\nvolume = %d %g\n", d->sstyle, d->swidth, d->sanim, d->vtarget, d->vspacing, d->vlen, d->vstyle, d->vscale, d->vproject,
                  d->licRes, d->licSize, d->volN, d->volAlpha);
         vec_put(&o, "lineA", d->la); vec_put(&o, "lineB", d->lb);
+        if (d->lref[0]) str_catf(&o, "lineRef = %s\n", d->lref);
         str_catf(&o, "lineN = %d\nshow =", d->lN);
         for (int p = 0; p < V.m.nPatch; p++) str_catf(&o, " %d", d->show[p]);
         str_cat(&o, "\n");
@@ -1365,6 +1394,7 @@ static bool scene_load(void)
         else if (!strcmp(k, "lineA")) vec_get(v, d->la);
         else if (!strcmp(k, "lineB")) vec_get(v, d->lb);
         else if (!strcmp(k, "lineN")) d->lN = atoi(v);
+        else if (!strcmp(k, "lineRef")) { pl_strlcpy(d->lref, v, sizeof d->lref); load_ref(d); }
         else if (!strcmp(k, "show")) { char *q = v; for (int pp = 0; pp < VZ_MAX_PATCHES; pp++) { char *e; long x = strtol(q, &e, 10); if (e == q) break; d->show[pp] = x != 0; q = e; } }
     }
     free(t);
@@ -1833,6 +1863,16 @@ static float kind_settings(Case *c, Disp *d, float x, float y, float w)
             ui_toast(TOAST_OK, "Wrote visualization/%s", nm);
         }
         y += 38;
+        row_label("Reference", x, y);
+        UiId rid = ui_id("vz-lref");
+        ui_input(rid, (Rectangle){ x + 96, y, w - 96, 30 }, d->lref, sizeof d->lref, "a CSV: distance (m), value", INPUT_MONO);
+        if (ui_input_entered(rid)) {
+            load_ref(d);
+            if (d->lref[0] && !d->rn) ui_toast(TOAST_ERR, "No rows with two numbers in %s", d->lref);
+            else if (d->rn) ui_toast(TOAST_OK, "%d reference points: squares on the plot", d->rn);
+            V.saveDirty = true; V.saveAt = ui_time();
+        }
+        y += 38;
         break;
     }
     }
@@ -2139,6 +2179,7 @@ static void plot_panel(Rectangle r)
     if (nl) {
         double lo = 1e300, hi = -1e300;
         for (int i = 0; i < V.nd; i++) if (V.d[i].kind == DK_LINE && V.d[i].vis) for (int k = 0; k < V.d[i].pn; k++) if (!isnan(V.d[i].pv[k])) { lo = fmin(lo, V.d[i].pv[k]); hi = fmax(hi, V.d[i].pv[k]); }
+        for (int i = 0; i < V.nd; i++) if (V.d[i].kind == DK_LINE && V.d[i].vis) for (int k = 0; k < V.d[i].rn; k++) { lo = fmin(lo, V.d[i].ry[k]); hi = fmax(hi, V.d[i].ry[k]); }
         if (!(hi > lo)) { hi = lo + 1; }
         static const Color C[4] = { { 255, 200, 60, 255 }, { 90, 180, 255, 255 }, { 255, 110, 140, 255 }, { 120, 230, 160, 255 } };
         int ci = 0;
@@ -2152,8 +2193,15 @@ static void plot_panel(Rectangle r)
                 float ya = y0 + h - (float)((d->pv[k] - lo) / (hi - lo)) * h, yb = y0 + h - (float)((d->pv[k + 1] - lo) / (hi - lo)) * h;
                 ui_line(xa, ya, xb, yb, 2, c);
             }
+            double L = sqrt(pow(d->lb[0] - d->la[0], 2) + pow(d->lb[1] - d->la[1], 2) + pow(d->lb[2] - d->la[2], 2));
+            for (int k = 0; k < d->rn && L > 0; k++) {                 /* reference data: hollow squares (plan A3) */
+                if (d->rx[k] < 0 || d->rx[k] > L) continue;
+                float xx = x0 + w * (float)(d->rx[k] / L), yy = y0 + h - (float)((d->ry[k] - lo) / (hi - lo)) * h;
+                DrawRectangleLinesEx((Rectangle){ xx - 4, yy - 4, 8, 8 }, 1.5f, c);
+            }
             char lab[120]; qty_label(&d->col, lab, sizeof lab);
-            ui_text_clip(F_REG, 12, lab, x0 + 8, y0 + 4 + 16 * (ci - 1), w - 16, c);
+            if (d->rn) { char l2[160]; pl_fmt_ui(l2, sizeof l2, "%s  (squares: %s)", lab, pl_basename(d->lref)); ui_text_clip(F_REG, 12, l2, x0 + 8, y0 + 4 + 16 * (ci - 1), w - 16, c); }
+            else ui_text_clip(F_REG, 12, lab, x0 + 8, y0 + 4 + 16 * (ci - 1), w - 16, c);
         }
         char a[32], b[32]; vc_fmt(lo, a, sizeof a); vc_fmt(hi, b, sizeof b);
         ui_text(F_MONO, 11, b, r.x + 6, y0 - 4, TH.text3); ui_text(F_MONO, 11, a, r.x + 6, y0 + h - 10, TH.text3);

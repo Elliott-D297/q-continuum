@@ -105,7 +105,7 @@ configure_file(${QC_ASSETS_C}.tmp ${QC_ASSETS_C} COPYONLY)
 
 # ---------------------------------------------------------------- core (no graphics) + app
 add_library(qc_core STATIC
-  src/pl_util.c src/foamdict.c src/foamcase.c src/runner.c src/env.c src/xmlspan.c src/coupling.c src/safety.c src/precheck.c src/monitor.c src/xsection.c src/explain.c src/physics.c src/fieldinfo.c src/redalert.c src/sweep.c src/demeparams.c src/program.c src/params.c src/textdiff.c src/runlog.c src/plume.c src/cplbuild.c src/stlmesh.c src/meshopts.c src/meshexamples.c src/simsetup.c src/simmodels.c src/qjson.c src/ccxmodel.c src/femesh.c src/festudy.c src/progblank.c src/glossary.c src/working.c src/calc.c src/quality.c src/bmesh.c src/extrude.c src/viz.c src/meshadvice.c src/gci.c src/meshtools.c src/allrun.c src/runctl.c src/chtsetup.c src/teachcases.c
+  src/pl_util.c src/foamdict.c src/foamcase.c src/runner.c src/env.c src/xmlspan.c src/coupling.c src/safety.c src/precheck.c src/monitor.c src/xsection.c src/explain.c src/physics.c src/fieldinfo.c src/redalert.c src/sweep.c src/demeparams.c src/program.c src/params.c src/textdiff.c src/runlog.c src/plume.c src/cplbuild.c src/stlmesh.c src/meshopts.c src/meshexamples.c src/simsetup.c src/simmodels.c src/qjson.c src/ccxmodel.c src/femesh.c src/festudy.c src/progblank.c src/glossary.c src/working.c src/calc.c src/quality.c src/bmesh.c src/extrude.c src/viz.c src/meshadvice.c src/gci.c src/meshtools.c src/allrun.c src/runctl.c src/chtsetup.c src/teachcases.c src/report.c
   ${QC_ASSETS_C})   # the embedded fonts and starters (program.c writes the Chrono starter)
 target_include_directories(qc_core PUBLIC src)
 target_link_libraries(qc_core PUBLIC m)
@@ -165,7 +165,7 @@ function(qc_unit name)
   target_link_libraries(${name} PRIVATE qc_core m)
   qc_target(${name})
 endfunction()
-foreach(t test_foamdict test_logparse test_xml test_coupling test_sync test_tutorials test_oracle test_props test_dictsem test_units test_explain test_sweep test_deme test_program test_params test_textdiff test_plume test_cplbuild test_monitor test_simsetup test_stlmesh test_qjson test_xsection test_meshverdict test_meshopts test_ccxmodel test_femesh test_glossary test_calc test_quality test_bmesh test_extrude test_viz test_meshadvice test_gci test_meshtools test_runctl test_cht test_teach)
+foreach(t test_foamdict test_logparse test_xml test_coupling test_sync test_tutorials test_oracle test_props test_dictsem test_units test_explain test_sweep test_deme test_program test_params test_textdiff test_plume test_cplbuild test_monitor test_simsetup test_stlmesh test_qjson test_xsection test_meshverdict test_meshopts test_ccxmodel test_femesh test_glossary test_calc test_quality test_bmesh test_extrude test_viz test_meshadvice test_gci test_meshtools test_runctl test_cht test_teach test_report)
   qc_unit(${t})
 endforeach()
 target_compile_definitions(test_units PRIVATE QC_LOG_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/logs")
@@ -359,3 +359,6 @@ add_test(NAME teach COMMAND test_teach check)
 set_tests_properties(teach PROPERTIES LABELS fast)
 add_test(NAME teach_openfoam COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tests/teach_openfoam.sh $<TARGET_FILE:test_teach> ${QC_BASHRC} ${QC_SCRATCH})
 set_tests_properties(teach_openfoam PROPERTIES LABELS full TIMEOUT 600 SKIP_RETURN_CODE 77)
+# reports (plan A3): a case from a real log and a probes file; a comparison
+add_test(NAME report COMMAND test_report ${CMAKE_CURRENT_SOURCE_DIR}/tests/logs ${QC_SCRATCH})
+set_tests_properties(report PROPERTIES LABELS fast)

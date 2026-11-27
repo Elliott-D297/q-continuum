@@ -33,6 +33,12 @@ wait 4
 screenshot $OUT/viz_volume.png
 choose vz-add Line probe
 wait 3
+# plan A3: reference data over the line probe (squares), kept in the scene
+shell printf 'distance,p\n0,0\n0.5,0.1\n1,0\n' > $SB/ref.csv
+click vz-lref
+enter $SB/ref.csv
+wait 5
+assert text 3 reference points
 click vz-hist
 wait 2
 screenshot $OUT/viz_line.png

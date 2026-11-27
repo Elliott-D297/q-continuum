@@ -22,7 +22,7 @@ typedef enum {
 #define MAX_JOBS 8
 
 #define WHATS_NEW_REV 13         /* bump with each batch of changes worth telling about (page_settings.c lists them) */
-typedef enum { MD_NONE = 0, MD_OPEN_FOLDER, MD_CLONE, MD_CLEAN, MD_DELETE, MD_UNSAVED, MD_QUIT_RUNNING, MD_ADD_ENTRY, MD_RUN_RESULTS, MD_NEW_FILE, MD_RUN_SCRIPT, MD_CPL_NEW, MD_CPL_OPEN, MD_CPL_RESULTS, MD_PV_CLAUDE, MD_HIST_CONFIRM, MD_PRECHECK, MD_QUEUE_ADD, MD_MOVIE, MD_STUDY_NEW, MD_STUDY_OUT, MD_STUDY_EXP, MD_PROG_CLEAN, MD_CONFLICT, MD_SHORTCUTS, MD_WHATS_NEW, MD_PALETTE, MD_ENV, MD_REVIEW, MD_PLUME, MD_AWAY, MD_CPL_BUILD, MD_FLAVOUR, MD_BLANK, MD_DEL_FILE, MD_GLOSSARY, MD_CALC, MD_MESHQ } Modal;
+typedef enum { MD_NONE = 0, MD_OPEN_FOLDER, MD_CLONE, MD_CLEAN, MD_DELETE, MD_UNSAVED, MD_QUIT_RUNNING, MD_ADD_ENTRY, MD_RUN_RESULTS, MD_NEW_FILE, MD_RUN_SCRIPT, MD_CPL_NEW, MD_CPL_OPEN, MD_CPL_RESULTS, MD_PV_CLAUDE, MD_HIST_CONFIRM, MD_PRECHECK, MD_QUEUE_ADD, MD_MOVIE, MD_STUDY_NEW, MD_STUDY_OUT, MD_STUDY_EXP, MD_PROG_CLEAN, MD_CONFLICT, MD_SHORTCUTS, MD_WHATS_NEW, MD_PALETTE, MD_ENV, MD_REVIEW, MD_PLUME, MD_AWAY, MD_CPL_BUILD, MD_FLAVOUR, MD_BLANK, MD_DEL_FILE, MD_GLOSSARY, MD_CALC, MD_MESHQ, MD_STUDY_CMP } Modal;
 
 typedef struct {
     Env      env;
@@ -273,6 +273,7 @@ void page_studies(Rectangle r);
 void study_new_modal(bool *close);
 void study_out_modal(bool *close);
 void study_exp_modal(bool *close);
+void study_compare_modal(bool *close);          /* page_studies.c: Compare cases (plan A3) */
 /* page_prog.c: the pages of the other programs' projects (A.cs->s.prog != 0) */
 void page_prog_overview(Rectangle r);
 void page_prog_setup(Rectangle r);

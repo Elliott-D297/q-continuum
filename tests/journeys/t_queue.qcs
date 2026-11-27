@@ -23,3 +23,16 @@ assert text Waiting (0)
 assert not text Could not start
 assert not text no free run slot
 screenshot $OUT/queue_done.png
+# plan A4: queued again (paused), each waiting run says how long its last run took and the total
+click q-pause
+wait 3
+open $SB/ws/cavity
+click nav:queue
+wait-until page Queue
+click q-add-open
+wait-until modal any timeout 5
+click m-qa-over
+wait 5
+assert text Waiting (1)
+wait-until widget q-estimate timeout 10
+screenshot $OUT/queue_estimate.png

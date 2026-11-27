@@ -762,7 +762,13 @@ static void time_ruler(Rectangle r, double t0, double t1, double t, Color fill)
     double frac = (t - t0) / (t1 - t0);
     if (frac < 0) frac = 0;
     if (frac > 1) frac = 1;
-    float bx = r.x, bw = r.width, by = r.y + 34;
+    /* a short window (the user's 1.5 scale at 1440 x 900, plan A4): the time and the share beside the bar, one line */
+    bool slim = r.height < 50;
+    char cur[64], pct[48];
+    snprintf(cur, sizeof cur, "t = %g", t);
+    snprintf(pct, sizeof pct, slim ? "%.0f%%" : "%.0f%% of end time", frac * 100);
+    float cw = slim ? ui_text_w(F_SEMI, 14, cur) + 14 : 0, pw = slim ? ui_text_w(F_REG, 12.5f, pct) + 12 : 0;
+    float bx = r.x + cw, bw = r.width - cw - pw, by = slim ? r.y + 6 : r.y + 34;
     /* track and fill */
     ui_rect((Rectangle){ bx, by, bw, 10 }, 2, TH.lineSoft);
     ui_rect((Rectangle){ bx, by, (float)(bw * frac), 10 }, 2, fill);
@@ -782,9 +788,12 @@ static void time_ruler(Rectangle r, double t0, double t1, double t, Color fill)
     /* marker */
     float mx = bx + (float)(bw * frac);
     DrawTriangle((Vector2){ mx - 6, by - 9 }, (Vector2){ mx, by - 1 }, (Vector2){ mx + 6, by - 9 }, fill);
-    char cur[64]; snprintf(cur, sizeof cur, "t = %g", t);
+    if (slim) {
+        ui_text(F_SEMI, 14, cur, r.x, by - 3, TH.text);
+        ui_text(F_REG, 12.5f, pct, r.x + r.width - pw + 12, by - 2, TH.text3);
+        return;
+    }
     ui_text(F_SEMI, 14, cur, bx, r.y + 4, TH.text);
-    char pct[48]; snprintf(pct, sizeof pct, "%.0f%% of end time", frac * 100);
     ui_text(F_REG, 12.5f, pct, bx + bw - ui_text_w(F_REG, 12.5f, pct), r.y + 6, TH.text3);
 }
 
@@ -1323,6 +1332,21 @@ static float readout_chip(Case *c, MonFile *f, UiId id, const char *t, float x, 
     return readout_chip_c(c, f, id, t, x, y, room, tip, TH.accent);
 }
 
+/* a short chart's readout (plan A4): plain text, no box, so three or four fit whole beside the switch; a click plots it */
+static float readout_text(Case *c, MonFile *f, UiId id, const char *t, float x, float y, float room, float fs, const char *tip, Color tint)
+{
+    if (room < 40) return 0;
+    float tw = ui_text_w(F_MONO_MED, fs, t), w = fminf(tw, room);
+    Rectangle tr = { x, y + 4, w, 22 };
+    bool hov = ui_hovered(tr);
+    ui_text_clip(F_MONO_MED, fs, t, x, y + 8, w, hov ? TH.accent : tint);
+    if (hov) { ui_cursor(MOUSE_CURSOR_POINTING_HAND); DrawRectangleRec((Rectangle){ x, y + 26, w, 1 }, TH.accent); }
+    ui_register(id, tr, t);
+    if (ui_clicked(tr)) { A.chartTab = 1; mon_select(c, f); }
+    ui_tooltip(tr, w < tw ? TextFormat("%s\n%s", t, tip) : tip);
+    return w;
+}
+
 /* the walls' y+ (the setup's yPlus function object, plan step 5): its "<wall> average" and "<wall> max" columns */
 static MonFile *mon_yplus(double *avg, double *max)
 {
@@ -1421,6 +1445,34 @@ static void chart_area(Rectangle r, Case *c, LogMon *pm)
     float share = nChip ? (right - r.x) / nChip : 0;
     if (below && tight && share >= 88) below = false;
     else share = 1e9f;
+    /* short: plain text with dots between instead of boxes (24 px of padding each); when one line can't hold them, two
+       lines of a size down in the switch's row (plan A4) */
+    if (tight && !below && nChip) {
+        const char *T[4] = { ct, ht, nt, yt };
+        MonFile *F4[4] = { cf, hf, nf, yf };
+        const char *ID[4] = { "run-coeffs", "run-heat", "run-nu", "run-yplus" };
+        const char *TIP[4] = { "The latest force coefficients (Physics > Setup, Lift and drag). Click to plot them.",
+                               "The heat each wall passes into the fluid (Physics > Setup, Reports); negative: out of it. Click to plot it.",
+                               "Each heated or cooled wall's Nusselt number, |q| L / (k ΔT). Click to plot it.",
+                               yAdv[0] ? yAdv : "The walls' mean y+ at the last write. Click to plot it." };
+        float room = right - r.x, fs = 13, sep = ui_text_w(F_REG, 13, "  ·  "), tot = 0; int k = 0;
+        for (int i = 0; i < 4; i++) if (T[i][0]) { tot += ui_text_w(F_MONO_MED, 13, T[i]); k++; }
+        bool two = tot + sep * (k - 1) > room;
+        if (two) { fs = 11.5f; sep = ui_text_w(F_REG, fs, "  ·  "); }
+        float rx = r.x, ry = two ? r.y - 6 : r.y; int onLine = 0;
+        for (int i = 0; i < 4; i++) {
+            if (!T[i][0]) continue;
+            float tw = ui_text_w(F_MONO_MED, fs, T[i]);
+            if (two && onLine && rx + sep + tw > r.x + room && ry < r.y) { rx = r.x; ry = r.y + 11; onLine = 0; }   /* the second line */
+            if (onLine) { ui_text(F_REG, fs, "  ·  ", rx, ry + 8, TH.text3); rx += sep; }
+            Color tint = i == 3 ? (yState == 1 ? TH.warn : yState == 0 ? TH.ok : TH.text) : TH.text;
+            rx += readout_text(c, F4[i], ui_id(ID[i]), T[i], rx, ry, r.x + room - rx, fs, TIP[i], tint);
+            onLine++;
+        }
+        Rectangle body = { r.x, r.y + 38, r.width, r.height - 38 };
+        if (A.chartTab == 1) mon_chart(body, c); else run_chart(body, pm);
+        return;
+    }
     float rx = r.x, ry = below ? r.y + 38 : r.y, rr = below ? r.x + r.width : right;
     if (ct[0]) rx += readout_chip(c, cf, ui_id("run-coeffs"), ct, rx, ry, fminf(share - 8, rr - rx), "The latest force coefficients (Physics > Setup, Lift and drag). Click to plot them.");
     if (ht[0]) rx += readout_chip(c, hf, ui_id("run-heat"), ht, rx, ry, fminf(share - 8, rr - rx), "The heat each wall passes into the fluid (Physics > Setup, Reports); negative: out of it. Click to plot it.");
@@ -2362,8 +2414,9 @@ void page_run(Rectangle r)
     /* time ruler */
     double tNow = pm ? pm->time : (c->s.latest[0] ? atof(c->s.latest) : c->s.startTime);
     Color barC = mine ? TH.accent : failed ? TH.err : stopped ? TH.warn : TH.ok;
-    time_ruler((Rectangle){ mx, my, mw, 60 }, c->s.startTime, c->s.endTime, tNow, barC);
-    my += 74;
+    bool shortWin = ui_height() < 760;   /* the user's 1.5 at 1440 x 900 (fitted down to about 1.25: 720 high), plan A4 */
+    time_ruler((Rectangle){ mx, my, mw, shortWin ? 40 : 60 }, c->s.startTime, c->s.endTime, tNow, barC);
+    my += shortWin ? 48 : 74;
 
     /* kpis: six in a row, or two rows of three when their labels don't fit (bug hunt 2026-11-01: at a large UI scale
        "TIME STEPSCOURANT MAXTIME STEP" ran together) */

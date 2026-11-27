@@ -135,7 +135,7 @@ int main(int argc, char **argv)
     CHECK(fe_study_save(d, &s), "study.ini written");
     FeStudy s2; CHECK(fe_study_load(d, &s2) && s2.nFix == 1 && s2.nLoad == 1 && s2.load[0].dir == DIR_MZ && s2.load[0].value == 100 && !strcmp(s2.fix[0].face[0], m.gname[g0]), "and read back");
     FeStudy s3 = s; s3.nFix = 1; s3.fix[0].kind = FX_Z; fe_study_summary(&s3, &m, &sum);
-    CHECK(strstr(sum.problem, "free to move along x") != NULL, "held in z only: free along x, said");
+    CHECK(strstr(sum.problem, "free to") != NULL, "held in z only: free to slide and turn, said");   /* plan B4: from the rigid motions */
     FeStudy s4 = s; s4.load[0].kind = LD_PRESSURE; s4.load[0].value = 2; fe_study_summary(&s4, &m, &sum);
     CHECK(fabs(sum.force[0] + 200) < 1e-9, "2 MPa on the 100 mm² end: 200 N pushing in (-x)");
     CHECK(fe_study_write(&s, &m, d, err, sizeof err), "study.inp and study_mesh.inp written");

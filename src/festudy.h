@@ -103,6 +103,16 @@ bool fe_cylinder(const FeMesh *m, int g, double axis[3], double ctr[3], double *
 typedef struct { double force[3]; int fixedNodes, loadedNodes, unknownFaces; char problem[400]; } FeSummary;
 void fe_study_summary(const FeStudy *s, const FeMesh *m, FeSummary *out);
 bool fe_study_write(const FeStudy *s, const FeMesh *m, const char *proj, char *err, int cap);
+/* plan B4: what the supports leave free. Each held direction c at a node r stops the rigid motions (t, w) with
+   c.t + w.(r x c) != 0; the motions none of them stops are the near-zero eigenvectors of the sum of a a^T, a = (c, r x c).
+   free: how many (0..6); each a translation or a rotation (axis, and a point the rotation axis passes) */
+typedef struct { int n; struct { bool rotation; double axis[3], pt[3]; } m[6]; } FeFree;
+void fe_free_motions(const FeStudy *s, const FeMesh *m, FeFree *out);
+/* the checks before a run, each a line a learner can act on; sev 2 stops the run, 1 a warning, 0 a note */
+enum { PF_NONE = 0, PF_ADD_SUPPORT, PF_UNIT_M, PF_UNIT_IN, PF_UNIT_MM, PF_FINER, PF_ADD_LOAD };
+#define FE_MAXPF 12
+typedef struct { int n; struct { int sev, fix; char text[360]; } it[FE_MAXPF]; } FePreflight;
+void fe_preflight(const FeStudy *s, const FeMesh *m, double memFreeMB, FePreflight *out);
 /* the refinement for the next mesh: refine.txt in proj, a line per point of the picked faces of the mesh now (x y z size,
    mm), and the CAD faces by name ("Face 3 = 1.5") for a CAD part; false when there is none (the file removed) */
 bool fe_refine_write(const FeStudy *s, const FeMesh *m, const char *proj);

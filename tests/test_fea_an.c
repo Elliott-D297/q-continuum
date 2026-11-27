@@ -150,6 +150,27 @@ int main(int argc, char **argv)
     const double E = 210000, nu = 0.3, rho = 7.85e-9, I = LY * LZ * LZ * LZ / 12, A = LY * LZ;
     (void)nu;
     tipNode = node_at(LX, LY / 2, LZ / 2);
+    /* ---- plan B4: what the supports leave free (no solver: the rigid motions none of them stops) */
+    {
+        FeStudy s; FeFree fr;
+        fe_study_default(&s); fix(&s, FX_FIXED, X0); fe_free_motions(&s, &M, &fr);
+        CHECK(fr.n == 0, "free motions: one fixed face, %d free (0)", fr.n);
+        /* a roller on x = 0 stops x and the turns about y and z (its nodes spread over y and z): y, z and a turn about x free */
+        fe_study_default(&s); fix(&s, FX_ROLLER, X0); fe_free_motions(&s, &M, &fr);
+        int nrot = 0; bool xturn = false; for (int i = 0; i < fr.n; i++) if (fr.m[i].rotation) { nrot++; if (fabs(fr.m[i].axis[0]) > 0.98) xturn = true; }
+        CHECK(fr.n == 3 && nrot == 1 && xturn, "free motions: one roller, %d free (3: slides along y and z, turns about x)", fr.n);
+        /* rollers on three faces square to each other hold it completely (the usual quarter-model symmetry planes) */
+        fe_study_default(&s); fix(&s, FX_ROLLER, X0); fix(&s, FX_ROLLER, Y0); fix(&s, FX_ROLLER, Z0); fe_free_motions(&s, &M, &fr);
+        CHECK(fr.n == 0, "free motions: three square rollers, %d free (0)", fr.n);
+        fe_study_default(&s); fix(&s, FX_FIXED, X0); fix(&s, FX_ROLLER, Y0); fix(&s, FX_ROLLER, Z0); fe_free_motions(&s, &M, &fr);
+        CHECK(fr.n == 0, "free motions: fixed end and rollers, %d free (0)", fr.n);
+        /* held in z on z = 0 (stops z and the turns about x and y) and in x on x = 0 (x and the turns about y and z): y alone free */
+        fe_study_default(&s); fix(&s, FX_Z, Z0); fix(&s, FX_X, X0); fe_free_motions(&s, &M, &fr);
+        CHECK(fr.n == 1 && !fr.m[0].rotation && fabs(fr.m[0].axis[1]) > 0.98, "free motions: held in z on z = 0 and in x on x = 0: %d free, sliding along y (1)", fr.n);
+        FePreflight pf; fe_preflight(&s, &M, 0, &pf);
+        bool says = false; for (int i = 0; i < pf.n; i++) if (pf.it[i].sev == 2 && strstr(pf.it[i].text, "free to")) says = true;
+        CHECK(says, "pre-flight: says what is free and stops the run");
+    }
 
     /* ---- nonlinear: uniaxial, symmetric rollers, 280 MPa nominal */
     {

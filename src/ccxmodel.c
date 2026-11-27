@@ -676,10 +676,10 @@ int ccx_set_element_type(const char *dir, const char *input, const char *from, c
                 char nl[1100]; snprintf(nl, sizeof nl, "%.*s%s%s", (int)vs, line, to, line + ve);
                 size_t nlen = strlen(nl);
                 if (o + nlen + 2 > cap) { size_t nc = (o + nlen) * 2 + 16; char *no = realloc(out, nc); if (!no) { bad = true; break; } out = no; cap = nc; }
-                memcpy(out + o, nl, nlen); o += nlen; here++;
+                memcpy(out + o, nl, nlen); o += nlen; here++;   // NOLINT(bugprone-not-null-terminated-result): written with its length o
             } else {
                 if (o + len + 2 > cap) { size_t nc = (o + len) * 2 + 16; char *no = realloc(out, nc); if (!no) { bad = true; break; } out = no; cap = nc; }
-                memcpy(out + o, l, len); o += len;
+                memcpy(out + o, l, len); o += len;   // NOLINT(bugprone-not-null-terminated-result): as above
             }
             if (e) out[o++] = '\n';
             l = e ? e + 1 : NULL;

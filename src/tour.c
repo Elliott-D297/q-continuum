@@ -563,13 +563,11 @@ void tour_draw(void)
         if (ui_button(ui_id("tour-example"), (Rectangle){ bx, by, pw, 36 }, ICON_FOLDER_PLUS, pl, BTN_PRIMARY) && stlmesh_example_case(s->ex1 - 1)) {
             if (s->page < 0) next = true; else T.went = -1;
         }
-        nw = pw;
     } else if (waiting) {
         const char *pl = "Make a practice case";
         float pw = ui_button_width(ICON_FOLDER_PLUS, pl);
         bx += nw - pw;
         if (ui_button(ui_id("tour-practice"), (Rectangle){ bx, by, pw, 36 }, ICON_FOLDER_PLUS, pl, BTN_PRIMARY) && app_practice_case()) next = true;
-        nw = pw;
     } else next = ui_button(ui_id("tour-next"), (Rectangle){ bx, by, nw, 36 }, last && !chainOn ? ICON_CHECK : ICON_ARROW_RIGHT, nl, BTN_PRIMARY);
     if (waiting && needEx && T.at + 1 < N_STEPS && s->page < 0) {   /* an example can be left out */
         float sw2 = ui_button_width(NULL, "Skip this example");

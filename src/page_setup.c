@@ -663,7 +663,7 @@ bool setup_adopt(Case *c)
     if (A.cj->active || app_job_running()) { ui_toast(TOAST_ERR, "Wait for the case's job to finish first"); return false; }
     sync(c);
     refresh(c);
-    char notes[4000], err[300];
+    char notes[4000], err[300] = "";
     if (!sim_adopt(c->s.path, c->fieldDir, &P.s, notes, sizeof notes)) { ui_toast(TOAST_ERR, "%s", notes); return false; }
     if (A.set.history) hist_commit(c->s.path, "Before Physics > Setup read the case");
     if (!sim_save(c->s.path, &P.s) || !sim_adopt_bases(c->s.path, &P.s, err, sizeof err)) {
@@ -1487,7 +1487,7 @@ static float wall_rows(Case *c, float x, float y, float w, bool hints)
     int wt = s->wallTreat;
     if (ui_segmented_why(ui_id("su-wall"), (Rectangle){ cr.x, cr.y, fminf(480, cr.width), 34 }, items, WT__N, &wt, why) && wt != s->wallTreat) { s->wallTreat = wt; save(); }
     /* the helper: a flat plate as long as the part at the inflow speed */
-    double U = sim_ref_speed(s), L = s->forces && s->fr.lRef > 0 ? s->fr.lRef : P.size, yp = sim_yplus_target(s), h1, d, ut;
+    double U = sim_ref_speed(s), L = s->forces && s->fr.lRef > 0 ? s->fr.lRef : P.size, yp = sim_yplus_target(s), h1 = 0, d = 0, ut = 0;
     double Re = L > 0 ? sim_wall_spacing(s, U, L, yp, &h1, &d, &ut) : 0;
     char t[600];
     if (!(Re > 0)) {
@@ -2080,7 +2080,7 @@ static float reports_step(Case *c, float x, float y, float w)
     float bx = cr.x, by = cr.y;
     for (int i = 0; i < s->nB; i++) {
         SimBoundary *b = &s->b[i];
-        if (!cw[i]) continue;
+        if (!cw[i]) continue;  // NOLINT(clang-analyzer-core.uninitialized.Branch): false positive, cw[i] is set for every i < nB in the loop above
         if (bx + cw[i] > cr.x + cr.width && bx > cr.x) { bx = cr.x; by += 30; }
         bool on = sim_force_on(s, b), was = on;
         ui_checkbox(ui_idn(ui_id("su-fw"), i), (Rectangle){ bx, by, cw[i] - 14, 24 }, &on, b->name);

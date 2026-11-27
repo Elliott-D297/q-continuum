@@ -1777,7 +1777,9 @@ static void fast_gpu_copies(char **argv)
 {
 #if defined(__linux__) && defined(__x86_64__)
     static const char TUNE[] = "glibc.cpu.x86_rep_movsb_threshold=4294967295";
-    const char *t = getenv("GLIBC_TUNABLES");
+    /* a copy: setenv may invalidate what getenv returned, and t is set back after a failed exec */
+    char tbuf[2048]; const char *t0 = getenv("GLIBC_TUNABLES"), *t = NULL;
+    if (t0) { if (strlen(t0) >= sizeof tbuf) return; strcpy(tbuf, t0); t = tbuf; }
     if (getenv("QC_TUNED")) {
         const char *orig = getenv("QC_TUNABLES_ORIG");
         if (orig && *orig) setenv("GLIBC_TUNABLES", orig, 1); else unsetenv("GLIBC_TUNABLES");

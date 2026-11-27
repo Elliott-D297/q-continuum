@@ -1602,7 +1602,8 @@ static void path_text(char *out, size_t cap, const char *rel, const KPath *k, co
 
 static void note(char *buf, const char *line)
 {
-    if (strlen(buf) + strlen(line) + 2 < sizeof gKept) { strcat(buf, line); strcat(buf, "\n"); }
+    size_t n = strlen(buf);                                    /* buf: gKept or gReplaced, the same size */
+    if (n + strlen(line) + 2 < sizeof gKept) snprintf(buf + n, sizeof gKept - n, "%s\n", line);
 }
 
 static void add_op(MergeOps *m, int kind, const KPath *k, const char *last, const char *text, int tl)

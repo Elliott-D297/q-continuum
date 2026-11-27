@@ -837,7 +837,7 @@ int fr_vol_field(const char *path, long nCells, const FrPatch *pt, int np, long 
     /* boundaryField { patch { ... value ...; } ... }, the patches in the boundary's order (as the solvers write them). A
        binary list's bytes may hold NULs and braces, so text is only searched before a list and after it ends: a cursor
        moves on past each patch, from where the list reader stopped */
-    char *bf = strstr(end ? end : f.t + f.pos, "boundaryField");
+    char *bf = strstr(end ? end : f.t + f.pos, "boundaryField");  // NOLINT(clang-analyzer-core.NonNullParamChecker): false positive, f.t is the file read above (returned already if it failed)
     char *cur = bf ? strchr(bf, '{') : NULL;
     if (cur) cur++;
     for (int p = 0; cur && p < np; p++) {

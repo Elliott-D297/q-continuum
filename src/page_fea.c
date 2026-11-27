@@ -67,7 +67,7 @@ static void feature_edges(void)
     free(F.fedge); F.fedge = NULL; F.nFedge = 0;
     const FeMesh *m = &F.m;
     int cap = m->nf * 4 + 4, n = 0;
-    int (*e)[3] = malloc(sizeof(int) * 3 * (size_t)cap);
+    int (*e)[3] = malloc(sizeof *e * (size_t)cap);
     if (!e) return;                                        /* out of memory: no face edges drawn */
     for (int f = 0; f < m->nf; f++) {
         int c = m->fk[f] == 4 || m->fk[f] == 8 ? 4 : 3;

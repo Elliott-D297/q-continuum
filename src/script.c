@@ -27,6 +27,7 @@
 #include <string.h>
 #include <strings.h>
 #include <time.h>
+#include <unistd.h>
 #include "app.h"
 #include "actions.h"
 #include "script.h"
@@ -39,6 +40,7 @@ static struct {
     int     lineNo[MAX_LINES];
     bool    active, done;
     int     failures;
+    char    skipped[200];              /* require: what was missing (the rest of the journey not run) */
     /* the command in progress */
     int     phase, waitFrames, scrollTries, settle;
     double  deadline, t0, firstAction;
@@ -103,7 +105,7 @@ bool script_load(const char *path)
 
 bool script_active(void) { return S.active; }
 bool script_done(void) { return S.done; }
-int  script_exit_code(void) { return S.failures ? 1 : 0; }
+int  script_exit_code(void) { return S.failures ? 1 : S.skipped[0] ? 77 : 0; }   /* 77: skipped (ctest's skip code) */
 
 /* ---------------------------------------------------------------- targets */
 /* "name", "name#3", and nested as the widgets push them: "stl-b#4>name" is name inside ui_push_id(stl-b#4). Not "/":
@@ -316,6 +318,13 @@ void script_tick(int frame)
             next(); continue;
         }
         if (!strcmp(cmd, "quit")) { S.at = S.n; break; }
+        if (!strcmp(cmd, "require")) {                    /* "require <command or path>": stop here, skipped, without it */
+            bool have = false;
+            if (arg[0] == '/' || arg[0] == '~') { char x[PL_PATH]; pl_expand_home(x, sizeof x, arg); have = access(x, F_OK) == 0; }
+            else if (arg[0]) { char q[300]; snprintf(q, sizeof q, "command -v '%s' >/dev/null 2>&1", arg); have = system(q) == 0; }
+            if (!have) { snprintf(S.skipped, sizeof S.skipped, "%s", arg); say("SKIP: %s is not installed here; the rest of the journey is skipped", arg); S.at = S.n; break; }
+            next(); continue;
+        }
         if (!strcmp(cmd, "shell")) {                      /* change things behind the app's back: an editor, a script */
             S.excuseUntil = S.nFrames + 3;
             char c2[PL_PATH * 2 + 1100], q[PL_PATH + 8];
@@ -478,6 +487,7 @@ void script_tick(int frame)
             p95 = S.frameMs[(int)(S.nFrames * 0.95)]; mx = S.frameMs[S.nFrames - 1];
         }
         for (int i = 0; i < S.nSlow; i++) say("slow frame %d: %.0f ms (script line %d)", S.slow[i], S.slowMs[i], S.slowLine[i]);
+        if (S.skipped[0]) say("SKIPPED from the line that requires %s", S.skipped);
         say("SUMMARY clicks=%d keystrokes=%d wall=%.1fs failures=%d frames=%d frame_ms_mean=%.2f p95=%.2f max=%.2f", S.clicks, S.keys, wall,
             S.failures, S.nFrames, S.nFrames ? sum / S.nFrames : 0, p95, mx);
     }

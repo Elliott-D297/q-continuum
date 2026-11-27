@@ -525,7 +525,7 @@ float deme_run_panel(const char *proj, const char *logPath, float x, float y, fl
             ui_text_clip(F_REG, 12.5f, p->resName[i], rr.x + 14, ry, rr.width * 0.5f, TH.text2);
             ui_text_clip(F_MONO_MED, 12.5f, p->resVal[i], rr.x + rr.width * 0.5f, ry, rr.width * 0.5f - 10, TH.text);
             ry += 22;
-            if (lvl[i]) {
+            if (lvl[i]) {  // NOLINT(clang-analyzer-core.uninitialized.Branch): false positive, lvl[i] is set for every i < nRes in the loop above
                 ui_icon(lvl[i] == 1 ? ICON_CIRCLE_CHECK : ICON_INFO, rr.x + 22, ry + 7, 12, lvl[i] == 1 ? TH.ok : TH.warn);
                 ui_text_wrap(F_REG, 12, ctx[i], (Rectangle){ rr.x + 34, ry, rr.width - 48, 200 }, 17, TH.text3, true);
                 ry += chh[i];

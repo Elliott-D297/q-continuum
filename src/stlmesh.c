@@ -296,7 +296,7 @@ static int *weld(const Stl *s, int *nVert)
     size_t n = 3 * (size_t)s->nTri, cap = 1;
     while (cap < n * 2) cap <<= 1;
     Slot *h = malloc(sizeof(Slot) * cap);
-    int *id = malloc(sizeof(int) * n);
+    int *id = malloc(sizeof(int) * (n + 1));                 /* +1: malloc(0) may give NULL */
     if (!h || !id) { free(h); free(id); return NULL; }
     for (size_t i = 0; i < cap; i++) h[i].key = INT64_MIN;
     int nv = 0;
@@ -308,7 +308,7 @@ static int *weld(const Stl *s, int *nVert)
         /* the key is a hash of the cell; compare the cells exactly through the first vertex stored there */
         size_t j = mix64((uint64_t)key) & (cap - 1);
         int found = -1;
-        while (h[j].key != INT64_MIN) {
+        while (h[j].key != INT64_MIN) {  // NOLINT(clang-analyzer-core.UndefinedBinaryOperatorResult): false positive, every slot is set to INT64_MIN above
             if (h[j].key == key) {
                 const float *o = s->tri + 3 * (size_t)h[j].val;
                 int64_t r0 = llround((o[0] - s->bmin[0]) / tol), r1 = llround((o[1] - s->bmin[1]) / tol), r2 = llround((o[2] - s->bmin[2]) / tol);
@@ -382,14 +382,14 @@ void stl_split(Stl *s, double angleDeg)
     while (cap < ne * 2) cap <<= 1;
     ek = malloc(sizeof(int64_t) * cap);
     et0 = malloc(sizeof(int) * cap); et1 = malloc(sizeof(int) * cap); ec = calloc(cap, sizeof(int));
-    triEdge = malloc(sizeof(int) * ne);
+    triEdge = malloc(sizeof(int) * (ne + 1));                 /* +1: malloc(0) may give NULL */
     nrm = malloc(sizeof(double) * 3 * (size_t)N); ar = malloc(sizeof(double) * (size_t)N);
     stack = malloc(sizeof(int) * (size_t)N);
     if (!vid || !ek || !et0 || !et1 || !ec || !triEdge || !nrm || !ar || !stack) goto oom;
     for (size_t i = 0; i < cap; i++) ek[i] = -1;
     for (int t = 0; t < N; t++)
         for (int e = 0; e < 3; e++) {
-            int a = vid[3 * t + e], b = vid[3 * t + (e + 1) % 3];
+            int a = vid[3 * t + e], b = vid[3 * t + (e + 1) % 3];  // NOLINT(clang-analyzer-core.uninitialized.Assign): false positive, weld() fills 3 ids per triangle
             if (a > b) { int x = a; a = b; b = x; }
             int64_t key = (int64_t)a * nv + b;
             size_t j = mix64((uint64_t)key) & (cap - 1);

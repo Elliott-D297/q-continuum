@@ -244,8 +244,10 @@ bool mt_rename_patch(const char *casePath, const char *from, const char *to, int
     }
     if (at < 0) { free(t); snprintf(err, (size_t)ecap, "No patch called %s", from); return false; }
     size_t L = strlen(t);
-    char *o = malloc(L + strlen(to) + 1);
-    memcpy(o, t, (size_t)sp[at].ns); strcpy(o + sp[at].ns, to); strcat(o, t + sp[at].ne);
+    size_t lt = strlen(to), tail = L - (size_t)sp[at].ne;
+    char *o = malloc(L + lt + 1);
+    if (!o) { free(t); snprintf(err, (size_t)ecap, "Out of memory"); return false; }
+    memcpy(o, t, (size_t)sp[at].ns); memcpy(o + sp[at].ns, to, lt); memcpy(o + sp[at].ns + lt, t + sp[at].ne, tail + 1);  // NOLINT(bugprone-not-null-terminated-result): false positive, the last copy takes the tail with its NUL
     bool ok = pl_write_file(b, o, strlen(o));
     free(o); free(t);
     if (!ok) { snprintf(err, (size_t)ecap, "Could not write constant/polyMesh/boundary"); return false; }

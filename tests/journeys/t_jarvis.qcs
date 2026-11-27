@@ -25,8 +25,6 @@ assert text Rarefied gas
 assert text Chrono
 assert text JARVIS sounds
 screenshot $OUT/jarvis_env.png
-# spa_mpi -h is read in the background (a second: MPI starts); the panel fills it in when it arrives
-wait-until text without the optional packages timeout 15
 key ESCAPE
 wait 3
 key K ctrl
@@ -38,3 +36,11 @@ theme 0
 wait 5
 assert modal none
 budget p95 16.7 max 100
+# SPARTA's line in the panel (skipped where SPARTA is not installed): spa_mpi -h is read in the background (a second: MPI
+# starts); the panel fills it in when it arrives
+require spa_mpi
+click env-status
+wait-until modal environment timeout 5
+wait-until text without the optional packages timeout 15
+key ESCAPE
+wait 3

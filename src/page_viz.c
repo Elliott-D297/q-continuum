@@ -540,7 +540,7 @@ static void cones(const float *gp, const float *gv, const float *gval, long ng, 
 
 static void range_of_values(const float *v, long n, double *lo, double *hi)
 {
-    for (long i = 0; i < n; i++) if (!isnan(v[i])) { *lo = fmin(*lo, v[i]); *hi = fmax(*hi, v[i]); }
+    for (long i = 0; i < n; i++) if (!isnan(v[i])) { *lo = fmin(*lo, v[i]); *hi = fmax(*hi, v[i]); }  // NOLINT(clang-analyzer-core.CallAndMessage): false positive, the analyzer assumes ng <= 0 and ng != 0 on one path
 }
 
 /* the range a displayer colours over */
@@ -1121,7 +1121,7 @@ static void overlays(int w, int h, float sc)
     Color fg = V.bg == 1 ? (Color){ 30, 35, 45, 255 } : (Color){ 225, 230, 240, 255 };
     float y = 62 * sc;
     if (V.title[0]) { text_px(V.title, 16 * sc, y, 20 * sc, fg); y += 28 * sc; }
-    if (V.showTime && V.ti >= 0) { char t[64]; snprintf(t, sizeof t, "t = %s", V.times[V.ti]); text_px(t, 16 * sc, y, 14 * sc, fg); y += 20 * sc; }
+    if (V.showTime && V.ti >= 0) { char t[64]; snprintf(t, sizeof t, "t = %s", V.times[V.ti]); text_px(t, 16 * sc, y, 14 * sc, fg); }
     /* scalar bars down the right edge */
     int nb = 0;
     for (int i = 0; i < V.nd && nb < 3; i++) {
@@ -2275,7 +2275,7 @@ float viz_page(Case *c, float x, float y, float w, float h)
         int lay = V.nViews - 1;
         if (ui_segmented(ui_id("vz-lay"), (Rectangle){ tx, ty, 150, 30 }, LAY, 2, &lay)) { V.nViews = lay + 1; if (V.nViews == 2 && !V.touched[1]) V.O[1] = V.O[0]; redraw_all(); }
         tx += 156;
-        if (V.nViews == 2) { if (ui_checkbox(ui_id("vz-link"), (Rectangle){ tx, ty + 5, 70, 20 }, &V.linked, "Linked")) { if (V.linked) V.O[1] = V.O[0]; redraw_all(); } tx += 76; }
+        if (V.nViews == 2) { if (ui_checkbox(ui_id("vz-link"), (Rectangle){ tx, ty + 5, 70, 20 }, &V.linked, "Linked")) { if (V.linked) V.O[1] = V.O[0]; redraw_all(); } }
         /* the right end: screenshot and movie */
         static const char *SHOT[3] = { "Screenshot 1x", "Screenshot 2x", "Screenshot 4x" };
         static const char *MOV[3] = { "Movie over time", "Movie: orbit", "Movie: sweep the plane" };

@@ -68,7 +68,8 @@ assert file $SB/home/calculix/slabTest/slab.inp
 shell ls .qc-trash | grep -q . && touch $OUT/trash-ok
 assert file $OUT/trash-ok
 
-# SPARTA: the wedge starter on 2 ranks, its dumps in the viewer
+# SPARTA: the wedge starter on 2 ranks, its dumps in the viewer (skipped where SPARTA is not installed)
+require spa_mpi
 action go.new
 wait-until page New case
 click new-prog:sparta

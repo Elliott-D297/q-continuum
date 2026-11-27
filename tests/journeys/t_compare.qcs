@@ -1,0 +1,57 @@
+# Improvement plan A3: compare and report. Two bars made from the conduction starter, the second with twice the
+# diffusivity (it warms faster), both run; Studies > Compare cases picks them; the histories of the middle's probe on one
+# chart; the comparison's report, each case's report (Results > Export report); a line probe on a cube with reference data.
+click nav:new case
+wait 10
+click starter-bar
+wait-until page Overview
+click nav:new case
+wait 10
+click starter-bar
+wait-until page Overview
+shell sed -i 's/^DT .*/DT              2e-4;/' $SB/ws/bar-conduction-2/constant/transportProperties
+click nav:run
+wait-until page Run
+click run-go
+wait-until job finished timeout 120
+open $SB/ws/bar-conduction
+click nav:run
+wait-until page Run
+click run-go
+wait-until job finished timeout 120
+wait 5
+click nav:studies
+wait-until page Studies
+click st-compare
+wait-until modal any timeout 5
+click sc-name
+key A ctrl
+type bars
+clickat sc-case#0 0.02 0.5
+clickat sc-case#1 0.02 0.5
+wait 2
+screenshot $OUT/compare_modal.png
+click sc-go
+wait-until modal none timeout 5
+wait 10
+assert text A comparison of 2 cases
+assert text over time, each case
+screenshot $OUT/compare_histories.png
+click st-report
+wait 5
+assert file $SB/ws/bars-report.md
+assert log $SB/ws/bars-report.md | bar-conduction |
+assert file $SB/ws/bars-report.svg
+open $SB/ws/bar-conduction
+click nav:results
+wait-until page Results
+wait 5
+# scrolled from the tabs: the cross section's view takes wheel turns as zoom
+wheel -80 res-tabs#0
+click res-report
+wait 5
+assert file $SB/ws/bar-conduction/report/report.md
+assert log $SB/ws/bar-conduction/report/report.md **Starter: Heat conduction in a bar.**
+assert file $SB/ws/bar-conduction/report/residuals.svg
+assert file $SB/ws/bar-conduction/report/monitor1.svg
+screenshot $OUT/results_report.png

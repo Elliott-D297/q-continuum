@@ -15,6 +15,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "app.h"
+#include "report.h"
 #include "xsection.h"
 
 /* the solver's log: the one the Run page plots */
@@ -319,6 +320,19 @@ void page_foam_results(Rectangle r)
     ui_tooltip((Rectangle){ bx, y, b2, 38 }, canRefine ? "Runs the case on a coarser and a finer mesh (0.7, 1 and 1.4 times the cells along each edge) and compares the numbers: "
                                                          "if they barely change, the mesh is fine enough"
                                                        : "A refinement study needs a blockMesh case; for a mesh from the STL mesher, make a finer one there (Mesh settings: base size) and compare");
+    bx += b2 + 10;
+    /* plan A3: the results written up, report/report.md with its charts (and report.html with pandoc) */
+    float b3 = ui_button_width(ICON_FILE_TEXT, "Export report");
+    if (ui_button(ui_id("res-report"), (Rectangle){ bx, y, b3, 38 }, ICON_FILE_TEXT, "Export report", BTN_SECONDARY)) {
+        char md[PL_PATH], err[300], dir[PL_PATH];
+        if (rpt_case(c->s.path, md, sizeof md, err, sizeof err)) {
+            ui_toast(TOAST_OK, "Report written: %s", md);
+            pl_dirname(dir, sizeof dir, md);
+            launch_folder(&A.env, dir);
+        } else ui_toast(TOAST_ERR, "No report: %s", err);
+    }
+    ui_tooltip((Rectangle){ bx, y, b3, 38 }, "Writes report/report.md in the case: the solver, the last run and its final residuals, a residual chart, every "
+                                             "monitor's last values and chart, the Visualization pictures and the run history");
     y += 52;
     y += ui_text_wrap(F_REG, 13, "A mesh is fine enough when a finer one gives the same answer: the numbers above changing by a percent or two between "
                       "meshes is usual for engineering work.", (Rectangle){ x, y, w, 80 }, 19, TH.text3, true) + 20;

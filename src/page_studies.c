@@ -13,6 +13,8 @@
 #include "gci.h"
 #include "teach.h"
 #include "xsection.h"
+#include "report.h"
+#include "program.h"
 
 #define MAX_STUDIES 64
 #define MAX_VARIANTS 64
@@ -1042,6 +1044,90 @@ static void study_chart(Rectangle r, Study *s, int oi)
 #undef PY
 }
 
+/* a monitor output's whole series for a case (false: not a monitor column, or not written yet) */
+static bool output_series(RowData *d, const Output *o, const float **t, const float **v, int *n)
+{
+    if (o->kind != 0 || !d->ms) return false;
+    int fi = monset_find(d->ms, o->file);
+    if (fi < 0) return false;
+    MonFile *f = &d->ms->f[fi];
+    for (int c = 0; c < f->nCols; c++) if (!strcmp(f->col[c], o->col) && f->n > 0) { *t = f->t; *v = f->v[c]; *n = f->n; return true; }
+    return false;
+}
+
+/* plan A3: every case's history of one monitor column on one chart (a comparison, or how variants converge) */
+static void history_chart(Rectangle r, Study *s, int oi)
+{
+    ui_rect(r, 12, TH.surface); ui_rect_lines(r, 12, 1, TH.lineSoft);
+    const Output *o = &s->out[oi];
+    char lab[96]; output_label(o, lab, sizeof lab);
+    char t[200]; pl_fmt_ui(t, sizeof t, "%s over time, each case", lab);
+    ui_text(F_MED, 13, t, r.x + 16, r.y + 12, TH.text);
+    if (o->kind != 0) { ui_text(F_REG, 12.5f, "Histories are drawn for monitor columns: pick one in the table's header.", r.x + 16, r.y + 40, TH.text3); return; }
+    double x0 = 1e300, x1 = -1e300, y0 = 1e300, y1 = -1e300; int have = 0;
+    for (int i = 0; i < s->nV; i++) {
+        const float *tt, *vv; int n;
+        if (!output_series(row_data(s->v[i].path), o, &tt, &vv, &n)) continue;
+        for (int k = 0; k < n; k++) if (isfinite(vv[k])) { x0 = fmin(x0, tt[k]); x1 = fmax(x1, tt[k]); y0 = fmin(y0, vv[k]); y1 = fmax(y1, vv[k]); have++; }
+    }
+    if (!have) { ui_text(F_REG, 12.5f, "No histories yet: they fill in as the cases run.", r.x + 16, r.y + 40, TH.text3); return; }
+    if (x1 - x0 < 1e-300) { x0 -= 1; x1 += 1; }
+    if (y1 - y0 < 1e-300) { double m = fabs(y1) > 0 ? fabs(y1) * 0.1 : 1; y0 -= m; y1 += m; }
+    double py = (y1 - y0) * 0.08; y0 -= py; y1 += py;
+    Rectangle p = { r.x + 72, r.y + 44, r.width - 72 - 200, r.height - 44 - 36 };
+    double sy = nice(y1 - y0), sx = nice(x1 - x0);
+    for (double v = ceil(y0 / sy) * sy; v <= y1; v += sy) {
+        float yy = p.y + p.height - (float)((v - y0) / (y1 - y0)) * p.height;
+        DrawRectangleRec((Rectangle){ p.x, yy, p.width, 1 }, TH.grid);
+        char b[32]; snprintf(b, sizeof b, "%.4g", fabs(v) < sy * 1e-6 ? 0.0 : v);
+        ui_text(F_MONO, 11.5f, b, p.x - 10 - ui_text_w(F_MONO, 11.5f, b), yy - 7, TH.text3);
+    }
+    for (double v = ceil(x0 / sx) * sx; v <= x1; v += sx) {
+        float xx = p.x + (float)((v - x0) / (x1 - x0)) * p.width;
+        char b[32]; snprintf(b, sizeof b, "%.4g", fabs(v) < sx * 1e-6 ? 0.0 : v);
+        ui_text(F_REG, 11.5f, b, xx - ui_text_w(F_REG, 11.5f, b) / 2, p.y + p.height + 8, TH.text3);
+    }
+    for (int i = 0, line = 0; i < s->nV; i++) {
+        const float *tt, *vv; int n;
+        if (!output_series(row_data(s->v[i].path), o, &tt, &vv, &n)) continue;
+        Color col = TH.series[line % 10];
+        int step = n > 1500 ? n / 1500 : 1;
+        for (int k = step; k < n; k += step) {
+            if (!isfinite(vv[k]) || !isfinite(vv[k - step])) continue;
+            DrawLineEx((Vector2){ p.x + (float)((tt[k - step] - x0) / (x1 - x0)) * p.width, p.y + p.height - (float)((vv[k - step] - y0) / (y1 - y0)) * p.height },
+                       (Vector2){ p.x + (float)((tt[k] - x0) / (x1 - x0)) * p.width, p.y + p.height - (float)((vv[k] - y0) / (y1 - y0)) * p.height }, 2, col);
+        }
+        ui_text_clip(F_MED, 12, s->nParams ? s->v[i].v1 : pl_basename(s->v[i].path), p.x + p.width + 18, p.y + line * 18, 180, col);
+        line++;
+    }
+}
+
+/* plan A3: the study written up: the table (each output for each case) and the history chart, beside the .qcstudy */
+static void study_report(Study *s, int oi)
+{
+    static RptRow rows[MAX_VARIANTS]; static char names[MAX_VARIANTS][96];
+    const char *cols[8]; char colBuf[8][96];
+    int nc = s->nOut < 8 ? s->nOut : 8;
+    for (int k = 0; k < nc; k++) { output_label(&s->out[k], colBuf[k], sizeof colBuf[k]); cols[k] = colBuf[k]; }
+    RptSeries ser[RPT_MAX_SERIES]; int ns = 0;
+    for (int i = 0; i < s->nV; i++) {
+        RowData *d = row_data(s->v[i].path);
+        if (s->nParams) pl_fmt_ui(names[i], sizeof names[i], "%s %s%s%s", pl_basename(s->v[i].path), s->v[i].v1, s->nParams > 1 ? " / " : "", s->v[i].v2);
+        else pl_strlcpy(names[i], pl_basename(s->v[i].path), sizeof names[i]);
+        rows[i].caseName = names[i]; rows[i].casePath = s->v[i].path;
+        for (int k = 0; k < nc; k++) rows[i].val[k] = output_value(d, &s->out[k]);
+        const float *tt, *vv; int n;
+        if (oi >= 0 && oi < s->nOut && ns < RPT_MAX_SERIES && output_series(d, &s->out[oi], &tt, &vv, &n)) ser[ns++] = (RptSeries){ names[i], tt, vv, n };
+    }
+    char dir[PL_PATH], md[PL_PATH], err[300], ct[96] = "";
+    pl_dirname(dir, sizeof dir, s->file);
+    if (oi >= 0 && oi < s->nOut) output_label(&s->out[oi], ct, sizeof ct);
+    if (rpt_compare(dir, s->name, cols, nc, rows, s->nV, ct, ser, ns, md, sizeof md, err, sizeof err)) {
+        ui_toast(TOAST_OK, "Report written: %s", md);
+        launch_folder(&A.env, dir);
+    } else ui_toast(TOAST_ERR, "No report: %s", err);
+}
+
 /* ============================================================================ mesh independence (plan step 8) */
 /* 2 for a 2-D or axisymmetric mesh (an empty or wedge patch with faces), else 3 */
 static int mesh_dims(const char *path)
@@ -1145,11 +1231,15 @@ void page_studies(Rectangle r)
         char lab[300]; snprintf(lab, sizeof lab, "New study from %s", A.cs->s.name);
         bw = ui_button_width(ICON_GIT_FORK, lab);
         if (ui_button(ui_id("st-new"), (Rectangle){ x, y, bw, 36 }, ICON_GIT_FORK, lab, BTN_PRIMARY)) A.modal = MD_STUDY_NEW;
+        float cw2 = ui_button_width(ICON_TABLE, "Compare cases");
+        if (ui_button(ui_id("st-compare"), (Rectangle){ x + bw + 10, y, cw2, 36 }, ICON_TABLE, "Compare cases", BTN_SECONDARY)) { A.modal = MD_STUDY_CMP; A.mErr[0] = 0; }
     } else {
         ui_text(F_REG, 13, "Open a case to make a study from it.", x, y + 9, TH.text3);
         float ow = ui_button_width(ICON_LIBRARY, "Open a case");
         float tx = x + ui_text_w(F_REG, 13, "Open a case to make a study from it.") + 14;
         if (ui_button(ui_id("st-open-case"), (Rectangle){ tx, y, ow, 36 }, ICON_LIBRARY, "Open a case", BTN_SECONDARY)) { app_rescan_cases(true); app_go(PG_CASES); }
+        float cw2 = ui_button_width(ICON_TABLE, "Compare cases");
+        if (ui_button(ui_id("st-compare"), (Rectangle){ tx + ow + 10, y, cw2, 36 }, ICON_TABLE, "Compare cases", BTN_SECONDARY)) { A.modal = MD_STUDY_CMP; A.mErr[0] = 0; }
     }
     y += 56;
     if (nS == 0) { ui_text(F_REG, 13, "No studies yet.", x, y, TH.text3); ui_scroll_end(sc, y - top + 40); return; }
@@ -1170,7 +1260,8 @@ void page_studies(Rectangle r)
     if (sel < 0 || sel >= nS) { ui_scroll_end(sc, y - top + 40); return; }
     Study *s = &S[sel];
     char info[PL_PATH + 200];
-    snprintf(info, sizeof info, "%d variant%s of %s  ·  %s", s->nV, s->nV == 1 ? "" : "s", pl_basename(s->base), s->file);
+    if (s->nParams) snprintf(info, sizeof info, "%d variant%s of %s  ·  %s", s->nV, s->nV == 1 ? "" : "s", pl_basename(s->base), s->file);
+    else snprintf(info, sizeof info, "A comparison of %d case%s  ·  %s", s->nV, s->nV == 1 ? "" : "s", s->file);
     ui_text_clip(F_MONO, 12, info, x, y, w, TH.text3);
     y += 26;
     /* actions */
@@ -1199,16 +1290,22 @@ void page_studies(Rectangle r)
         if (ui_button(ui_id("st-exp"), (Rectangle){ bx, y, bw, 34 }, ICON_CHART_LINE, s->exp[0] ? "Measurements: change" : "Add measurements (CSV)", BTN_GHOST)) {
             A.modal = MD_STUDY_EXP; pl_strlcpy(A.mText, s->exp, sizeof A.mText); A.mErr[0] = 0;
         }
+        bx += bw + 10;
+        bw = ui_button_width(ICON_FILE_TEXT, "Export report");
+        ui_disable(!s->nOut);
+        if (ui_button(ui_id("st-report"), (Rectangle){ bx, y, bw, 34 }, ICON_FILE_TEXT, "Export report", BTN_GHOST)) study_report(s, chartOut);
+        ui_disable(false);
     }
     y += 50;
     /* the table */
-    int nc = s->nParams + 1 + s->nOut;
+    int nc = (s->nParams ? s->nParams : 1) + 1 + s->nOut;     /* a comparison (no settings varied): the case first */
     float cw[12] = { 0 }; float tw = w - 90;
     for (int i = 0; i < nc; i++) cw[i] = tw / nc;
     float rowH = 38;
     ui_rect((Rectangle){ x, y, w, rowH }, 8, TH.surface2);
     float cx = x + 14;
     for (int i = 0; i < s->nParams; i++) { ui_text_clip(F_MED, 12.5f, param_name(&s->p[i]), cx, y + 11, cw[0] - 10, TH.text2); cx += cw[0]; }
+    if (!s->nParams) { ui_text(F_MED, 12.5f, "case", cx, y + 11, TH.text2); cx += cw[0]; }
     ui_text(F_MED, 12.5f, "status", cx, y + 11, TH.text2); cx += cw[0];
     int delOut = -1;
     for (int i = 0; i < s->nOut; i++) {
@@ -1248,7 +1345,15 @@ void page_studies(Rectangle r)
     if (delOut >= 0) { memmove(&s->out[delOut], &s->out[delOut + 1], sizeof s->out[0] * (size_t)(s->nOut - delOut - 1)); s->nOut--; study_save(s); if (chartOut >= s->nOut) chartOut = 0; }
     y += 20;
     if (s->nOut && refine_param(s) >= 0) y += gci_panel(x, y, w, s, chartOut);
-    if (s->nOut) { study_chart((Rectangle){ x, y, w, 340 }, s, chartOut); y += 360; }
+    if (s->nOut) {
+        static int view;                                       /* 0 final values against the setting, 1 histories */
+        static const char *VIEWS[2] = { "Final values", "Histories" };
+        if (!s->nParams) view = 1;
+        else { ui_segmented(ui_id("st-view"), (Rectangle){ x, y, 260, 32 }, VIEWS, 2, &view); y += 44; }
+        if (view == 0) study_chart((Rectangle){ x, y, w, 340 }, s, chartOut);
+        else history_chart((Rectangle){ x, y, w, 340 }, s, chartOut);
+        y += 360;
+    }
     ui_scroll_end(sc, y - top + 40);
 }
 
@@ -1315,4 +1420,73 @@ void study_exp_modal(bool *close)
         else if (read_csv(p, xx, yy, 4) == 0) snprintf(A.mErr, sizeof A.mErr, "No rows with two numbers in that file.");
         else { pl_strlcpy(s->exp, p, sizeof s->exp); study_save(s); *close = true; }
     }
+}
+
+/* plan A3: a comparison of cases the user already has (not variants made here): any of the workspace's OpenFOAM cases,
+   compared by the first monitor column they share and run time, in <workspace>/<name>.qcstudy */
+void study_compare_modal(bool *close)
+{
+    static bool pick[256]; static char name[96] = "comparison";
+    Rectangle b = ui_modal_begin("Compare cases", "Cases you already have, side by side: a table of their numbers, their monitors over time on one chart, "
+                                 "and a report. Pick two or more.", 700, 560, close);
+    float x = b.x, y = b.y + 4, w = b.width;
+    ui_text(F_REG, 13, "Name", x, y + 10, TH.text2);
+    ui_input(ui_id("sc-name"), (Rectangle){ x + 60, y, 260, 36 }, name, sizeof name, "comparison", INPUT_LIVE);
+    y += 48;
+    int shown = 0, chosen = 0;
+    float listH = b.height - 48 - 60;
+    for (int i = 0; i < A.nList && i < 256; i++) {
+        const CaseSummary *cs = &A.list[i];
+        if (cs->prog != PROG_OPENFOAM) continue;
+        if (y + 30 > b.y + 48 + listH) break;
+        char lab[400]; pl_fmt_ui(lab, sizeof lab, "%s   ·   %s   ·   %s", cs->name, cs->app[0] ? cs->app : "?", status_name(cs->status));
+        ui_checkbox(ui_idn(ui_id("sc-case"), i), (Rectangle){ x, y, w, 26 }, &pick[i], lab);
+        y += 30; shown++;
+    }
+    for (int i = 0; i < A.nList && i < 256; i++) if (pick[i] && A.list[i].prog == PROG_OPENFOAM) chosen++;
+    if (!shown) ui_text(F_REG, 13, "No OpenFOAM cases in the workspace.", x, y, TH.text3);
+    if (A.mErr[0]) ui_text_clip(F_REG, 12.5f, A.mErr, x, b.y + b.height - 70, w, TH.err);
+    float by = b.y + b.height - 38;
+    if (ui_button(ui_id("sc-cancel"), (Rectangle){ x, by, 100, 38 }, NULL, "Cancel", BTN_GHOST)) *close = true;
+    char gl[64]; pl_fmt_ui(gl, sizeof gl, "Compare %d case%s", chosen, chosen == 1 ? "" : "s");
+    float bw = ui_button_width(ICON_TABLE, gl);
+    ui_disable(chosen < 2 || chosen > MAX_VARIANTS);
+    if (ui_button(ui_id("sc-go"), (Rectangle){ x + w - bw, by, bw, 38 }, ICON_TABLE, gl, BTN_PRIMARY)) {
+        char safe[96], ws[PL_PATH], file[PL_PATH];
+        safe_name(name, safe, sizeof safe);
+        if (!safe[0]) { snprintf(A.mErr, sizeof A.mErr, "Give the comparison a name."); return; }
+        pl_expand_home(ws, sizeof ws, A.set.workspace);
+        char fn[128]; snprintf(fn, sizeof fn, "%s.qcstudy", safe);
+        pl_join(file, sizeof file, ws, fn);
+        if (pl_exists(file)) { pl_fmt_ui(A.mErr, sizeof A.mErr, "%s already exists: choose another name.", fn); return; }
+        Study *st = calloc(1, sizeof *st);
+        if (!st) return;
+        pl_strlcpy(st->file, file, sizeof st->file); pl_strlcpy(st->name, safe, sizeof st->name);
+        for (int i = 0; i < A.nList && i < 256 && st->nV < MAX_VARIANTS; i++) {
+            if (!pick[i] || A.list[i].prog != PROG_OPENFOAM) continue;
+            Variant *v = &st->v[st->nV++];
+            pl_strlcpy(v->path, A.list[i].path, sizeof v->path);
+            pl_strlcpy(v->v1, A.list[i].name, sizeof v->v1);
+            if (!st->base[0]) pl_strlcpy(st->base, A.list[i].path, sizeof st->base);
+        }
+        /* compare by: the first monitor column of the first case that writes one, and the run time */
+        for (int i = 0; i < st->nV && !st->nOut; i++) {
+            RowData *d = row_data(st->v[i].path);
+            if (d->ms) monset_poll(d->ms, GetTime() + 1e6);
+            if (d->ms && d->ms->n && d->ms->f[0].nCols) {
+                Output *o = &st->out[st->nOut++]; o->kind = 0;
+                pl_strlcpy(o->file, d->ms->f[0].key, sizeof o->file); pl_strlcpy(o->col, d->ms->f[0].col[0], sizeof o->col);
+            }
+        }
+        { Output *o = &st->out[st->nOut++]; o->kind = 1; }
+        study_save(st);
+        free(st);
+        memset(pick, 0, sizeof pick);
+        *close = true;
+        scan(true);
+        for (int i = 0; i < nS; i++) if (!strcmp(S[i].name, safe)) sel = i;
+        chartOut = 0;
+        ui_toast(TOAST_OK, "Comparison %s made", safe);
+    }
+    ui_disable(false);
 }

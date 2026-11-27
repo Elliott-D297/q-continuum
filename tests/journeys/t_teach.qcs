@@ -1,0 +1,26 @@
+# Improvement plan A2: starters with exact answers. "Heat conduction in a bar" made from the New case page, shown on
+# Overview with what it teaches and its answer (352.55 K at the middle after 10 s), run (blockMesh, laplacianFoam), its
+# probe within 0.2 K; then "Carried by a flow" made and its teaching shown. (ctest teach_openfoam checks both answers.)
+click nav:new case
+wait 10
+screenshot $OUT/teach_cards.png
+click starter-bar
+wait-until page Overview
+assert file $SB/ws/bar-conduction/.qc-starter
+assert log $SB/ws/bar-conduction/.qc-starter 352.55
+wait 5
+screenshot $OUT/teach_overview.png
+click nav:run
+wait-until page Run
+click run-go
+wait-until job running timeout 10
+wait-until job finished timeout 120
+wait 10
+screenshot $OUT/teach_run.png
+shell grep -v '^#' $SB/ws/bar-conduction/postProcessing/probes/0/T | tail -1 | awk '{ if ($2 > 352.35 && $2 < 352.75) print "ok" }' > $OUT/probe.txt
+assert log $OUT/probe.txt ok
+click nav:new case
+wait 10
+click starter-flow
+wait-until page Overview
+assert log $SB/ws/carried-by-flow/.qc-starter Pe = U L / D = 0.01

@@ -8,6 +8,7 @@
 #include <string.h>
 #include "femesh.h"
 #include "festudy.h"
+#include "femeshq.h"
 #include "ccxmodel.h"
 #include "pl_util.h"
 
@@ -153,6 +154,17 @@ int main(int argc, char **argv)
         CHECK(ccx_units(&cm, NULL, 0) == CCX_UNITS_MM && !strcmp(cm.elType, "C3D10"), "the deck: millimetre units, C3D10");
         ccx_frd_free(&r);
     } else printf("skip  no ccx\n");
+    {   /* plan B3: every element a Kuhn tetrahedron of a cube: aspect ratio sqrt 3 / (2 sqrt 6 r), r = 3 V / S = 0.20711: 1.7071; walls 10 mm */
+        FeQuality q; fe_quality(&m, &q);
+        CHECK(q.n == m.ne && fabs(q.arMax - 1.7071) < 1e-3 && fabs(q.arMean - 1.7071) < 1e-3 && !q.arOver10, "quality: aspect ratio 1.7071 (Kuhn tetrahedra)");
+        CHECK(fabs(q.jacMin - 1) < 1e-6 && !q.jacBad, "quality: straight mid-side nodes score 1");
+        FeThickness th;
+        CHECK(fe_thickness(&m, &th) && fabs(th.thin - 10) < 1e-6 && fabs(th.p5 - 10) < 1e-6, "walls: 10 mm across (rays from the boundary)");
+        FeStudy rs; fe_study_default(&rs); rs.nRef = 1; rs.ref[0].size = 1; rs.ref[0].nf = 1;
+        pl_strlcpy(rs.ref[0].face[0], m.gname[0], 64);
+        char rp[PL_PATH]; pl_join(rp, sizeof rp, d, "refine.txt");
+        CHECK(fe_refine_write(&rs, &m, d) && pl_is_file(rp), "refinement points written for the next mesh");
+    }
     femesh_free(&m);
 
     /* a mesh with its own face group: the end x = 0 named, the rest "Other faces" */

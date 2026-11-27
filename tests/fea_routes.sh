@@ -32,5 +32,20 @@ for f in brep stl med unv; do
     grep "Q-Continuum:" "$d/mesh_$f.log" | sed 's/^/      /'
     if [ -s "$d/beam_$f.qcmesh" ] && "$tf" part "$d/beam_$f.qcmesh" "$d/run_$f"; then echo "ok    $f"; else echo "FAIL  $f"; fails=$((fails + 1)); fi
 done
+# plan B3: finer on picked faces: the STL meshed again with points of its x = 100 end at 1 mm (the rest at 4 mm): more nodes,
+# and the end's elements smaller; the study still within 3 % (refinement must not change the answer)
+python3 -I - "$d/refine.txt" <<'PYR'
+import sys
+with open(sys.argv[1], "w") as f:
+    for j in range(11):
+        for k in range(11):
+            f.write("100 %g %g 1\n" % (j, k))
+PYR
+(cd "$d" && QC_IN="$d/beam.stl" QC_OUT="$d/beam_ref.qcmesh" QC_SIZE=4 QC_REFINE="$d/refine.txt" $S --port=2863 "$here/../assets/salome/fea_mesh.py" > mesh_ref.log 2>&1)
+grep "Q-Continuum:" "$d/mesh_ref.log" | sed 's/^/      /'
+n0=$(sed -n 's/^nodes //p' "$d/beam_stl.qcmesh" 2>/dev/null); n1=$(sed -n 's/^nodes //p' "$d/beam_ref.qcmesh" 2>/dev/null)
+if [ -n "$n0" ] && [ -n "$n1" ] && [ "$n1" -gt $((n0 * 13 / 10)) ] && grep -q "refinement:" "$d/mesh_ref.log" && "$tf" part "$d/beam_ref.qcmesh" "$d/run_ref"; then
+    echo "ok    refined: $n0 -> $n1 nodes, still within 3 %"
+else echo "FAIL  refinement ($n0 -> $n1 nodes)"; fails=$((fails + 1)); fi
 [ $fails = 0 ] && echo "all passed" || echo "$fails FAILED"
 exit $fails

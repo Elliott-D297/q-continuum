@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "app.h"
+#include "runlog.h"
 
 #define MAX_QUEUE 64
 
@@ -135,6 +136,31 @@ void queue_tick(double now)
 }
 
 /* ============================================================================ page */
+/* plan A4: how long a case will take, from its last recorded run (Captain's log): its wall time, scaled by the processes
+   (ideal scaling: an estimate) and, continuing, by the share of the end time left. -1: no earlier run to go by. Read at
+   most every 2 s per case */
+static double estimate(const char *path, int procs, bool cont)
+{
+    static struct { char path[PL_PATH]; double at, wall, reached, end; int procs; } C[MAX_QUEUE + 8];
+    static int nc;
+    int i = 0;
+    while (i < nc && strcmp(C[i].path, path)) i++;
+    if (i == nc) { if (nc == MAX_QUEUE + 8) i = nc - 1; else nc++; pl_strlcpy(C[i].path, path, sizeof C[i].path); C[i].at = -100; }
+    if (GetTime() - C[i].at > 2) {
+        RunRecord r[1];
+        C[i].at = GetTime(); C[i].wall = -1;
+        if (runlog_list(path, r, 1) == 1 && r[0].wall > 0 && !strcmp(r[0].outcome, "finished")) {
+            C[i].wall = r[0].wall; C[i].procs = r[0].procs > 0 ? r[0].procs : 1; C[i].reached = r[0].reached; C[i].end = r[0].endTime;
+        }
+    }
+    if (C[i].wall < 0) return -1;
+    double t = C[i].wall * C[i].procs / (procs > 0 ? procs : 1);
+    if (cont && C[i].end > 0 && C[i].reached > 0 && C[i].reached < C[i].end) t *= (C[i].end - C[i].reached) / C[i].reached;
+    return t;
+}
+
+static void dur(char *o, size_t cap, double t) { if (t < 1) snprintf(o, cap, "under a second"); else pl_duration(o, cap, t); }
+
 static const char *item_desc(const QItem *it, char *buf, int cap)
 {
     const char *how = it->cont ? "continue from the latest time" : it->fresh ? "start over (old results to the trash)" : "fresh run";
@@ -191,8 +217,11 @@ void page_queue(Rectangle r)
         ui_rect(row, 10, TH.accentSoft);
         ui_spinner(row.x + 22, row.y + 26, 7, TH.accent);
         ui_text_clip(F_MED, 14, pl_basename(j->casePath), row.x + 44, row.y + 8, w - 300, TH.text);
-        char d[32], t[200]; pl_duration(d, sizeof d, GetTime() - j->startedAt);
-        snprintf(t, sizeof t, "%s  ·  %d process%s  ·  %s", j->cur < j->n ? j->steps[j->cur].label : j->title, j->procs, j->procs == 1 ? "" : "es", d);
+        char d[32], t[320]; pl_duration(d, sizeof d, GetTime() - j->startedAt);
+        double est = estimate(j->casePath, j->procs, false), left = est >= 0 ? est - (GetTime() - j->startedAt) : -1;
+        char lt[64] = "";
+        if (left > 0) { char ld[32]; pl_duration(ld, sizeof ld, left); snprintf(lt, sizeof lt, "  ·  about %s left", ld); }
+        snprintf(t, sizeof t, "%s  ·  %d process%s  ·  %s%s", j->cur < j->n ? j->steps[j->cur].label : j->title, j->procs, j->procs == 1 ? "" : "es", d, lt);
         ui_text_clip(F_REG, 12, t, row.x + 44, row.y + 29, w - 300, TH.text2);
         bw = ui_button_width(ICON_ACTIVITY, "Open");
         if (ui_button(ui_idn(ui_id("q-open-run"), k), (Rectangle){ row.x + w - bw - 10, row.y + 9, bw, 34 }, ICON_ACTIVITY, "Open", BTN_GHOST)) {
@@ -205,7 +234,21 @@ void page_queue(Rectangle r)
 
     /* waiting */
     char head[64]; snprintf(head, sizeof head, "Waiting (%d)", nQ);
-    y += section_head(x, y, w, head, A.set.queuePaused && nQ ? "The queue is paused: nothing new starts until you resume it." : NULL);
+    /* the time it all takes: the estimates added (one after another) and divided out over the cores (side by side) */
+    double sum = 0, coreSec = 0; int known = 0;
+    for (int i = 0; i < nQ; i++) { double e = estimate(Q[i].path, Q[i].procs, Q[i].cont); if (e >= 0) { sum += e; coreSec += e * Q[i].procs; known++; } }
+    char tl[300] = "";
+    if (known) {
+        char a[32], b[32]; dur(a, sizeof a, sum); dur(b, sizeof b, coreSec / queue_budget());
+        snprintf(tl, sizeof tl, "About %s of runs%s: %s one after another, about %s at best with %d cores side by side (from each case's last run).",
+                 a, known < nQ ? TextFormat(" for %d of the %d", known, nQ) : "", a, b, queue_budget());
+    }
+    char sub2[400];
+    pl_strlcpy(sub2, A.set.queuePaused && nQ ? "The queue is paused: nothing new starts until you resume it. " : "", sizeof sub2);
+    strncat(sub2, tl, sizeof sub2 - strlen(sub2) - 1);
+    float hy = y;
+    y += section_head(x, y, w, head, sub2[0] ? sub2 : NULL);
+    if (tl[0]) ui_register(ui_id("q-estimate"), (Rectangle){ x, hy, w, y - hy }, tl);
     if (!nQ) { ui_text(F_REG, 13, "The queue is empty.", x, y, TH.text3); y += 30; }
     int move = -1, dir = 0, del = -1, retry = -1;
     for (int i = 0; i < nQ; i++) {
@@ -218,7 +261,13 @@ void page_queue(Rectangle r)
         ui_text_clip(F_MED, 14, pl_basename(it->path), row.x + 48, row.y + 9, w - 330, TH.text);
         char t[300];
         if (it->failed) snprintf(t, sizeof t, "Could not start (the notifications said why). Fix the case, then Retry.");
-        else item_desc(it, t, sizeof t);
+        else {
+            item_desc(it, t, sizeof t);
+            double e = estimate(it->path, it->procs, it->cont);
+            size_t l = strlen(t);
+            if (e >= 0) { char d[32]; dur(d, sizeof d, e); snprintf(t + l, sizeof t - l, "  ·  about %s", d); }
+            else snprintf(t + l, sizeof t - l, "  ·  no earlier run to estimate from");
+        }
         ui_text_clip(F_REG, 12, t, row.x + 48, row.y + 31, w - 330, it->failed ? TH.err : TH.text3);
         float rx = row.x + w - 10;
         rx -= 34;

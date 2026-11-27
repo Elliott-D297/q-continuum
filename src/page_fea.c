@@ -35,7 +35,7 @@ static struct {
     /* the view */
     Orbit   O; RenderTexture2D rt; int rtW, rtH; bool rtOk, dirty, touched, dragging, panning, moved; Vector2 last, downAt;
     float   aspect, fitAspect;
-    int     hoverG, active;                            /* active: fixture i, 100 + load i, -1 none */
+    int     hoverG, active;                            /* active: fixture i, 100 + load i, 200 + thermal i, -1 none */
     int     resField;                                  /* results: 0 von Mises, 1 displacement */
     bool    results, showUndeformed;
     /* the mesh job */
@@ -215,22 +215,31 @@ static void fit(void)
     F.dirty = true;
 }
 
+/* the face list of the item being picked for (a support, a load, a thermal condition), NULL when none */
+static char (*active_faces(int **nf))[64]
+{
+    if (F.active >= 200 && F.active - 200 < F.s.nTh) { *nf = &F.s.th[F.active - 200].nf; return F.s.th[F.active - 200].face; }
+    if (F.active >= 100 && F.active < 200 && F.active - 100 < F.s.nLoad) { *nf = &F.s.load[F.active - 100].nf; return F.s.load[F.active - 100].face; }
+    if (F.active >= 0 && F.active < 100 && F.active < F.s.nFix) { *nf = &F.s.fix[F.active].nf; return F.s.fix[F.active].face; }
+    return NULL;
+}
+
 static Color group_color(int g, bool *roleOut)
 {
     Color base = TH.dark ? (Color){ 150, 160, 178, 255 } : (Color){ 176, 184, 198, 255 };
-    Color fixC = { 45, 190, 160, 255 }, loadC = { 245, 150, 50, 255 };
-    bool role = false;
-    for (int i = 0; i < F.s.nFix; i++) for (int j = 0; j < F.s.fix[i].nf; j++) if (!strcasecmp(F.s.fix[i].face[j], F.m.gname[g])) { base = fixC; role = true; }
-    for (int i = 0; i < F.s.nLoad; i++) for (int j = 0; j < F.s.load[i].nf; j++) if (!strcasecmp(F.s.load[i].face[j], F.m.gname[g])) { base = loadC; role = true; }
+    Color fixC = { 45, 190, 160, 255 }, loadC = { 245, 150, 50, 255 }, thC = { 230, 80, 90, 255 };
+    bool role = false, mech = fe_an_mechanical(F.s.analysis), therm = fe_an_thermal(F.s.analysis);
+    for (int i = 0; mech && i < F.s.nFix; i++) for (int j = 0; j < F.s.fix[i].nf; j++) if (!strcasecmp(F.s.fix[i].face[j], F.m.gname[g])) { base = fixC; role = true; }
+    for (int i = 0; mech && i < F.s.nLoad; i++) for (int j = 0; j < F.s.load[i].nf; j++) if (!strcasecmp(F.s.load[i].face[j], F.m.gname[g])) { base = loadC; role = true; }
+    for (int i = 0; therm && i < F.s.nTh; i++) for (int j = 0; j < F.s.th[i].nf; j++) if (!strcasecmp(F.s.th[i].face[j], F.m.gname[g])) { base = thC; role = true; }
     if (roleOut) *roleOut = role;
     return base;
 }
 static bool in_active(int g)
 {
-    if (F.active < 0 || g < 0) return false;
-    int nf = F.active >= 100 ? F.s.load[F.active - 100].nf : F.s.fix[F.active].nf;
-    char (*fc)[64] = F.active >= 100 ? F.s.load[F.active - 100].face : F.s.fix[F.active].face;
-    for (int j = 0; j < nf; j++) if (!strcasecmp(fc[j], F.m.gname[g])) return true;
+    int *nf; char (*fc)[64] = active_faces(&nf);
+    if (!fc || g < 0) return false;
+    for (int j = 0; j < *nf; j++) if (!strcasecmp(fc[j], F.m.gname[g])) return true;
     return false;
 }
 
@@ -378,9 +387,8 @@ static int pick(Rectangle view, Vector2 mp) { int f = pick_face(view, mp, NULL);
 
 static void toggle_face(int g)
 {
-    if (F.active < 0 || g < 0) return;
-    int *nf = F.active >= 100 ? &F.s.load[F.active - 100].nf : &F.s.fix[F.active].nf;
-    char (*fc)[64] = F.active >= 100 ? F.s.load[F.active - 100].face : F.s.fix[F.active].face;
+    int *nf; char (*fc)[64] = active_faces(&nf);
+    if (!fc || g < 0) return;
     for (int j = 0; j < *nf; j++)
         if (!strcasecmp(fc[j], F.m.gname[g])) { memmove(fc[j], fc[j + 1], 64 * (size_t)(*nf - j - 1)); (*nf)--; save_study(); return; }
     if (*nf < FE_MAXFACES) { pl_strlcpy(fc[(*nf)++], F.m.gname[g], 64); save_study(); }
@@ -493,7 +501,7 @@ static float faces_line(float x, float y, float w, char faces[][64], int nf)
 {
     char t[600] = ""; double A = 0;
     for (int j = 0; j < nf; j++) { int g = F.ok ? fe_group(&F.m, faces[j]) : -1; if (g >= 0) A += F.m.garea[g]; }
-    if (!nf) pl_strlcpy(t, "No faces yet: click them in the view", sizeof t);
+    if (!nf) pl_strlcpy(t, "No faces yet: Pick faces, then click them in the view", sizeof t);
     else {
         pl_fmt_ui(t, sizeof t, "%d face%s, %.4g mm²: ", nf, nf == 1 ? "" : "s", A);
         for (int j = 0; j < nf && strlen(t) < 500; j++) pl_fmt_ui(t + strlen(t), sizeof t - strlen(t), "%s%s", j ? ", " : "", faces[j]);
@@ -501,17 +509,361 @@ static float faces_line(float x, float y, float w, char faces[][64], int nf)
     return ui_text_wrap(F_REG, 12.5f, t, (Rectangle){ x, y, w, 60 }, 18, nf ? TH.text3 : TH.warn, true);
 }
 
-static float item_head(float x, float y, float w, const char *icon, Color ic, const char *title, int act, bool *del)
+/* an item's head: icon, title, Pick faces (when it acts on faces) and remove */
+static float item_head(float x, float y, float w, const char *icon, Color ic, const char *title, int act, bool faces, bool *del)
 {
     bool on = F.active == act;
     if (on) ui_rect((Rectangle){ x - 8, y - 4, w + 16, 30 }, 8, ui_alpha(TH.accent, 0.12f));
     ui_icon(icon, x + 8, y + 11, 15, ic);
-    ui_text(F_SEMI, 14, title, x + 24, y + 2, TH.text);
-    float bw = ui_button_width(NULL, on ? "Done" : "Pick faces");
-    if (ui_button(ui_idn(ui_id("fea-pick"), act), (Rectangle){ x + w - bw - 36, y - 2, bw, 28 }, NULL, on ? "Done" : "Pick faces", on ? BTN_PRIMARY : BTN_GHOST))
-        { F.active = on ? -1 : act; F.dirty = true; }
+    ui_text_clip(F_SEMI, 14, title, x + 24, y + 2, w - 160, TH.text);
+    if (faces) {
+        float bw = ui_button_width(NULL, on ? "Done" : "Pick faces");
+        if (ui_button(ui_idn(ui_id("fea-pick"), act), (Rectangle){ x + w - bw - 36, y - 2, bw, 28 }, NULL, on ? "Done" : "Pick faces", on ? BTN_PRIMARY : BTN_GHOST))
+            { F.active = on ? -1 : act; F.dirty = true; }
+    }
     *del = ui_button(ui_idn(ui_id("fea-del"), act), (Rectangle){ x + w - 30, y - 2, 30, 28 }, ICON_TRASH_2, NULL, BTN_GHOST);
     return 32;
+}
+
+/* a number with its unit after it; true when changed (an empty or bad entry keeps the old value) */
+static bool fnum(const char *id, int k, float x, float y, float w, double *v, const char *unit, double lo, double hi)
+{
+    static char ed[512][32]; static UiId owner[512];
+    UiId uid = ui_idn(ui_id(id), k);
+    int slot = (int)(uid % 512);
+    if (owner[slot] != uid || !ui_input_focused(uid)) { pl_fmt_ui(ed[slot], sizeof ed[slot], "%.6g", *v); owner[slot] = uid; }
+    float uw = unit && *unit ? ui_text_w(F_REG, 13, unit) + 10 : 0;
+    bool ch = false;
+    if (ui_input(uid, (Rectangle){ x, y, w - uw, 32 }, ed[slot], sizeof ed[slot], NULL, INPUT_NUMERIC | INPUT_MONO)) {
+        char *e; double d = strtod(ed[slot], &e);
+        if (e != ed[slot] && d >= lo && d <= hi) { *v = d; ch = true; }
+        else ui_toast(TOAST_ERR, "Give a number from %g to %g", lo, hi);
+    }
+    if (uw > 0) ui_text(F_REG, 13, unit, x + w - uw + 8, y + 8, TH.text3);
+    return ch;
+}
+
+static float label_row(const char *lab, float x, float y, float lw) { ui_text_clip(F_MED, 13, lab, x, y + 8, lw - 8, TH.text2); return lw; }
+
+/* ---- what is asked: the analysis, as the question it answers */
+static const char *const AN_Q[AN__N] = {
+    "Will it break, and how far does it bend?", "Past yield, or bending a long way", "How does it vibrate, and at what frequencies?",
+    "At what load does it buckle?", "How hot does it get, and where?", "How much stress does heating cause?",
+    "A sudden load or a knock: how does it move?", "Shaken at a frequency: how much does it move?" };
+static const char *const AN_ICON[AN__N] = { ICON_ZAP, ICON_CHART_LINE, ICON_ORBIT, ICON_LAYERS, ICON_THERMOMETER, ICON_FLAME,
+                                            ICON_ACTIVITY, ICON_WAVES };
+static bool anOpen;                                    /* the eight shown (else the chosen one and Change) */
+static float analysis_cards(float x, float y, float w)
+{
+    float y0 = y;
+    y += section_head(x, y, w, "What do you want to find out?", NULL);
+    /* a study with supports, loads or heat already has its question: the chosen card alone, Change to see them all */
+    bool started = F.s.nFix || F.s.nLoad || F.s.nTh;
+    if (started && !anOpen) {
+        int a = F.s.analysis;
+        Rectangle r = { x, y, w, 46 };
+        ui_rect(r, 9, ui_alpha(TH.accent, 0.16f)); ui_rect_lines(r, 9, 2, TH.accent);
+        ui_icon(AN_ICON[a], r.x + 20, r.y + 23, 16, TH.accent);
+        ui_text_clip(F_SEMI, 13.5f, FE_AN_NAME[a], r.x + 40, r.y + 6, r.width - 150, TH.text);
+        ui_text_clip(F_REG, 12, AN_Q[a], r.x + 40, r.y + 25, r.width - 150, TH.text3);
+        ui_register(ui_idn(ui_id("fea-an"), a), r, FE_AN_NAME[a]);
+        float bw = ui_button_width(NULL, "Change");
+        if (ui_button(ui_id("fea-an-change"), (Rectangle){ r.x + r.width - bw - 8, r.y + 7, bw, 32 }, NULL, "Change", BTN_GHOST)) anOpen = true;
+        return y - y0 + 56;
+    }
+    for (int a = 0; a < AN__N; a++) {
+        Rectangle r = { x, y, w, 46 };
+        bool on = F.s.analysis == a, hov = ui_hovered(r);
+        UiId id = ui_idn(ui_id("fea-an"), a);
+        ui_register(id, r, FE_AN_NAME[a]);
+        ui_rect(r, 9, on ? ui_alpha(TH.accent, 0.16f) : hov ? TH.hover : TH.surface2);
+        if (on) ui_rect_lines(r, 9, 2, TH.accent);
+        ui_icon(AN_ICON[a], r.x + 20, r.y + 23, 16, on ? TH.accent : TH.text3);
+        ui_text_clip(F_SEMI, 13.5f, FE_AN_NAME[a], r.x + 40, r.y + 6, r.width - 50, on ? TH.text : TH.text2);
+        ui_text_clip(F_REG, 12, AN_Q[a], r.x + 40, r.y + 25, r.width - 50, TH.text3);
+        if (hov) ui_cursor(MOUSE_CURSOR_POINTING_HAND);
+        if (ui_clicked(r)) anOpen = false;
+        if (ui_clicked(r) && !on) {
+            F.s.analysis = a; F.active = -1;
+            if ((a == AN_DYNAMIC) && F.s.time >= 0.999 && F.s.time <= 1.001) F.s.time = 0.01;   /* a knock lasts milliseconds */
+            save_study();
+        }
+        y += 50;
+    }
+    return y - y0 + 6;
+}
+
+/* ---- the material: a library name, its values (the ones this analysis uses), editable */
+static float material_rows(float x, float y, float w)
+{
+    float y0 = y;
+    const char *names[32]; int n = 0, sel = 0;
+    for (int i = 0; i < CCX_LIB_N && n < 32; i++) { names[n] = CCX_LIB[i].name; if (!strcasecmp(CCX_LIB[i].name, F.s.material)) sel = n; n++; }
+    FeMatProps p; fe_study_props(&F.s, &p);
+    y += section_head(x, y, w, "Material", F.s.custom ? "Your values (the library's changed)" : "From the library: Edit values to change them");
+    if (ui_select(ui_id("fea-mat"), (Rectangle){ x, y, w - 120, 34 }, names, n, &sel)) {
+        pl_strlcpy(F.s.material, names[sel], sizeof F.s.material); F.s.custom = false; save_study();
+    }
+    bool edit = F.s.custom;
+    if (ui_button(ui_id("fea-mat-edit"), (Rectangle){ x + w - 112, y, 112, 34 }, NULL, edit ? "Library" : "Edit values", BTN_GHOST)) {
+        if (edit) F.s.custom = false; else { F.s.custom = true; F.s.props = p; }
+        save_study();
+    }
+    y += 44;
+    int an = F.s.analysis;
+    bool mech = fe_an_mechanical(an), therm = fe_an_thermal(an), dyn = an == AN_FREQUENCY || an == AN_DYNAMIC || an == AN_HARMONIC || an == AN_BUCKLE || (an == AN_HEAT && F.s.transient);
+    struct { const char *lab, *unit; double *v; double k, lo, hi; bool show; } R[] = {
+        { "Stiffness E", "GPa", &F.s.props.E, 1e9, 1e-6, 1e4, mech },
+        { "Poisson's ratio", "", &F.s.props.nu, 1, 0, 0.499, mech },
+        { "Density", "kg/m³", &F.s.props.rho, 1, 1e-3, 1e5, dyn || mech },
+        { "Yields at", "MPa", &F.s.props.yield, 1e6, 0, 1e5, mech },
+        { "Breaks at (UTS)", "MPa", &F.s.props.uts, 1e6, 0, 1e5, an == AN_NONLINEAR },
+        { "Stretches to (elongation)", "%", &F.s.props.elong, 0.01, 0, 1000, an == AN_NONLINEAR },
+        { "Conductivity", "W/(m K)", &F.s.props.k, 1, 1e-6, 1e4, therm },
+        { "Specific heat", "J/(kg K)", &F.s.props.cp, 1, 1e-3, 1e6, therm },
+        { "Expansion", "1e-6/K", &F.s.props.alpha, 1e-6, 0, 1e4, an == AN_THERMSTRESS },
+    };
+    FeMatProps shown = p;
+    double *sv[] = { &shown.E, &shown.nu, &shown.rho, &shown.yield, &shown.uts, &shown.elong, &shown.k, &shown.cp, &shown.alpha };
+    for (size_t i = 0; i < sizeof R / sizeof R[0]; i++) {
+        if (!R[i].show) continue;
+        label_row(R[i].lab, x + 8, y, 190);
+        if (edit) {
+            double v = *R[i].v / R[i].k;
+            if (fnum("fea-matv", (int)i, x + 190, y, w - 190, &v, R[i].unit, R[i].lo, R[i].hi)) { *R[i].v = v * R[i].k; save_study(); }
+            y += 38;
+        } else {
+            char t[64]; pl_fmt_ui(t, sizeof t, "%.4g %s", *sv[i] / R[i].k, R[i].unit);
+            ui_text(F_MONO, 13, t, x + 190, y + 8, TH.text);
+            y += 28;
+        }
+    }
+    return y - y0 + 10;
+}
+
+/* ---- the analysis's own settings */
+static float analysis_rows(float x, float y, float w)
+{
+    float y0 = y;
+    int an = F.s.analysis;
+    if (an == AN_STATIC) return 0;
+    y += section_head(x, y, w, "Settings", NULL);
+    float lw = 190;
+    if (an == AN_NONLINEAR) {
+        double n = F.s.inc > 0 ? 1 / F.s.inc : 10;
+        label_row("Load steps (at least)", x + 8, y, lw);
+        if (fnum("fea-inc", 0, x + lw, y, w - lw, &n, "", 2, 10000)) { F.s.inc = 1 / n; save_study(); }
+        y += 38;
+        y += ui_text_wrap(F_REG, 12.5f, "The load goes on in steps, with large deflection followed and the material yielding past its yield strength "
+                          "(bilinear: yield, then UTS at the elongation). CalculiX halves a step that won't converge.",
+                          (Rectangle){ x + 8, y, w - 8, 80 }, 18, TH.text3, true) + 8;
+    }
+    if (an == AN_FREQUENCY || an == AN_DYNAMIC || an == AN_HARMONIC || an == AN_BUCKLE) {
+        double m = F.s.modes;
+        label_row(an == AN_BUCKLE ? "Buckling shapes" : "Modes", x + 8, y, lw);
+        if (fnum("fea-modes", 0, x + lw, y, w - lw, &m, "", 1, an == AN_BUCKLE ? 10 : 200)) { F.s.modes = (int)m; save_study(); }
+        y += 38;
+    }
+    if (an == AN_HEAT || an == AN_THERMSTRESS) {
+        static const char *TM[2] = { "Steady", "In time" };
+        int tr = F.s.transient;
+        label_row("Time", x + 8, y, lw);
+        if (ui_segmented(ui_id("fea-trans"), (Rectangle){ x + lw, y, w - lw, 32 }, TM, 2, &tr)) { F.s.transient = tr; if (tr && F.s.time <= 1) F.s.time = 60; save_study(); }
+        y += 40;
+        label_row(an == AN_THERMSTRESS ? "Stress-free at" : "Starting at", x + 8, y, lw);
+        if (fnum("fea-T0", 0, x + lw, y, w - lw, &F.s.T0, "K", 0, 1e5)) save_study();
+        y += 38;
+    }
+    if ((an == AN_HEAT || an == AN_THERMSTRESS) && F.s.transient) {
+        label_row("For", x + 8, y, lw);
+        if (fnum("fea-time", 0, x + lw, y, w - lw, &F.s.time, "s", 1e-9, 1e9)) save_study();
+        y += 38;
+    }
+    if (an == AN_DYNAMIC) {
+        label_row("For", x + 8, y, lw);
+        if (fnum("fea-time", 1, x + lw, y, w - lw, &F.s.time, "s", 1e-9, 1e6)) save_study();
+        y += 38;
+        int a = F.s.amp;
+        label_row("The load", x + 8, y, lw);
+        static const char *AMP[AMP__N] = { "Steps on", "Ramps up", "A pulse" };
+        if (ui_segmented(ui_id("fea-amp"), (Rectangle){ x + lw, y, w - lw, 32 }, AMP, AMP__N, &a)) { F.s.amp = a; save_study(); }
+        y += 40;
+        if (F.s.amp != AMP_STEP) {
+            label_row(F.s.amp == AMP_RAMP ? "Rising over" : "Lasting", x + 8, y, lw);
+            if (fnum("fea-ampT", 0, x + lw, y, w - lw, &F.s.ampT, "s", 1e-9, 1e6)) save_study();
+            y += 38;
+        }
+    }
+    if (an == AN_HARMONIC) {
+        label_row("From", x + 8, y, lw);
+        if (fnum("fea-flo", 0, x + lw, y, w - lw, &F.s.fLo, "Hz", 0, 1e9)) save_study();
+        y += 38;
+        label_row("To", x + 8, y, lw);
+        if (fnum("fea-fhi", 0, x + lw, y, w - lw, &F.s.fHi, "Hz", 1e-6, 1e9)) save_study();
+        y += 38;
+        double np = F.s.nPts;
+        label_row("Points between modes", x + 8, y, lw);
+        if (fnum("fea-npts", 0, x + lw, y, w - lw, &np, "", 2, 1000)) { F.s.nPts = (int)np; save_study(); }
+        y += 38;
+    }
+    if (an == AN_DYNAMIC || an == AN_HARMONIC) {
+        double pc = F.s.damping * 100;
+        label_row("Damping", x + 8, y, lw);
+        if (fnum("fea-damp", 0, x + lw, y, w - lw, &pc, "% of critical", 0, 100)) { F.s.damping = pc / 100; save_study(); }
+        y += 38;
+        y += ui_text_wrap(F_REG, 12.5f, "Steel and aluminium parts on their own: 0.5 to 2 %; bolted assemblies 2 to 5 %; rubber mounts 5 to 15 %.",
+                          (Rectangle){ x + 8, y, w - 8, 60 }, 18, TH.text3, true) + 8;
+    }
+    return y - y0 + 6;
+}
+
+/* ---- supports */
+static float support_rows(float x, float y, float w)
+{
+    float y0 = y;
+    y += section_head(x, y, w, "Supports", F.s.analysis == AN_FREQUENCY ? "Where it is held (none: it vibrates free, with six zero modes)" : "Where the part is held: bolted, welded or resting.");
+    static const char *FXN[FX__N] = { "Fixed (can't move)", "Held in x only", "Held in y only", "Held in z only", "Roller (slides on the face)",
+                                       "Pin (turns, held round its axis)", "Moved a set distance" };
+    static const char *DIRA[6] = { "+x", "+y", "+z", "-x", "-y", "-z" };
+    for (int i = 0; i < F.s.nFix; i++) {
+        FeFixture *fx = &F.s.fix[i];
+        char ttl[64]; pl_fmt_ui(ttl, sizeof ttl, "Support %d", i + 1);
+        bool del = false;
+        y += item_head(x, y, w, ICON_SQUARE, (Color){ 45, 190, 160, 255 }, ttl, i, true, &del);
+        if (del) { memmove(&F.s.fix[i], &F.s.fix[i + 1], sizeof(FeFixture) * (size_t)(F.s.nFix - i - 1)); F.s.nFix--; F.active = -1; save_study(); break; }
+        int k = fx->kind;
+        if (ui_select(ui_idn(ui_id("fea-fxkind"), i), (Rectangle){ x + 24, y, w - 24, 32 }, FXN, FX__N, &k)) { fx->kind = k; if (k == FX_DISP && fx->dir < DIR_PX) fx->dir = DIR_PX; save_study(); }
+        y += 38;
+        if (fx->kind == FX_DISP) {
+            if (fnum("fea-fxv", i, x + 24, y, 140, &fx->value, "mm", -1e6, 1e6)) save_study();
+            int d = fx->dir >= DIR_PX ? fx->dir - 1 : 0;
+            if (ui_select(ui_idn(ui_id("fea-fxdir"), i), (Rectangle){ x + 174, y, w - 174, 32 }, DIRA, 6, &d)) { fx->dir = d + 1; save_study(); }
+            y += 38;
+        }
+        if (fx->kind == FX_PIN || fx->kind == FX_ROLLER) {
+            const char *why = NULL; double ax[3], c[3], R;
+            int g = fx->nf ? fe_group(&F.m, fx->face[0]) : -1;
+            if (fx->kind == FX_PIN && g >= 0 && !fe_cylinder(&F.m, g, ax, c, &R)) why = "A pin needs a round face (a hole or a shaft): this one isn't";
+            if (fx->kind == FX_ROLLER && g >= 0 && !F.m.gplanar[g]) why = "A roller holds a flat face square to itself: this one isn't flat";
+            if (why) y += ui_text_wrap(F_REG, 12.5f, why, (Rectangle){ x + 24, y, w - 24, 40 }, 18, TH.warn, true) + 4;
+            else if (fx->kind == FX_PIN && g >= 0) { char t[160]; pl_fmt_ui(t, sizeof t, "Round face: radius %.4g mm, axis (%.2f, %.2f, %.2f)", R, ax[0], ax[1], ax[2]);
+                ui_text_clip(F_REG, 12.5f, t, x + 24, y, w - 24, TH.text3); y += 20; }
+        }
+        y += faces_line(x + 24, y, w - 24, fx->face, fx->nf) + 14;
+    }
+    if (F.s.nFix < FE_MAXITEM && ui_button(ui_id("fea-addfix"), (Rectangle){ x, y, ui_button_width(ICON_PLUS, "Support"), 32 }, ICON_PLUS, "Support", BTN_SECONDARY)) {
+        FeFixture *fx = &F.s.fix[F.s.nFix++]; memset(fx, 0, sizeof *fx);
+        F.active = F.s.nFix - 1; save_study();
+    }
+    return y - y0 + 48;
+}
+
+/* ---- loads */
+static const char *const LD_TITLE[LD__N] = { "Force", "Pressure", "Gravity", "Rotation", "Bearing load", "Torque" };
+static const char *const LD_UNIT[LD__N] = { "N", "MPa", "m/s²", "rpm", "N", "N m" };
+static const char *const LD_ICON[LD__N] = { ICON_ZAP, ICON_GAUGE, ICON_ARROW_RIGHT, ICON_FAN, ICON_CIRCLE_DOT, ICON_ROTATE_CCW };
+static float load_rows(float x, float y, float w)
+{
+    float y0 = y;
+    y += section_head(x, y, w, F.s.analysis == AN_BUCKLE ? "Loads (the buckling load is a multiple of these)" : "Loads",
+                      "Forces in newtons, shared over the faces; pressures in MPa; gravity and rotation act on the whole part.");
+    static const char *DIRN[DIR__N] = { "Normal (into the face)", "+x", "+y", "+z", "-x", "-y", "-z" };
+    static const char *DIRA[6] = { "+x", "+y", "+z", "-x", "-y", "-z" };
+    for (int i = 0; i < F.s.nLoad; i++) {
+        FeLoad *d = &F.s.load[i];
+        char ttl[64]; pl_fmt_ui(ttl, sizeof ttl, "%s %d", LD_TITLE[d->kind], i + 1);
+        bool del = false, faces = d->kind != LD_GRAVITY && d->kind != LD_ROTATION;
+        y += item_head(x, y, w, LD_ICON[d->kind], (Color){ 245, 150, 50, 255 }, ttl, 100 + i, faces, &del);
+        if (del) { memmove(&F.s.load[i], &F.s.load[i + 1], sizeof(FeLoad) * (size_t)(F.s.nLoad - i - 1)); F.s.nLoad--; F.active = -1; save_study(); break; }
+        float vw = d->kind == LD_PRESSURE || d->kind == LD_TORQUE ? w - 24 : 160;
+        if (fnum("fea-val", i, x + 24, y, vw, &d->value, LD_UNIT[d->kind], -1e12, 1e12)) save_study();
+        if (d->kind == LD_FORCE) {
+            int dir = d->dir;
+            if (ui_select(ui_idn(ui_id("fea-dir"), i), (Rectangle){ x + 24 + vw + 10, y, w - 34 - vw, 32 }, DIRN, DIR__N, &dir)) { d->dir = dir; save_study(); }
+        } else if (d->kind == LD_GRAVITY || d->kind == LD_ROTATION || d->kind == LD_BEARING) {
+            int dir = d->dir >= DIR_PX ? d->dir - 1 : 2 + 3 * (d->kind == LD_GRAVITY);
+            if (d->dir < DIR_PX) { d->dir = dir + 1; save_study(); }
+            if (ui_select(ui_idn(ui_id("fea-dir"), i), (Rectangle){ x + 24 + vw + 10, y, w - 34 - vw, 32 }, DIRA, 6, &dir)) { d->dir = dir + 1; save_study(); }
+        }
+        y += 38;
+        if (d->kind == LD_ROTATION) {
+            label_row("About the axis through", x + 24, y, 170);
+            for (int q = 0; q < 3; q++) if (fnum("fea-pt", i * 3 + q, x + 194 + q * ((w - 194) / 3), y, (w - 194) / 3 - 6, &d->pt[q], q == 2 ? "mm" : "", -1e9, 1e9)) save_study();
+            y += 38;
+        }
+        if (d->kind == LD_GRAVITY) { y += ui_text_wrap(F_REG, 12.5f, "9.81 m/s² is Earth's; more for a part in a vehicle that accelerates or lands hard.",
+                                                       (Rectangle){ x + 24, y, w - 24, 40 }, 18, TH.text3, true) + 8; continue; }
+        if (d->kind == LD_ROTATION) continue;
+        if ((d->kind == LD_BEARING || d->kind == LD_TORQUE) && d->nf) {
+            double ax[3], c[3], R; int g = fe_group(&F.m, d->face[0]);
+            if (g >= 0 && !fe_cylinder(&F.m, g, ax, c, &R))
+                y += ui_text_wrap(F_REG, 12.5f, "This load needs a round face (a hole or a shaft): this one isn't", (Rectangle){ x + 24, y, w - 24, 40 }, 18, TH.warn, true) + 4;
+        }
+        y += faces_line(x + 24, y, w - 24, d->face, d->nf) + 14;
+    }
+    if (F.s.nLoad < FE_MAXITEM) {
+        float bx = x;
+        static const int ADD[] = { LD_FORCE, LD_PRESSURE, LD_GRAVITY, LD_ROTATION, LD_BEARING, LD_TORQUE };
+        static const double DEF[] = { 100, 1, 9.81, 3000, 1000, 10 };
+        for (int k = 0; k < 6; k++) {
+            float bw = ui_button_width(ICON_PLUS, LD_TITLE[ADD[k]]);
+            if (bx + bw > x + w) { bx = x; y += 38; }
+            if (ui_button(ui_idn(ui_id("fea-addload"), k), (Rectangle){ bx, y, bw, 32 }, ICON_PLUS, LD_TITLE[ADD[k]], BTN_SECONDARY)) {
+                FeLoad *d = &F.s.load[F.s.nLoad++]; memset(d, 0, sizeof *d); d->kind = ADD[k]; d->value = DEF[k];
+                d->dir = ADD[k] == LD_GRAVITY ? DIR_MZ : ADD[k] == LD_ROTATION ? DIR_PZ : ADD[k] == LD_BEARING ? DIR_MY : DIR_NORMAL;
+                F.active = ADD[k] == LD_GRAVITY || ADD[k] == LD_ROTATION ? -1 : 100 + F.s.nLoad - 1; save_study();
+            }
+            bx += bw + 8;
+        }
+    }
+    return y - y0 + 48;
+}
+
+/* ---- thermal conditions */
+static const char *const TH_TITLE[TH__N] = { "Temperature", "Heat flux in", "Convection", "Radiation", "Heat made inside" };
+static float thermal_rows(float x, float y, float w)
+{
+    float y0 = y;
+    y += section_head(x, y, w, "Heat", "Faces held at a temperature, heat coming in, convection and radiation to the surroundings, heat made inside (a coil, a chip).");
+    for (int i = 0; i < F.s.nTh; i++) {
+        FeThermal *t = &F.s.th[i];
+        char ttl[64]; pl_fmt_ui(ttl, sizeof ttl, "%s %d", TH_TITLE[t->kind], i + 1);
+        bool del = false, faces = t->kind != TH_HEATGEN;
+        y += item_head(x, y, w, ICON_THERMOMETER, (Color){ 230, 80, 90, 255 }, ttl, 200 + i, faces, &del);
+        if (del) { memmove(&F.s.th[i], &F.s.th[i + 1], sizeof(FeThermal) * (size_t)(F.s.nTh - i - 1)); F.s.nTh--; F.active = -1; save_study(); break; }
+        switch (t->kind) {
+        case TH_TEMP: if (fnum("fea-thv", i, x + 24, y, 160, &t->value, "K", 0, 1e5)) save_study();
+            { char c[48]; pl_fmt_ui(c, sizeof c, "= %.1f °C", t->value - 273.15); ui_text(F_REG, 13, c, x + 194, y + 8, TH.text3); } break;
+        case TH_FLUX: if (fnum("fea-thv", i, x + 24, y, 200, &t->value, "W/m²", -1e12, 1e12)) save_study(); break;
+        case TH_CONVECT:
+            if (fnum("fea-thv", i, x + 24, y, (w - 24) / 2 - 4, &t->value, "W/(m² K)", 0, 1e9)) save_study();
+            if (fnum("fea-tha", i, x + 24 + (w - 24) / 2, y, (w - 24) / 2, &t->value2, "K air", 0, 1e5)) save_study();
+            break;
+        case TH_RADIATE:
+            if (fnum("fea-thv", i, x + 24, y, (w - 24) / 2 - 4, &t->value, "emissivity", 0, 1)) save_study();
+            if (fnum("fea-tha", i, x + 24 + (w - 24) / 2, y, (w - 24) / 2, &t->value2, "K round", 0, 1e5)) save_study();
+            break;
+        default: if (fnum("fea-thv", i, x + 24, y, 200, &t->value, "W in all", -1e12, 1e12)) save_study(); break;
+        }
+        y += 38;
+        if (t->kind == TH_CONVECT) y += ui_text_wrap(F_REG, 12.5f, "Still air 5 to 25, a fan 25 to 250, water 500 to 10 000 W/(m² K).", (Rectangle){ x + 24, y, w - 24, 40 }, 18, TH.text3, true) + 6;
+        if (faces) y += faces_line(x + 24, y, w - 24, t->face, t->nf) + 14;
+        else y += 8;
+    }
+    if (F.s.nTh < FE_MAXITEM) {
+        float bx = x;
+        static const double DEF[TH__N] = { 373.15, 10000, 20, 0.9, 10 };
+        for (int k = 0; k < TH__N; k++) {
+            float bw = ui_button_width(ICON_PLUS, TH_TITLE[k]);
+            if (bx + bw > x + w) { bx = x; y += 38; }
+            if (ui_button(ui_idn(ui_id("fea-addth"), k), (Rectangle){ bx, y, bw, 32 }, ICON_PLUS, TH_TITLE[k], BTN_SECONDARY)) {
+                FeThermal *t = &F.s.th[F.s.nTh++]; memset(t, 0, sizeof *t); t->kind = k; t->value = DEF[k]; t->value2 = 293.15;
+                F.active = k == TH_HEATGEN ? -1 : 200 + F.s.nTh - 1; save_study();
+            }
+            bx += bw + 8;
+        }
+    }
+    return y - y0 + 48;
 }
 
 void fea_setup_page(Rectangle r)
@@ -520,7 +872,7 @@ void fea_setup_page(Rectangle r)
     if (!c) return;
     fea_sync(c->s.path);
     if (mesh_busy()) ui_request_frames(30);
-    float lw = fminf(430, r.width * 0.36f);
+    float lw = fminf(470, r.width * 0.38f);
     Rectangle left = { r.x, r.y, lw, r.height };
     DrawRectangleRec((Rectangle){ r.x + lw - 1, r.y, 1, r.height }, TH.lineSoft);
     static UiScroll sc;
@@ -528,6 +880,7 @@ void fea_setup_page(Rectangle r)
     float x = left.x + 26, w = lw - 52, y = top + 26;
     ui_text(F_SEMI, TH.lcars ? 26 : 20, ui_cap("Study"), x, y - (TH.lcars ? 3 : 0), head_color()); y += 38;
     char t[400];
+    y += analysis_cards(x, y, w);
     /* ---- the part and its mesh */
     if (F.ok) pl_fmt_ui(t, sizeof t, "%s · %.4g x %.4g x %.4g mm · %d nodes, %d %s", F.s.part, F.m.hi[0] - F.m.lo[0], F.m.hi[1] - F.m.lo[1], F.m.hi[2] - F.m.lo[2],
                         F.m.n, F.m.ne, F.m.ne && femesh_ccx_type(F.m.ek[0]) ? femesh_ccx_type(F.m.ek[0]) : "elements");
@@ -565,81 +918,23 @@ void fea_setup_page(Rectangle r)
         if (ui_button(ui_id("fea-mesh"), (Rectangle){ x, y, w, 38 }, ICON_BOXES, lab, F.ok ? BTN_SECONDARY : BTN_PRIMARY)) fea_mesh_start(c->s.path);
         y += 50;
     }
-    /* ---- material */
-    {
-        const char *names[32]; int n = 0, sel = 0;
-        for (int i = 0; i < CCX_LIB_N && n < 32; i++) { names[n] = CCX_LIB[i].name; if (!strcasecmp(CCX_LIB[i].name, F.s.material)) sel = n; n++; }
-        int lib = sel;
-        pl_fmt_ui(t, sizeof t, "E %.4g GPa · Poisson %.2g · yields at %.0f MPa", CCX_LIB[lib].E / 1e9, CCX_LIB[lib].nu, CCX_LIB[lib].yield / 1e6);
-        y += section_head(x, y, w, "Material", t);
-        if (ui_select(ui_id("fea-mat"), (Rectangle){ x, y, w, 34 }, names, n, &sel)) { pl_strlcpy(F.s.material, names[sel], sizeof F.s.material); save_study(); }
-        y += 50;
-    }
-    /* ---- fixtures */
-    y += section_head(x, y, w, "Fixtures", "Where the part is held: bolted, welded or resting.");
-    static const char *FXN[FX__N] = { "Fixed (can't move)", "Held in x only", "Held in y only", "Held in z only", "Roller (slides on the face)",
-                                       "Pin (turns, held round its axis)", "Moved a set distance" };
-    for (int i = 0; i < F.s.nFix; i++) {
-        FeFixture *fx = &F.s.fix[i];
-        char ttl[64]; pl_fmt_ui(ttl, sizeof ttl, "Fixture %d", i + 1);
-        bool del = false;
-        y += item_head(x, y, w, ICON_SQUARE, (Color){ 45, 190, 160, 255 }, ttl, i, &del);
-        if (del) { memmove(&F.s.fix[i], &F.s.fix[i + 1], sizeof(FeFixture) * (size_t)(F.s.nFix - i - 1)); F.s.nFix--; F.active = -1; save_study(); break; }
-        int k = fx->kind;
-        if (ui_select(ui_idn(ui_id("fea-fxkind"), i), (Rectangle){ x + 24, y, w - 24, 32 }, FXN, FX__N, &k)) { fx->kind = k; save_study(); }
-        y += 38;
-        y += faces_line(x + 24, y, w - 24, fx->face, fx->nf) + 14;
-    }
-    if (F.s.nFix < FE_MAXITEM && ui_button(ui_id("fea-addfix"), (Rectangle){ x, y, ui_button_width(ICON_PLUS, "Fixture"), 32 }, ICON_PLUS, "Fixture", BTN_SECONDARY)) {
-        FeFixture *fx = &F.s.fix[F.s.nFix++]; memset(fx, 0, sizeof *fx);
-        F.active = F.s.nFix - 1; save_study();
-    }
-    y += 48;
-    /* ---- loads */
-    y += section_head(x, y, w, "Loads", "Forces in newtons, shared over the faces; pressures in MPa.");
-    static const char *DIRN[DIR__N] = { "Normal (into the face)", "+x", "+y", "+z", "-x", "-y", "-z" };
-    static char edit[FE_MAXITEM][32];
-    for (int i = 0; i < F.s.nLoad; i++) {
-        FeLoad *d = &F.s.load[i];
-        char ttl[64]; pl_fmt_ui(ttl, sizeof ttl, "%s %d", d->kind == LD_PRESSURE ? "Pressure" : "Force", i + 1);
-        bool del = false;
-        y += item_head(x, y, w, d->kind == LD_PRESSURE ? ICON_GAUGE : ICON_ZAP, (Color){ 245, 150, 50, 255 }, ttl, 100 + i, &del);
-        if (del) { memmove(&F.s.load[i], &F.s.load[i + 1], sizeof(FeLoad) * (size_t)(F.s.nLoad - i - 1)); F.s.nLoad--; F.active = -1; save_study(); break; }
-        UiId vid = ui_idn(ui_id("fea-val"), i);
-        if (!ui_input_focused(vid)) pl_fmt_ui(edit[i], sizeof edit[i], "%g", d->value);
-        float vw = d->kind == LD_FORCE ? 110 : w - 24 - 50;
-        if (ui_input(vid, (Rectangle){ x + 24, y, vw, 32 }, edit[i], sizeof edit[i], NULL, INPUT_NUMERIC | INPUT_MONO)) { d->value = atof(edit[i]); save_study(); }
-        ui_text(F_REG, 13, d->kind == LD_FORCE ? "N" : "MPa", x + 24 + vw + 8, y + 8, TH.text3);
-        if (d->kind == LD_FORCE) {
-            int dir = d->dir;
-            if (ui_select(ui_idn(ui_id("fea-dir"), i), (Rectangle){ x + 24 + vw + 30, y, w - 24 - vw - 30, 32 }, DIRN, DIR__N, &dir)) { d->dir = dir; save_study(); }
-        }
-        y += 38;
-        y += faces_line(x + 24, y, w - 24, d->face, d->nf) + 14;
-    }
-    if (F.s.nLoad < FE_MAXITEM) {
-        float bw = ui_button_width(ICON_PLUS, "Force");
-        if (ui_button(ui_id("fea-addforce"), (Rectangle){ x, y, bw, 32 }, ICON_PLUS, "Force", BTN_SECONDARY)) {
-            FeLoad *d = &F.s.load[F.s.nLoad++]; memset(d, 0, sizeof *d); d->kind = LD_FORCE; d->value = 100; d->dir = DIR_NORMAL;
-            F.active = 100 + F.s.nLoad - 1; save_study();
-        }
-        float bw2 = ui_button_width(ICON_PLUS, "Pressure");
-        if (ui_button(ui_id("fea-addpress"), (Rectangle){ x + bw + 8, y, bw2, 32 }, ICON_PLUS, "Pressure", BTN_SECONDARY)) {
-            FeLoad *d = &F.s.load[F.s.nLoad++]; memset(d, 0, sizeof *d); d->kind = LD_PRESSURE; d->value = 1;
-            F.active = 100 + F.s.nLoad - 1; save_study();
-        }
-    }
-    y += 48;
+    y += material_rows(x, y, w);
+    y += analysis_rows(x, y, w);
+    if (fe_an_mechanical(F.s.analysis)) { y += support_rows(x, y, w); if (F.s.analysis != AN_FREQUENCY) y += load_rows(x, y, w); }
+    if (fe_an_thermal(F.s.analysis)) y += thermal_rows(x, y, w);
     /* ---- ready? */
     if (F.ok) {
         FeSummary sum; fe_study_summary(&F.s, &F.m, &sum);
         if (sum.problem[0]) {
             float ch = callout_height(w, NULL, sum.problem);
             callout((Rectangle){ x, y, w, ch }, TOAST_WARN, ICON_TRIANGLE_ALERT, NULL, sum.problem);
+            ui_register(ui_id("fea-problem"), (Rectangle){ x, y, w, ch }, sum.problem);
             y += ch + 12;
         } else {
             double fm = sqrt(sum.force[0] * sum.force[0] + sum.force[1] * sum.force[1] + sum.force[2] * sum.force[2]);
-            pl_fmt_ui(t, sizeof t, "Ready: %.4g N in all (%.4g, %.4g, %.4g) on %d nodes; %d nodes held", fm, sum.force[0], sum.force[1], sum.force[2], sum.loadedNodes, sum.fixedNodes);
+            if (fe_an_mechanical(F.s.analysis) && F.s.analysis != AN_FREQUENCY)
+                pl_fmt_ui(t, sizeof t, "Ready: %s; face loads %.4g N in all (%.4g, %.4g, %.4g); %d nodes held", FE_AN_NAME[F.s.analysis], fm, sum.force[0], sum.force[1], sum.force[2], sum.fixedNodes);
+            else pl_fmt_ui(t, sizeof t, "Ready: %s", FE_AN_NAME[F.s.analysis]);
             ui_icon(ICON_CIRCLE_CHECK, x + 8, y + 9, 14, TH.ok);
             y += ui_text_wrap(F_REG, 13, t, (Rectangle){ x + 24, y, w - 24, 60 }, 19, TH.text2, true) + 10;
         }
@@ -659,14 +954,15 @@ void fea_setup_page(Rectangle r)
         return;
     }
     F.results = false;
-    if (F.active >= 0) {
-        bool load = F.active >= 100;
-        pl_fmt_ui(t, sizeof t, "Picking faces for %s %d: click a face to add it, again to take it off", load ? (F.s.load[F.active - 100].kind == LD_PRESSURE ? "Pressure" : "Force") : "Fixture",
-                  (load ? F.active - 100 : F.active) + 1);
+    int *nf; char (*fc)[64] = active_faces(&nf);
+    if (fc) {
+        const char *what = F.active >= 200 ? TH_TITLE[F.s.th[F.active - 200].kind] : F.active >= 100 ? LD_TITLE[F.s.load[F.active - 100].kind] : "Support";
+        int idx = (F.active >= 200 ? F.active - 200 : F.active >= 100 ? F.active - 100 : F.active) + 1;
+        pl_fmt_ui(t, sizeof t, "Picking faces for %s %d: click a face to add it, again to take it off", what, idx);
         ui_text_clip(F_MED, 13.5f, t, vr.x, vr.y - 2, vr.width, TH.accent);
         vr.y += 22; vr.height -= 22;
-    }
-    view(vr, F.active >= 0);
+    } else if (F.active >= 0) F.active = -1;
+    view(vr, fc != NULL);
 }
 
 /* ============================================================================ Results */

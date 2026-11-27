@@ -135,7 +135,7 @@ static int fixtures(const char *root, const char *scratch)
             ProgCheck ck[16]; int nc = prog_checks(t->prog, d, in.names[0], ck, 16);
             for (int k = 0; k < nc; k++) {
                 printf("  %s/%s check: [%d] %s\n", prog_info(t->prog)->key, t->id, ck[k].sev, ck[k].text);
-                CHECK(ck[k].sev < 2 || strstr(ck[k].text, "not installed") || strstr(ck[k].text, "No MOOSE") || strstr(ck[k].text, "not on the PATH"),
+                CHECK(ck[k].sev < 2 || strstr(ck[k].text, "not installed") || strstr(ck[k].text, "is not built") || strstr(ck[k].text, "No MOOSE") || strstr(ck[k].text, "not on the PATH"),
                       "template %s/%s has a blocking problem: %s", prog_info(t->prog)->key, t->id, ck[k].text);
             }
         }

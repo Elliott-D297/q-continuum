@@ -105,7 +105,7 @@ configure_file(${QC_ASSETS_C}.tmp ${QC_ASSETS_C} COPYONLY)
 
 # ---------------------------------------------------------------- core (no graphics) + app
 add_library(qc_core STATIC
-  src/pl_util.c src/foamdict.c src/foamcase.c src/runner.c src/env.c src/xmlspan.c src/coupling.c src/safety.c src/precheck.c src/monitor.c src/xsection.c src/explain.c src/physics.c src/fieldinfo.c src/redalert.c src/sweep.c src/demeparams.c src/program.c src/params.c src/textdiff.c src/runlog.c src/plume.c src/cplbuild.c src/stlmesh.c src/meshopts.c src/meshexamples.c src/simsetup.c src/simmodels.c src/qjson.c src/ccxmodel.c src/femesh.c src/festudy.c src/progblank.c src/glossary.c src/working.c src/calc.c src/quality.c src/bmesh.c src/extrude.c src/viz.c src/meshadvice.c src/gci.c src/meshtools.c src/allrun.c src/runctl.c
+  src/pl_util.c src/foamdict.c src/foamcase.c src/runner.c src/env.c src/xmlspan.c src/coupling.c src/safety.c src/precheck.c src/monitor.c src/xsection.c src/explain.c src/physics.c src/fieldinfo.c src/redalert.c src/sweep.c src/demeparams.c src/program.c src/params.c src/textdiff.c src/runlog.c src/plume.c src/cplbuild.c src/stlmesh.c src/meshopts.c src/meshexamples.c src/simsetup.c src/simmodels.c src/qjson.c src/ccxmodel.c src/femesh.c src/festudy.c src/progblank.c src/glossary.c src/working.c src/calc.c src/quality.c src/bmesh.c src/extrude.c src/viz.c src/meshadvice.c src/gci.c src/meshtools.c src/allrun.c src/runctl.c src/chtsetup.c
   ${QC_ASSETS_C})   # the embedded fonts and starters (program.c writes the Chrono starter)
 target_include_directories(qc_core PUBLIC src)
 target_link_libraries(qc_core PUBLIC m)
@@ -165,7 +165,7 @@ function(qc_unit name)
   target_link_libraries(${name} PRIVATE qc_core m)
   qc_target(${name})
 endfunction()
-foreach(t test_foamdict test_logparse test_xml test_coupling test_sync test_tutorials test_oracle test_props test_dictsem test_units test_explain test_sweep test_deme test_program test_params test_textdiff test_plume test_cplbuild test_monitor test_simsetup test_stlmesh test_qjson test_xsection test_meshverdict test_meshopts test_ccxmodel test_femesh test_glossary test_calc test_quality test_bmesh test_extrude test_viz test_meshadvice test_gci test_meshtools test_runctl)
+foreach(t test_foamdict test_logparse test_xml test_coupling test_sync test_tutorials test_oracle test_props test_dictsem test_units test_explain test_sweep test_deme test_program test_params test_textdiff test_plume test_cplbuild test_monitor test_simsetup test_stlmesh test_qjson test_xsection test_meshverdict test_meshopts test_ccxmodel test_femesh test_glossary test_calc test_quality test_bmesh test_extrude test_viz test_meshadvice test_gci test_meshtools test_runctl test_cht)
   qc_unit(${t})
 endforeach()
 target_compile_definitions(test_units PRIVATE QC_LOG_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/logs")
@@ -349,3 +349,8 @@ add_test(NAME runctl COMMAND test_runctl ${QC_TUTORIALS}/incompressible/icoFoam/
 add_test(NAME runctl_pimple COMMAND bash -c "source ${QC_FOAM_GUESS}/etc/bashrc >/dev/null 2>&1; d=$(mktemp -d ${QC_SCRATCH}/rcp.XXXXXX) && for t in icoFoam/cavity/cavity pisoFoam/RAS/cavity; do $<TARGET_FILE:test_runctl> ${QC_TUTORIALS}/incompressible/$t $d >/dev/null || exit 1; foamDictionary -entry endTime -set 0.1 $d/rc_case/system/controlDict >/dev/null && foamDictionary -entry writeInterval -set 0.05 $d/rc_case/system/controlDict >/dev/null && (cd $d/rc_case && { [ -d 0 ] || cp -r 0.orig 0; } && blockMesh >log.blockMesh 2>&1 && pimpleFoam >log.pimpleFoam 2>&1) || { tail -20 $d/rc_case/log.pimpleFoam; exit 1; }; grep -q '^deltaT = ' $d/rc_case/log.pimpleFoam || exit 1; ls $d/rc_case | grep -q '^0.05$' || { echo no write at 0.05; exit 1; }; done")
 set_tests_properties(runctl PROPERTIES LABELS fast)
 set_tests_properties(runctl_pimple PROPERTIES LABELS full DEPENDS runctl)
+# conjugate heat transfer from choices (improvement plan A2): the files written; two cases run against hand-worked answers
+add_test(NAME cht COMMAND test_cht unit ${QC_SCRATCH})
+set_tests_properties(cht PROPERTIES LABELS fast)
+add_test(NAME cht_openfoam COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tests/cht_openfoam.sh $<TARGET_FILE:test_cht> ${QC_BASHRC} ${QC_SCRATCH})
+set_tests_properties(cht_openfoam PROPERTIES LABELS full TIMEOUT 900 SKIP_RETURN_CODE 77 DEPENDS cht)

@@ -23,7 +23,7 @@ wait 10
 assert text 1 face,
 click fea-pick#0
 wait 5
-click fea-addforce
+click fea-addload#0
 wait 10
 clickat fea-view 0.5 0.26
 wait 10
@@ -32,7 +32,7 @@ key A ctrl
 enter 1000
 wait 10
 assert log study.ini value = 1000
-assert text Ready: 1000 N in all
+assert text Ready: Static stress; face loads 1000 N in all
 screenshot $OUT/fea_ready.png
 click fea-run
 wait-until page Run timeout 10

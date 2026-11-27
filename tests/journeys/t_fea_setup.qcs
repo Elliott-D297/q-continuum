@@ -1,0 +1,85 @@
+# Improvement plan B2: the part study's Setup page for every analysis. The flange STEP meshed in SALOME; a heat study (a face
+# held at 373 K, convection on another), run; a frequency study (the base held), run; the settings of the nonlinear, dynamic
+# and harmonic studies looked at.
+shell cp "$QC_TESTS/tools/flange_mm.step" $SB/flange.step
+action go.new
+wait-until page New case
+click new-prog:calculix
+wait 5
+click label:A part from a file
+wait 5
+click np-part-path
+type $SB/flange.step
+wait 5
+click clone-go
+wait-until page Setup timeout 10
+wait-until widget fea-view timeout 180
+wait 30
+# heat: a face held hot, convection on the boss's top
+click fea-an#4
+wait 5
+assert text Nothing sets a temperature
+click fea-addth#0
+wait 5
+clickat fea-view 0.5 0.83
+wait 10
+click fea-pick#200
+wait 5
+click fea-addth#2
+wait 5
+clickat fea-view 0.5 0.26
+wait 10
+click fea-pick#201
+wait 5
+screenshot $OUT/fea_heat.png
+assert text Ready: Heat conduction
+assert log study.ini analysis = heat
+click fea-run
+wait-until page Run timeout 10
+wait-until job finished timeout 300
+wait 20
+assert log study.inp *HEAT TRANSFER, STEADY STATE
+assert log study.inp *FILM
+assert file study.frd
+click nav:setup
+wait-until page Setup
+wait 10
+# natural frequencies: the base rim held (the list folded once the study had conditions: Change opens it)
+click fea-an-change
+wait 3
+click fea-an#2
+wait 5
+click fea-addfix
+wait 5
+clickat fea-view 0.5 0.83
+wait 10
+click fea-pick#0
+wait 5
+screenshot $OUT/fea_frequency.png
+assert text Ready: Natural frequencies
+click fea-run
+wait-until page Run timeout 10
+wait-until job finished timeout 300
+wait 20
+assert log study.inp *FREQUENCY, STORAGE=YES
+click nav:setup
+wait-until page Setup
+wait 10
+click fea-an-change
+wait 3
+click fea-an#1
+wait 5
+assert text Load steps
+screenshot $OUT/fea_nonlinear.png
+click fea-an-change
+wait 3
+click fea-an#6
+wait 5
+assert text The load
+screenshot $OUT/fea_dynamic.png
+click fea-an-change
+wait 3
+click fea-an#7
+wait 5
+assert text Points between modes
+screenshot $OUT/fea_harmonic.png

@@ -70,7 +70,7 @@ static HKey *hash_get(Hash *h, const int *v, bool add)
 /* ---------------------------------------------------------------- reading */
 void femesh_free(FeMesh *m)
 {
-    free(m->id); free(m->x); free(m->ek); free(m->en); free(m->fk); free(m->fn); free(m->fg); free(m->fe);
+    free(m->id); free(m->x); free(m->ek); free(m->en); free(m->fk); free(m->fn); free(m->fg); free(m->fe); free(m->fl);
     free(m->gname); free(m->garea); free(m->gnorm); free(m->gcen); free(m->gplanar);
     memset(m, 0, sizeof *m);
 }
@@ -218,7 +218,8 @@ bool femesh_load(const char *path, FeMesh *m, char *err, int cap)
         }
     }
     int fcap = 1024; m->fk = malloc((size_t)fcap); m->fn = malloc(sizeof(int) * 8 * (size_t)fcap); m->fe = malloc(sizeof(int) * (size_t)fcap);
-    if (!m->fk || !m->fn || !m->fe) { free(h.t); goto nomem; }
+    m->fl = malloc((size_t)fcap);
+    if (!m->fk || !m->fn || !m->fe || !m->fl) { free(h.t); goto nomem; }
     for (size_t i = 0; i < h.cap; i++) {
         HKey *k = &h.t[i];
         if (k->v[0] == -2 || k->val2 == -3) continue;
@@ -233,7 +234,9 @@ bool femesh_load(const char *path, FeMesh *m, char *err, int cap)
             q = realloc(m->fn, sizeof(int) * 8 * (size_t)nc); if (!q) { free(h.t); goto nomem; }
             m->fn = q;
             q = realloc(m->fe, sizeof(int) * (size_t)nc); if (!q) { free(h.t); goto nomem; }
-            m->fe = q; fcap = nc;
+            m->fe = q;
+            q = realloc(m->fl, (size_t)nc); if (!q) { free(h.t); goto nomem; }
+            m->fl = q; fcap = nc;
         }
         int *o = &m->fn[8 * m->nf];
         int lc[4]; for (int j = 0; j < c; j++) lc[j] = s.face[4 * f + j];
@@ -255,7 +258,7 @@ bool femesh_load(const char *path, FeMesh *m, char *err, int cap)
             }
             fk = 2 * c;
         }
-        m->fk[m->nf] = (unsigned char)fk; m->fe[m->nf] = e; m->nf++;
+        m->fk[m->nf] = (unsigned char)fk; m->fe[m->nf] = e; m->fl[m->nf] = (unsigned char)(f + 1); m->nf++;
     }
     free(h.t);
     m->fg = malloc(sizeof(int) * (size_t)(m->nf + 1));

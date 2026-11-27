@@ -577,7 +577,8 @@ void fea_setup_page(Rectangle r)
     }
     /* ---- fixtures */
     y += section_head(x, y, w, "Fixtures", "Where the part is held: bolted, welded or resting.");
-    static const char *FXN[FX__N] = { "Fixed (can't move)", "Held in x only", "Held in y only", "Held in z only" };
+    static const char *FXN[FX__N] = { "Fixed (can't move)", "Held in x only", "Held in y only", "Held in z only", "Roller (slides on the face)",
+                                       "Pin (turns, held round its axis)", "Moved a set distance" };
     for (int i = 0; i < F.s.nFix; i++) {
         FeFixture *fx = &F.s.fix[i];
         char ttl[64]; pl_fmt_ui(ttl, sizeof ttl, "Fixture %d", i + 1);

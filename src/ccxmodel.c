@@ -13,11 +13,17 @@
 #include "pl_util.h"
 
 const CcxLibMat CCX_LIB[] = {
-    { "Structural steel",          210e9,   0.30,  7850, 50,   460, 12e-6,   250e6 },
-    { "Stainless steel 304",       193e9,   0.29,  8000, 16.2, 500, 17.3e-6, 215e6 },
-    { "Aluminium 6061-T6",         68.9e9,  0.33,  2700, 167,  896, 23.6e-6, 276e6 },
-    { "Titanium Ti-6Al-4V",        113.8e9, 0.342, 4430, 6.7,  526, 8.6e-6,  880e6 },
-    { "Copper",                    117e9,   0.34,  8960, 401,  385, 16.5e-6, 70e6 },
+    /* name                       E        nu     rho   k     cp   alpha    yield   uts     elong: MatWeb / ASM typical values */
+    { "Structural steel",          210e9,   0.30,  7850, 50,   460, 12e-6,   250e6,  400e6,  0.21 },
+    { "Stainless steel 304",       193e9,   0.29,  8000, 16.2, 500, 17.3e-6, 215e6,  505e6,  0.40 },
+    { "Aluminium 6061-T6",         68.9e9,  0.33,  2700, 167,  896, 23.6e-6, 276e6,  310e6,  0.12 },
+    { "Titanium Ti-6Al-4V",        113.8e9, 0.342, 4430, 6.7,  526, 8.6e-6,  880e6,  950e6,  0.14 },
+    { "Copper",                    117e9,   0.34,  8960, 401,  385, 16.5e-6, 70e6,   220e6,  0.45 },
+    { "Cast iron (grey)",          110e9,   0.26,  7200, 46,   490, 11e-6,   150e6,  200e6,  0.01 },
+    { "Brass C36000",              97e9,    0.31,  8500, 115,  380, 20.5e-6, 124e6,  338e6,  0.53 },
+    { "Aluminium 7075-T6",         71.7e9,  0.33,  2810, 130,  960, 23.6e-6, 503e6,  572e6,  0.11 },
+    { "ABS plastic",               2.3e9,   0.35,  1050, 0.17, 1400, 90e-6,  40e6,   44e6,   0.10 },
+    { "Nylon 6/6",                 2.8e9,   0.39,  1140, 0.25, 1670, 80e-6,  60e6,   75e6,   0.30 },
 };
 const int CCX_LIB_N = (int)(sizeof CCX_LIB / sizeof CCX_LIB[0]);
 

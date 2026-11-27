@@ -53,7 +53,8 @@ const char *ccx_dof_name(int dof);                         /* "x", "y", "z", "ro
 const char *ccx_analysis_name(int a);
 
 /* the materials Setup offers, in SI (Pa, kg/m³, W/(m K), J/(kg K), 1/K, Pa yield) */
-typedef struct { const char *name; double E, nu, rho, k, cp, alpha, yield; } CcxLibMat;
+/* plan B1: uts (Pa) and elong (strain at fracture) give the bilinear plastic curve of a nonlinear study */
+typedef struct { const char *name; double E, nu, rho, k, cp, alpha, yield, uts, elong; } CcxLibMat;
 extern const CcxLibMat CCX_LIB[];
 extern const int CCX_LIB_N;
 int  ccx_lib_match(const CcxMat *m, int units);            /* the library material whose E and density these are, -1 none */

@@ -7,7 +7,7 @@
  * <case>/mesher/mesher.ini (stlmesh.c), which SALOME's script reads too.
  * The tab is a flow (user request, 2026-10-26): Geometry > Flow > Boundaries > Mesh settings > Generate, one step open at
  * a time, each the next one's way in; a step done folds to a line saying what was chosen. How far a case has got is in
- * <case>/mesher/steps. Everything here belongs to the case it was loaded for (T.casePath): a case switch drops it all,
+ * <case>/mesher/steps. Everything here belongs to the case it was loaded for (STLP.casePath): a case switch drops it all,
  * the file dialog's answer included when the case changed while it was open.
  */
 #define _GNU_SOURCE
@@ -32,36 +32,19 @@
 #include "page_meshadv.h"
 #include "meshexamples.h"
 #include "salometool.h"
+#include "page_stlmesh_int.h"
 
-static struct {
-    char   casePath[PL_PATH];   /* the case S and M belong to          */
-    Stl    stl;
-    MeshCfg m;
-    bool   loaded, dirty;
-    pid_t  picker;              /* the file dialog, while it is open   */
-    char   pickOut[PL_PATH];
-    bool   pickNewCase;         /* the pick makes a new case (Cases page) */
-    bool   pickLoc;             /* the next click on the part in the view sets the point in the fluid (Flow) */
-    char   pickCase[PL_PATH];   /* else the case it was opened for     */
-    int    sel;                 /* the boundary picked (-1 none)       */
-    int    reached, open;       /* the flow: the furthest step got to, the one unfolded (ST_*) */
-    bool   adv;                 /* Mesh settings: the advanced ones shown */
-    char   typed[PL_PATH];      /* the path field, for casePath only   */
-    unsigned gen;               /* bumped on each case switch          */
-    double removeArm;           /* Remove STL: the first click's time  */
-    int    scrollTo;            /* a step was opened: bring its head up, a frame on (once the one before has folded) */
-} T = { .picker = -1, .sel = -1 };
+StlPage STLP = { .picker = -1, .sel = -1 };            /* the STL mesher page's state (page_stlmesh_int.h) */
 
-enum { ST_GEOM, ST_FLOW, ST_BOUND, ST_MESH, ST_GEN, ST__N };
 
 /* ============================================================================ the flow's progress: mesher/steps */
 static void steps_save(void)
 {
-    if (!T.casePath[0] || !T.loaded) return;
+    if (!STLP.casePath[0] || !STLP.loaded) return;
     char p[PL_PATH], d[PL_PATH], b[32];
-    pl_join(d, sizeof d, T.casePath, "mesher");
+    pl_join(d, sizeof d, STLP.casePath, "mesher");
     pl_join(p, sizeof p, d, "steps");
-    snprintf(b, sizeof b, "%d %d\n", T.reached, T.open);
+    snprintf(b, sizeof b, "%d %d\n", STLP.reached, STLP.open);
     char *old = pl_read_file(p, NULL);
     bool same = old && !strcmp(old, b);
     free(old);
@@ -71,32 +54,32 @@ static void steps_save(void)
 /* a case meshed from an STL before there was a flow opens with every step there */
 static void steps_load(const Case *c)
 {
-    T.reached = T.open = ST_GEOM;
-    if (!T.loaded) return;
+    STLP.reached = STLP.open = ST_GEOM;
+    if (!STLP.loaded) return;
     char p[PL_PATH]; pl_join(p, sizeof p, c->s.path, "mesher/steps");
     char *b = pl_read_file(p, NULL);
-    if (!b || sscanf(b, "%d %d", &T.reached, &T.open) != 2) { T.reached = ST_GEN; T.open = c->s.meshed ? ST_GEN : ST_MESH; }
+    if (!b || sscanf(b, "%d %d", &STLP.reached, &STLP.open) != 2) { STLP.reached = ST_GEN; STLP.open = c->s.meshed ? ST_GEN : ST_MESH; }
     free(b);
-    if (T.reached < 0 || T.reached >= ST__N) T.reached = ST_GEN;
-    if (T.open < 0 || T.open > T.reached) T.open = T.reached;
+    if (STLP.reached < 0 || STLP.reached >= ST__N) STLP.reached = ST_GEN;
+    if (STLP.open < 0 || STLP.open > STLP.reached) STLP.open = STLP.reached;
 }
 
 static void step_open(int k)
 {
     if (k < 0 || k >= ST__N) return;
-    if (k > T.reached) T.reached = k;
-    T.open = k;
-    T.scrollTo = 2;
+    if (k > STLP.reached) STLP.reached = k;
+    STLP.open = k;
+    STLP.scrollTo = 2;
     steps_save();
 }
 
 /* ============================================================================ loading */
-static void save_cfg(void)
+void sm_save_cfg(void)
 {
-    if (!T.casePath[0]) return;
-    mesher_take_names(&T.m, &T.stl);
-    mesher_save(T.casePath, &T.m);
-    T.dirty = false;
+    if (!STLP.casePath[0]) return;
+    mesher_take_names(&STLP.m, &STLP.stl);
+    mesher_save(STLP.casePath, &STLP.m);
+    STLP.dirty = false;
 }
 
 static const char *s_cad;   /* load_stl: the CAD file this STL was converted from (its unit is known: no mm guess) */
@@ -105,53 +88,53 @@ static bool load_stl(const char *path, bool fresh)
 {
     Stl s;
     if (!stl_load(path, &s)) { ui_toast(TOAST_ERR, "%s", s.err); return false; }
-    stl_free(&T.stl);
-    T.stl = s;
-    if (fresh && T.casePath[0]) { char fp[PL_PATH]; pl_join(fp, sizeof fp, T.casePath, "mesher/faces.ini"); unlink(fp); }   /* another part: its own face ids */
-    if (T.m.scale <= 0) T.m.scale = 1;
-    stl_set_scale(&T.stl, T.m.scale);
-    stl_split_part(&T.stl, T.m.splitAngle, T.casePath);
+    stl_free(&STLP.stl);
+    STLP.stl = s;
+    if (fresh && STLP.casePath[0]) { char fp[PL_PATH]; pl_join(fp, sizeof fp, STLP.casePath, "mesher/faces.ini"); unlink(fp); }   /* another part: its own face ids */
+    if (STLP.m.scale <= 0) STLP.m.scale = 1;
+    stl_set_scale(&STLP.stl, STLP.m.scale);
+    stl_split_part(&STLP.stl, STLP.m.splitAngle, STLP.casePath);
     if (fresh) {
-        pl_strlcpy(T.m.stl, path, sizeof T.m.stl);
-        pl_strlcpy(T.m.cad, s_cad ? s_cad : "", sizeof T.m.cad);
-        if (s_cad) { T.m.scale = 1; stl_set_scale(&T.stl, 1); }   /* converted to metres from the file's own unit */
+        pl_strlcpy(STLP.m.stl, path, sizeof STLP.m.stl);
+        pl_strlcpy(STLP.m.cad, s_cad ? s_cad : "", sizeof STLP.m.cad);
+        if (s_cad) { STLP.m.scale = 1; stl_set_scale(&STLP.stl, 1); }   /* converted to metres from the file's own unit */
         /* a part a thousand times too large is in millimetres: say so and pick mm */
-        double L = 0; for (int k = 0; k < 3; k++) L = fmax(L, T.stl.bmax[k] - T.stl.bmin[k]);
-        if (L > 20 && T.m.scale == 1 && !s_cad) { T.m.scale = 0.001; stl_set_scale(&T.stl, 0.001); stl_split_part(&T.stl, T.m.splitAngle, T.casePath);
+        double L = 0; for (int k = 0; k < 3; k++) L = fmax(L, STLP.stl.bmax[k] - STLP.stl.bmin[k]);
+        if (L > 20 && STLP.m.scale == 1 && !s_cad) { STLP.m.scale = 0.001; stl_set_scale(&STLP.stl, 0.001); stl_split_part(&STLP.stl, STLP.m.splitAngle, STLP.casePath);
                                         ui_toast(TOAST_INFO, "The part is %.0f units across: read as millimetres (Scale changes it)", L); }
-        mesher_defaults(&T.m, &T.stl);
-        T.m.locPicked = false;                                              /* another part: a point picked on the last means nothing */
-        stl_split_part(&T.stl, T.m.splitAngle, T.casePath);                /* split again at the default angle */
-        mesher_take_names(&T.m, &T.stl);
-        T.sel = -1;
-    } else mesher_apply_names(&T.m, &T.stl);
-    T.loaded = true;
-    save_cfg();
-    if (fresh) { T.reached = T.open = ST_GEOM; steps_save(); }   /* another part: its settings are new, so is the flow */
+        mesher_defaults(&STLP.m, &STLP.stl);
+        STLP.m.locPicked = false;                                              /* another part: a point picked on the last means nothing */
+        stl_split_part(&STLP.stl, STLP.m.splitAngle, STLP.casePath);                /* split again at the default angle */
+        mesher_take_names(&STLP.m, &STLP.stl);
+        STLP.sel = -1;
+    } else mesher_apply_names(&STLP.m, &STLP.stl);
+    STLP.loaded = true;
+    sm_save_cfg();
+    if (fresh) { STLP.reached = STLP.open = ST_GEOM; steps_save(); }   /* another part: its settings are new, so is the flow */
     return true;
 }
 
-static void view_forget(void);
-static void pick_reset(void);
+void sm_view_forget(void);
+void sm_pick_reset(void);
 
 /* the case the page shows: another one drops everything of the last (its STL, settings, picked boundary, a half-typed
    path or name: an input still focused would otherwise commit the old case's text into this one) */
 static void sync_case(Case *c)
 {
-    if (!c || !strcmp(T.casePath, c->s.path)) return;
-    stl_free(&T.stl);
-    memset(&T.m, 0, sizeof T.m);
-    T.loaded = T.dirty = false;
-    T.sel = -1;
-    T.adv = false; T.removeArm = 0; T.scrollTo = 0;
-    pick_reset();
-    T.typed[0] = 0;
-    T.gen++;
+    if (!c || !strcmp(STLP.casePath, c->s.path)) return;
+    stl_free(&STLP.stl);
+    memset(&STLP.m, 0, sizeof STLP.m);
+    STLP.loaded = STLP.dirty = false;
+    STLP.sel = -1;
+    STLP.adv = false; STLP.removeArm = 0; STLP.scrollTo = 0;
+    sm_pick_reset();
+    STLP.typed[0] = 0;
+    STLP.gen++;
     ui_drop_focus();
-    view_forget();
-    pl_strlcpy(T.casePath, c->s.path, sizeof T.casePath);
-    if (mesher_load(c->s.path, &T.m) && T.m.stl[0]) {
-        char p[PL_PATH]; pl_strlcpy(p, T.m.stl, sizeof p);
+    sm_view_forget();
+    pl_strlcpy(STLP.casePath, c->s.path, sizeof STLP.casePath);
+    if (mesher_load(c->s.path, &STLP.m) && STLP.m.stl[0]) {
+        char p[PL_PATH]; pl_strlcpy(p, STLP.m.stl, sizeof p);
         if (!pl_is_file(p)) pl_join(p, sizeof p, c->s.path, "constant/triSurface/geometry.stl");   /* the original moved: our copy */
         if (pl_is_file(p)) load_stl(p, false);
     }
@@ -167,7 +150,7 @@ static void remove_stl(Case *c)
                                  "constant/triSurface/regions salome/stl_mesh.py", q) || pl_run_wait(cmd, NULL, 0) != 0) {
         ui_toast(TOAST_ERR, "Could not remove the STL's files from %s", c->s.path); return;
     }
-    T.casePath[0] = 0;                                    /* read again: nothing there now */
+    STLP.casePath[0] = 0;                                    /* read again: nothing there now */
     sync_case(c);
     case_rescan(c);
     ui_toast(TOAST_OK, "Removed the STL and its mesher settings from %s", c->s.name);
@@ -176,10 +159,10 @@ static void remove_stl(Case *c)
 /* ============================================================================ the file dialog */
 static void start_picker(bool newCase)
 {
-    if (T.picker > 0) { ui_toast(TOAST_INFO, "The file dialog is already open: finish or cancel it first"); return; }
-    snprintf(T.pickOut, sizeof T.pickOut, "/tmp/qc-pick-%d.txt", (int)getpid());
-    unlink(T.pickOut);
-    char q[PL_PATH + 8]; pl_shell_quote(q, sizeof q, T.pickOut);
+    if (STLP.picker > 0) { ui_toast(TOAST_INFO, "The file dialog is already open: finish or cancel it first"); return; }
+    snprintf(STLP.pickOut, sizeof STLP.pickOut, "/tmp/qc-pick-%d.txt", (int)getpid());
+    unlink(STLP.pickOut);
+    char q[PL_PATH + 8]; pl_shell_quote(q, sizeof q, STLP.pickOut);
     char cmd[PL_PATH + 1400];
     const char *testPick = getenv("QC_TEST_PICK");          /* testing: the dialog "answers" this path */
     if (testPick && *testPick) {
@@ -196,10 +179,10 @@ static void start_picker(bool newCase)
                  "--file-filter='Parts | *.stl *.STL *.step *.STEP *.stp *.STP *.iges *.IGES *.igs *.IGS *.brep' "
                  "--file-filter='All files | *' 2>/dev/null "
                  "|| kdialog --getopenfilename ~ '*.stl *.STL *.step *.STEP *.stp *.STP *.iges *.IGES *.igs *.IGS *.brep' 2>/dev/null; } > %s; true", q);
-    T.picker = pl_spawn_shell(cmd, "/dev/null");
-    T.pickNewCase = newCase;
-    pl_strlcpy(T.pickCase, A.cs && !newCase ? A.cs->s.path : "", sizeof T.pickCase);
-    if (T.picker <= 0) ui_toast(TOAST_ERR, "Could not open a file dialog: type the part's path instead");
+    STLP.picker = pl_spawn_shell(cmd, "/dev/null");
+    STLP.pickNewCase = newCase;
+    pl_strlcpy(STLP.pickCase, A.cs && !newCase ? A.cs->s.path : "", sizeof STLP.pickCase);
+    if (STLP.picker <= 0) ui_toast(TOAST_ERR, "Could not open a file dialog: type the part's path instead");
 }
 
 /* a new case's folder in the workspace, named after the part (a free name: part, part-2, ...) with its system/ */
@@ -241,7 +224,7 @@ static void new_case_finish(const char *dir, const char *stl, const char *cad)
     app_rescan_cases(true);
     app_open_case(dir, PG_MESH);
     A.meshTab = 3;
-    pl_strlcpy(T.casePath, "", sizeof T.casePath);            /* sync_case loads it from the new folder */
+    pl_strlcpy(STLP.casePath, "", sizeof STLP.casePath);            /* sync_case loads it from the new folder */
     if (A.cs && !strcmp(A.cs->s.path, dir)) sync_case(A.cs);
     ui_toast(TOAST_OK, "Made the case %s for %s", pl_basename(dir), pl_basename(cad ? cad : stl));
 }
@@ -262,7 +245,7 @@ bool stlmesh_example_case(int k)
     app_rescan_cases(true);
     app_open_case(dir, PG_MESH);
     A.meshTab = 3;
-    pl_strlcpy(T.casePath, "", sizeof T.casePath);
+    pl_strlcpy(STLP.casePath, "", sizeof STLP.casePath);
     if (A.cs && !strcmp(A.cs->s.path, dir)) sync_case(A.cs);
     ui_toast(TOAST_OK, "Made the example case %s", pl_basename(dir));
     return A.cs != NULL;
@@ -375,14 +358,14 @@ static void cad_poll(void)
     s_cad = CV.cad;
     bool loaded = load_stl(CV.out, CV.fresh);
     s_cad = NULL;
-    if (loaded && !CV.fresh) { pl_strlcpy(T.m.cad, CV.cad, sizeof T.m.cad); save_cfg(); }
+    if (loaded && !CV.fresh) { pl_strlcpy(STLP.m.cad, CV.cad, sizeof STLP.m.cad); sm_save_cfg(); }
     if (loaded) ui_toast(TOAST_OK, "%s", said[0] ? said : "Read the CAD file");
 }
 
 /* a part chosen for this case: an STL loads now, a CAD file is converted first */
 static void take_part(const char *path)
 {
-    if (stl_is_cad(path)) cad_start(path, T.casePath, false, true);
+    if (stl_is_cad(path)) cad_start(path, STLP.casePath, false, true);
     else load_stl(path, true);
 }
 
@@ -401,19 +384,19 @@ static void new_case_from(const char *part)
 
 static void poll_picker(void)
 {
-    if (T.picker <= 0) return;
+    if (STLP.picker <= 0) return;
     ui_request_frames(2);
     int st;
-    if (waitpid(T.picker, &st, WNOHANG) != T.picker) return;
-    T.picker = -1;
-    char *p = pl_read_file(T.pickOut, NULL);
-    unlink(T.pickOut);
+    if (waitpid(STLP.picker, &st, WNOHANG) != STLP.picker) return;
+    STLP.picker = -1;
+    char *p = pl_read_file(STLP.pickOut, NULL);
+    unlink(STLP.pickOut);
     if (!p) return;
     pl_trim_inplace(p);
     if (p[0]) {
-        if (T.pickNewCase) new_case_from(p);
-        else if (!A.cs || strcmp(A.cs->s.path, T.pickCase))   /* chosen for a case that is no longer open: not this one's */
-            ui_toast(TOAST_INFO, "Not loaded: %s was chosen for %s, which is no longer open", pl_basename(p), pl_basename(T.pickCase));
+        if (STLP.pickNewCase) new_case_from(p);
+        else if (!A.cs || strcmp(A.cs->s.path, STLP.pickCase))   /* chosen for a case that is no longer open: not this one's */
+            ui_toast(TOAST_INFO, "Not loaded: %s was chosen for %s, which is no longer open", pl_basename(p), pl_basename(STLP.pickCase));
         else { sync_case(A.cs); take_part(p); }
     }
     free(p);
@@ -426,25 +409,25 @@ bool stlmesh_suggest(Case *c, int mesher, bool layers)
 {
     if (!c || mesher < 0 || mesher >= MESHER__N) return false;
     sync_case(c);
-    if (!T.loaded) return false;                                   /* no part yet: the page asks for one first */
-    T.m.mesher = mesher;
-    if (layers && T.m.layers <= 0) T.m.layers = 5;
-    T.m.prism = layers ? true : T.m.prism;
-    save_cfg();
+    if (!STLP.loaded) return false;                                   /* no part yet: the page asks for one first */
+    STLP.m.mesher = mesher;
+    if (layers && STLP.m.layers <= 0) STLP.m.layers = 5;
+    STLP.m.prism = layers ? true : STLP.m.prism;
+    sm_save_cfg();
     return true;
 }
 void stlmesh_choose(void) { start_picker(false); }
 void stlmesh_tick(void) { poll_picker(); cad_poll(); }
 
 /* ============================================================================ meshing */
-static bool salome_mesher(void) { return MESHERS[T.m.mesher].engine == ENG_SALOME; }
+static bool salome_mesher(void) { return MESHERS[STLP.m.mesher].engine == ENG_SALOME; }
 
 static bool prepare(Case *c)
 {
-    if (!T.loaded) { ui_toast(TOAST_ERR, "Choose an STL first"); return false; }
+    if (!STLP.loaded) { ui_toast(TOAST_ERR, "Choose an STL first"); return false; }
     char err[300];
-    if (!mesher_prepare(c->s.path, &T.m, &T.stl, err, sizeof err)) { ui_toast(TOAST_ERR, "%s", err); return false; }
-    T.dirty = false;
+    if (!mesher_prepare(c->s.path, &STLP.m, &STLP.stl, err, sizeof err)) { ui_toast(TOAST_ERR, "%s", err); return false; }
+    STLP.dirty = false;
     /* hand edits to the dictionaries (plan step 9, E1): kept, or replaced where the settings now say otherwise */
     const char *kept = mesher_write_kept(), *repl = mesher_write_replaced();
     int nk = 0, nr = 0; for (const char *q = kept; *q; q++) nk += *q == '\n'; for (const char *q = repl; *q; q++) nr += *q == '\n';
@@ -489,10 +472,10 @@ static bool mesh_too_big(double cells, double *needMB)
    remesh. With mesh_processes > 1 each stage runs decomposed (decomposePar -no-fields, mpirun snappyHexMesh -parallel,
    reconstructParMesh -constant) on its own decomposeParDict, the case's own left alone. */
 #define SNAP_KEEP "mesher/snapped"
-static bool layers_split(void) { return T.m.prism && T.m.layers > 0 && (MESHERS[T.m.mesher].flags & MF_LAYERS); }
+static bool layers_split(void) { return STLP.m.prism && STLP.m.layers > 0 && (MESHERS[STLP.m.mesher].flags & MF_LAYERS); }
 static int mesh_procs(void)
 {
-    int np = T.m.meshProcs > 1 ? T.m.meshProcs : 1;
+    int np = STLP.m.meshProcs > 1 ? STLP.m.meshProcs : 1;
     if (A.env.nCpu > 0 && np > A.env.nCpu) np = A.env.nCpu;
     return np;
 }
@@ -598,7 +581,7 @@ static void generate(Case *c)
     }
     if (salome_mesher() && !A.env.salome[0]) { ui_toast(TOAST_ERR, "SALOME is not installed: see the note under Mesher"); return; }
     double need;
-    if (T.loaded && mesh_too_big(mesher_estimate_cells(&T.m, &T.stl), &need)) {
+    if (STLP.loaded && mesh_too_big(mesher_estimate_cells(&STLP.m, &STLP.stl), &need)) {
         ui_toast(TOAST_ERR, "Meshing this needs about %.1f GB and only %.1f GB is free: Mesh > Generate says more, and has Generate anyway",
                  need / 1024, free_mb() / 1024);
         return;
@@ -611,25 +594,25 @@ static void generate(Case *c)
     MeshOverrides ov; mo_init(&ov); mo_load(c->s.path, &ov);   /* the Advanced panel's command-line options */
     job_reset(A.cj, "Mesh");
     job_add(A.cj, "clear", "Clear the old mesh", "rm -rf constant/polyMesh 0/polyMesh processor*; echo cleared", "log.meshClear", false);
-    if (T.m.mesher == MESHER_FOAMY) {
-        if (T.m.twoD) job_add(A.cj, "foamyQuadMesh", "foamyQuadMesh + extrude2DMesh", mesher_foamy2d_cmd(), "log.foamyQuadMesh", false);
+    if (STLP.m.mesher == MESHER_FOAMY) {
+        if (STLP.m.twoD) job_add(A.cj, "foamyQuadMesh", "foamyQuadMesh + extrude2DMesh", mesher_foamy2d_cmd(), "log.foamyQuadMesh", false);
         else job_add(A.cj, "foamyHexMesh", "foamyHexMesh (slow)", mesher_foamy_cmd(), "log.foamyHexMesh", false);
         Str ty; str_init(&ty);
-        if (T.m.twoD) mesher_foamy2d_after(&T.m, &T.stl, &ty);
+        if (STLP.m.twoD) mesher_foamy2d_after(&STLP.m, &STLP.stl, &ty);
         str_cat(&ty, "echo 'patch types:'\n");
-        mesher_type_script(&T.m, &T.stl, &ty);
+        mesher_type_script(&STLP.m, &STLP.stl, &ty);
         job_add(A.cj, "patchTypes", "Patch types", ty.s, "log.patchTypes", false);
         str_free(&ty);
-    } else if (mesher_is_cfmesh(T.m.mesher)) {
+    } else if (mesher_is_cfmesh(STLP.m.mesher)) {
         /* cfMesh: feature edges into the surface (.fms), the mesher, the patch types, the check */
         char prog[64];
         Str fe; str_init(&fe);
-        if (T.m.twoD) mesher_cf2d_script(&T.m, true, &fe);
-        char fa[32]; snprintf(fa, sizeof fa, "%g", T.m.featureAngle);
+        if (STLP.m.twoD) mesher_cf2d_script(&STLP.m, true, &fe);
+        char fa[32]; snprintf(fa, sizeof fa, "%g", STLP.m.featureAngle);
         str_catf(&fe, "surfaceFeatureEdges -angle %s constant/triSurface/cfmesh.stl constant/triSurface/cfmesh.fms", mo_cmd_value(&ov, "surfaceFeatureEdges", "-angle", fa));
         job_add(A.cj, "surfaceFeatureEdges", "surfaceFeatureEdges", fe.s, "log.surfaceFeatureEdges", false);
         str_free(&fe);
-        snprintf(prog, sizeof prog, "%s", mesher_program(&T.m));
+        snprintf(prog, sizeof prog, "%s", mesher_program(&STLP.m));
         char progCmd[200]; snprintf(progCmd, sizeof progCmd, "%s %s", prog, mo_cmd_extra(&ov, "cfMesh"));
         /* cfMesh's layers can turn cells inside out (user's intake, pMesh: 117 cells with 10 layers, none with 6 or 3, and
            cfMesh's own layer optimisation didn't help): checked, and made again with half as many */
@@ -646,16 +629,16 @@ static void generate(Case *c)
                  "fi", progCmd, progCmd);
         job_add(A.cj, prog, prog, cfc, TextFormat("log.%s", prog), false);
         Str ty; str_init(&ty);
-        if (T.m.twoD) mesher_cf2d_script(&T.m, false, &ty);
+        if (STLP.m.twoD) mesher_cf2d_script(&STLP.m, false, &ty);
         str_cat(&ty, "echo 'patch types:'\n");
-        mesher_type_script(&T.m, &T.stl, &ty);
+        mesher_type_script(&STLP.m, &STLP.stl, &ty);
         job_add(A.cj, "patchTypes", "Patch types", ty.s, "log.patchTypes", false);
         str_free(&ty);
     } else if (!salome_mesher()) {
         snappy_jobs(c, &ov, lo);
-        if (T.m.twoD) {                                   /* the slab's front face, one cell thick; front and back empty */
+        if (STLP.m.twoD) {                                   /* the slab's front face, one cell thick; front and back empty */
             Str ex; str_init(&ex);
-            mesher_2d_script(&T.m, &T.stl, &ex);
+            mesher_2d_script(&STLP.m, &STLP.stl, &ex);
             job_add(A.cj, "extrudeMesh", "extrudeMesh (to 2-D)", ex.s, "log.extrudeMesh", false);
             str_free(&ex);
         }
@@ -670,16 +653,16 @@ static void generate(Case *c)
         /* a mesh with polyhedra (Body Fitting's cut cells) comes as salome/polyMesh: UNV cannot hold them */
         str_cat(&conv, "if [ -d salome/polyMesh ]; then mkdir -p constant && cp -r salome/polyMesh constant/ && echo \"Copied salome/polyMesh\"; "
                        "else ideasUnvToFoam salome/mesh.unv; fi && echo && {\n");
-        mesher_type_script(&T.m, &T.stl, &conv);
+        mesher_type_script(&STLP.m, &STLP.stl, &conv);
         str_cat(&conv, "}");
         job_add(A.cj, "ideasUnvToFoam", "ideasUnvToFoam", conv.s, "log.ideasUnvToFoam", false);
         str_free(&conv);
     }
-    if (mesher_poly_convert(&T.m)) {                      /* any 3-D mesh into polyhedra (2-D: they would span the depth) */
+    if (mesher_poly_convert(&STLP.m)) {                      /* any 3-D mesh into polyhedra (2-D: they would span the depth) */
         /* the dual of thin prism layers can come out inside out (user's intake, 2026-11-10: 125 negative cells after cfMesh
            tetMesh, 127 after cartesianMesh, none without layers): the mesh before is kept and put back then */
         char pd[2000], fa[32], pflags[160];
-        snprintf(fa, sizeof fa, "%g", T.m.featureAngle);
+        snprintf(fa, sizeof fa, "%g", STLP.m.featureAngle);
         snprintf(pflags, sizeof pflags, "%s -overwrite%s%s%s", mo_cmd_value(&ov, "polyDualMesh", "featureAngle", fa),
                  mo_cmd_flag(&ov, "polyDualMesh", "-concaveMultiCells", true) ? " -concaveMultiCells" : "",
                  mo_cmd_flag(&ov, "polyDualMesh", "-splitAllFaces", false) ? " -splitAllFaces" : "",
@@ -705,26 +688,26 @@ static void generate(Case *c)
     extrude_add_steps(c, A.cj);                            /* an extrusion in the mesh's recipe (Block builder > Extrude) */
     job_add(A.cj, "checkMesh", "checkMesh", cm, "log.checkMesh", false);
     mo_free(&ov);
-    if (job_start(A.cj, c->s.path, app_bashrc(), GetTime())) ui_toast(TOAST_INFO, "Meshing %s: the Run page shows the log", pl_basename(T.m.cad[0] ? T.m.cad : T.m.stl));
+    if (job_start(A.cj, c->s.path, app_bashrc(), GetTime())) ui_toast(TOAST_INFO, "Meshing %s: the Run page shows the log", pl_basename(STLP.m.cad[0] ? STLP.m.cad : STLP.m.stl));
     else ui_toast(TOAST_ERR, "Could not start the mesher");
 }
 
-void stlmesh_generate(Case *c) { sync_case(c); if (T.loaded) step_open(ST_GEN); generate(c); }   /* the step bar's: the flow is at its end */
+void stlmesh_generate(Case *c) { sync_case(c); if (STLP.loaded) step_open(ST_GEN); generate(c); }   /* the step bar's: the flow is at its end */
 
 void stlmesh_focus(Case *c, int step)
 {
     sync_case(c);
-    if (!T.loaded) step = ST_GEOM;
-    if (step > T.reached) step = T.reached;              /* not past where the case has got */
+    if (!STLP.loaded) step = ST_GEOM;
+    if (step > STLP.reached) step = STLP.reached;              /* not past where the case has got */
     step_open(step);
 }
 
 int stlmesh_mesh_current(Case *c)
 {
     sync_case(c);
-    if (!T.loaded) return -1;
-    MeshCfg mm = T.m;
-    mesher_take_names(&mm, &T.stl);
+    if (!STLP.loaded) return -1;
+    MeshCfg mm = STLP.m;
+    mesher_take_names(&mm, &STLP.stl);
     return mesher_mesh_current(c->s.path, &mm);
 }
 
@@ -765,7 +748,7 @@ static bool num_field(UiId id, Rectangle r, double *v, const char *fmt, double l
     while (e && *e == ' ') e++;
     if (e == b || (e && *e) || d < lo || d > hi) { ui_toast(TOAST_ERR, "Give a number from %g to %g", lo, hi); return false; }
     *v = d;
-    T.dirty = true;
+    STLP.dirty = true;
     return true;
 }
 
@@ -797,17 +780,17 @@ static double part_thickness(void)
 {
     static const float *tri; static int n; static double sc, was; static unsigned gen;
     static float bb[6];
-    const Stl *s = &T.stl;
-    if (!T.loaded) return 0;
+    const Stl *s = &STLP.stl;
+    if (!STLP.loaded) return 0;
     float now[6] = { s->bmin[0], s->bmin[1], s->bmin[2], s->bmax[0], s->bmax[1], s->bmax[2] };
-    if (tri != s->tri || n != s->nTri || sc != s->scale || gen != T.gen || memcmp(bb, now, sizeof bb)) {
-        tri = s->tri; n = s->nTri; sc = s->scale; gen = T.gen; memcpy(bb, now, sizeof bb);
+    if (tri != s->tri || n != s->nTri || sc != s->scale || gen != STLP.gen || memcmp(bb, now, sizeof bb)) {
+        tri = s->tri; n = s->nTri; sc = s->scale; gen = STLP.gen; memcpy(bb, now, sizeof bb);
         was = stl_thickness(s);
     }
     return was;
 }
 
-static void fmt_len(char *b, size_t cap, double v)
+void sm_fmt_len(char *b, size_t cap, double v)
 {
     if (v >= 1) snprintf(b, cap, "%.4g m", v);
     else if (v >= 1e-3) snprintf(b, cap, "%.4g mm", v * 1e3);
@@ -837,23 +820,23 @@ static double go_default(int k) { return k == GO_SMALL ? 0.1 : k == GO_HOLES ? 0
 
 static void geo_save(void)
 {
-    if (!T.casePath[0]) return;
+    if (!STLP.casePath[0]) return;
     Str b; str_init(&b);
     str_cat(&b, "# Q-Continuum: the CAD part's preparation (Mesh > STL mesher > Geometry), in order. remove_small_faces: % of the\n"
                 "# area; remove_holes: radius in m\n");
     for (int i = 0; i < G.n; i++) str_catf(&b, "op = %s %g %s\n", GO_WORD[G.kind[i]], G.val[i], G.kind[i] == GO_REMOVE ? G.ids[i] : "");
-    char p[PL_PATH]; pl_join(p, sizeof p, T.casePath, "mesher/geometry.ini");
+    char p[PL_PATH]; pl_join(p, sizeof p, STLP.casePath, "mesher/geometry.ini");
     pl_write_file(p, b.s, b.len);
     str_free(&b);
 }
 
 static void geo_load(void)
 {
-    if (G.loaded && !strcmp(G.casePath, T.casePath)) return;
+    if (G.loaded && !strcmp(G.casePath, STLP.casePath)) return;
     memset(&G, 0, sizeof G);
-    pl_strlcpy(G.casePath, T.casePath, sizeof G.casePath);
+    pl_strlcpy(G.casePath, STLP.casePath, sizeof G.casePath);
     G.loaded = true;
-    char p[PL_PATH]; pl_join(p, sizeof p, T.casePath, "mesher/geometry.ini");
+    char p[PL_PATH]; pl_join(p, sizeof p, STLP.casePath, "mesher/geometry.ini");
     char *t = pl_read_file(p, NULL);
     if (!t) return;
     for (char *l = strtok(t, "\n"); l && G.n < GO_MAX; l = strtok(NULL, "\n")) {
@@ -867,11 +850,11 @@ static void geo_load(void)
 /* the original part: the CAD reader's STL (mesher/<stem>.stl), not a prepared one */
 static void geo_original_stl(char *out, size_t cap)
 {
-    char stem[200]; pl_strlcpy(stem, pl_basename(T.m.cad), sizeof stem);
+    char stem[200]; pl_strlcpy(stem, pl_basename(STLP.m.cad), sizeof stem);
     char *dot = strrchr(stem, '.'); if (dot) *dot = 0;
     for (char *c = stem; *c; c++) if (*c == ' ' || *c == '\'' || *c == '"') *c = '_';
     char f[240]; snprintf(f, sizeof f, "mesher/%s.stl", stem);
-    pl_join(out, cap, T.casePath, f);
+    pl_join(out, cap, STLP.casePath, f);
 }
 
 static void geo_apply(void)
@@ -882,7 +865,7 @@ static void geo_apply(void)
     pl_strlcpy(out, orig, sizeof out);
     char *dot = strrchr(out, '.'); if (dot) *dot = 0;
     pl_strlcpy(out + strlen(out), "-prep", sizeof out - strlen(out));
-    stool_quote(cad, sizeof cad, T.m.cad); stool_quote(outq, sizeof outq, out);
+    stool_quote(cad, sizeof cad, STLP.m.cad); stool_quote(outq, sizeof outq, out);
     Str r; str_init(&r);
     str_catf(&r, "{\"cmd\": \"ops\", \"cad\": \"%s\", \"out\": \"%s\", \"ops\": [", cad, outq);
     for (int i = 0; i < G.n; i++) {
@@ -894,7 +877,7 @@ static void geo_apply(void)
         str_cat(&r, "}");
     }
     str_cat(&r, "]}");
-    if (stool_run(T.casePath, "geoprep", r.s)) { G.result[0] = 0; ui_toast(TOAST_INFO, "Preparing the geometry in SALOME"); }
+    if (stool_run(STLP.casePath, "geoprep", r.s)) { G.result[0] = 0; ui_toast(TOAST_INFO, "Preparing the geometry in SALOME"); }
     str_free(&r);
 }
 
@@ -910,7 +893,7 @@ static void geo_poll(void)
         pl_fmt_ui(G.result, sizeof G.result, "Prepared: %d faces (was %d), volume %.4g m³ (was %.4g)%s", (int)qj_num(qj_get(a, "faces"), 0),
                   (int)qj_num(qj_get(a, "faces_before"), 0), qj_num(qj_get(a, "volume"), 0), qj_num(qj_get(a, "volume_before"), 0),
                   qj_true(qj_get(a, "closed")) ? "" : ", NOT closed");
-        char cad[PL_PATH]; pl_strlcpy(cad, T.m.cad, sizeof cad);
+        char cad[PL_PATH]; pl_strlcpy(cad, STLP.m.cad, sizeof cad);
         s_cad = cad;
         if (load_stl(stl, true)) ui_toast(TOAST_OK, "%s", G.result);
         s_cad = NULL;
@@ -954,10 +937,10 @@ static float prep_section(float x, float y, float w)
     if (ui_button(ui_id("geo-apply"), (Rectangle){ x + fminf(380, w - 240) + 12, y, aw, 34 }, ICON_PLAY, busy ? "Working..." : "Apply", BTN_PRIMARY)) geo_apply();
     ui_disable(busy);
     char orig[PL_PATH]; geo_original_stl(orig, sizeof orig);
-    if (strcmp(T.m.stl, orig) && pl_is_file(orig)) {
+    if (strcmp(STLP.m.stl, orig) && pl_is_file(orig)) {
         float ow = ui_button_width(ICON_UNDO_2, "Use the original");
         if (ui_button(ui_id("geo-orig"), (Rectangle){ x + fminf(380, w - 240) + aw + 22, y, ow, 34 }, ICON_UNDO_2, "Use the original", BTN_GHOST)) {
-            char cad[PL_PATH]; pl_strlcpy(cad, T.m.cad, sizeof cad);
+            char cad[PL_PATH]; pl_strlcpy(cad, STLP.m.cad, sizeof cad);
             s_cad = cad; load_stl(orig, true); s_cad = NULL;
             G.result[0] = 0;
         }
@@ -976,17 +959,17 @@ static float geometry_step(Case *c, float x, float y, float w)
 {
     float y0 = y;
     float bw = ui_button_width(ICON_FOLDER_OPEN, "Choose part...");
-    bool reading = cad_busy() && !strcmp(CV.casePath, T.casePath);
-    ui_disable(T.picker > 0 || reading);
-    if (ui_button(ui_id("stl-pick"), (Rectangle){ x, y, bw, 38 }, ICON_FOLDER_OPEN, T.picker > 0 ? "Choosing..." : reading ? "Reading..." : "Choose part...",
+    bool reading = cad_busy() && !strcmp(CV.casePath, STLP.casePath);
+    ui_disable(STLP.picker > 0 || reading);
+    if (ui_button(ui_id("stl-pick"), (Rectangle){ x, y, bw, 38 }, ICON_FOLDER_OPEN, STLP.picker > 0 ? "Choosing..." : reading ? "Reading..." : "Choose part...",
                   BTN_PRIMARY)) start_picker(false);
-    float ix = x + bw + 12, iw = w - bw - 12 - (T.loaded ? 90 : 0);
+    float ix = x + bw + 12, iw = w - bw - 12 - (STLP.loaded ? 90 : 0);
     UiId tid = ui_id("stl-path");
-    if (!ui_input_focused(tid)) pl_strlcpy(T.typed, T.m.cad[0] ? T.m.cad : T.m.stl, sizeof T.typed);
-    unsigned gen = T.gen;
-    if (ui_input(tid, (Rectangle){ ix, y, iw, 38 }, T.typed, sizeof T.typed, A.env.wsl ? "or paste a path: /mnt/c/Users/you/Downloads/part.step, or C:\\..." : "or a path to an .stl or .step",
-                 INPUT_MONO) && gen == T.gen && T.typed[0]) {
-        char p[PL_PATH]; pl_expand_home(p, sizeof p, T.typed); pl_trim_inplace(p);
+    if (!ui_input_focused(tid)) pl_strlcpy(STLP.typed, STLP.m.cad[0] ? STLP.m.cad : STLP.m.stl, sizeof STLP.typed);
+    unsigned gen = STLP.gen;
+    if (ui_input(tid, (Rectangle){ ix, y, iw, 38 }, STLP.typed, sizeof STLP.typed, A.env.wsl ? "or paste a path: /mnt/c/Users/you/Downloads/part.step, or C:\\..." : "or a path to an .stl or .step",
+                 INPUT_MONO) && gen == STLP.gen && STLP.typed[0]) {
+        char p[PL_PATH]; pl_expand_home(p, sizeof p, STLP.typed); pl_trim_inplace(p);
         /* a Windows path pasted from Explorer (with its quotes, as "Copy as path" gives it) */
         size_t n = strlen(p);
         if (n >= 2 && p[0] == '"' && p[n - 1] == '"') { memmove(p, p + 1, n - 2); p[n - 2] = 0; }
@@ -995,12 +978,12 @@ static float geometry_step(Case *c, float x, float y, float w)
             pl_shell_quote(q, sizeof q, p); snprintf(cmd, sizeof cmd, "wslpath -u %s", q);
             if (pl_run_wait(cmd, out, sizeof out) == 0) { pl_trim_inplace(out); pl_strlcpy(p, out, sizeof p); }
         }
-        if ((strcmp(p, T.m.stl) && strcmp(p, T.m.cad)) || !T.loaded) { if (pl_is_file(p)) take_part(p); else ui_toast(TOAST_ERR, "No file at %s", p); }
+        if ((strcmp(p, STLP.m.stl) && strcmp(p, STLP.m.cad)) || !STLP.loaded) { if (pl_is_file(p)) take_part(p); else ui_toast(TOAST_ERR, "No file at %s", p); }
     }
     ui_disable(false);
-    if (T.loaded && !reading && ui_button(ui_id("stl-reload"), (Rectangle){ x + w - 80, y, 80, 38 }, ICON_REFRESH_CW, "Reload", BTN_GHOST)) {
-        char p[PL_PATH]; pl_strlcpy(p, T.m.stl, sizeof p);
-        if (T.m.cad[0] && pl_is_file(T.m.cad)) cad_start(T.m.cad, T.casePath, false, false);   /* the CAD may have changed */
+    if (STLP.loaded && !reading && ui_button(ui_id("stl-reload"), (Rectangle){ x + w - 80, y, 80, 38 }, ICON_REFRESH_CW, "Reload", BTN_GHOST)) {
+        char p[PL_PATH]; pl_strlcpy(p, STLP.m.stl, sizeof p);
+        if (STLP.m.cad[0] && pl_is_file(STLP.m.cad)) cad_start(STLP.m.cad, STLP.casePath, false, false);   /* the CAD may have changed */
         else if (pl_is_file(p)) load_stl(p, false); else ui_toast(TOAST_ERR, "%s is gone: choose the STL again", p);
     }
     y += 52;
@@ -1012,23 +995,23 @@ static float geometry_step(Case *c, float x, float y, float w)
         float ch = callout_height(w, t, d);
         callout((Rectangle){ x, y, w, ch }, TOAST_INFO, ICON_REFRESH_CW, t, d);
         y += ch + 8;
-        if (!T.loaded) return y - y0;
+        if (!STLP.loaded) return y - y0;
     }
-    if (!T.loaded) {
+    if (!STLP.loaded) {
         const char *t = "Start with the part", *d = "Choose an STL (ASCII or binary) or a CAD file (STEP, IGES), or paste its path. Next you say whether "
                                                      "the fluid is inside it (a duct, a manifold) or around it (a wing, a car), then name its boundaries, then mesh it.";
         float ch = callout_height(w, t, d);
         callout((Rectangle){ x, y, w, ch }, TOAST_INFO, ICON_FOLDER_OPEN, t, d);
         return y + ch + 8 - y0;
     }
-    const Stl *s = &T.stl;
+    const Stl *s = &STLP.stl;
     char a[32], b3[32], c3[32], line[400], tri[32];
-    fmt_len(a, sizeof a, s->bmax[0] - s->bmin[0]); fmt_len(b3, sizeof b3, s->bmax[1] - s->bmin[1]); fmt_len(c3, sizeof c3, s->bmax[2] - s->bmin[2]);
+    sm_fmt_len(a, sizeof a, s->bmax[0] - s->bmin[0]); sm_fmt_len(b3, sizeof b3, s->bmax[1] - s->bmin[1]); sm_fmt_len(c3, sizeof c3, s->bmax[2] - s->bmin[2]);
     snprintf(tri, sizeof tri, "%d", s->nTri);
     char th[32] = ""; double thick = part_thickness();
-    if (thick > 0) fmt_len(th, sizeof th, thick);
-    pl_fmt_ui(line, sizeof line, "%s  ·  %s triangles (%s)  ·  %s × %s × %s  ·  area %.4g m²%s%s%s", T.m.cad[0] ? TextFormat("%s (CAD)", pl_basename(T.m.cad)) : pl_basename(T.m.stl), tri,
-              T.m.cad[0] ? "made from the CAD" : s->binary ? "binary" : "ASCII",
+    if (thick > 0) sm_fmt_len(th, sizeof th, thick);
+    pl_fmt_ui(line, sizeof line, "%s  ·  %s triangles (%s)  ·  %s × %s × %s  ·  area %.4g m²%s%s%s", STLP.m.cad[0] ? TextFormat("%s (CAD)", pl_basename(STLP.m.cad)) : pl_basename(STLP.m.stl), tri,
+              STLP.m.cad[0] ? "made from the CAD" : s->binary ? "binary" : "ASCII",
               a, b3, c3, s->area, s->openEdges == 0 && s->nonManifold == 0 ? TextFormat("  ·  volume %.4g m³", s->volume) : "",
               th[0] ? "  ·  thinnest about " : "", th);
     y += ui_text_wrap(F_MONO, 12.5f, line, (Rectangle){ x, y, w, 80 }, 19, TH.text2, true) + 8;
@@ -1043,689 +1026,64 @@ static float geometry_step(Case *c, float x, float y, float w)
     callout((Rectangle){ x, y, w, ch }, closed ? TOAST_OK : TOAST_WARN, closed ? ICON_CIRCLE_CHECK : ICON_TRIANGLE_ALERT, NULL, msg);
     y += ch + 14;
     /* scale: the STL's unit, checked against the size it gives */
-    Rectangle cr = prop_row(x, &y, w, T.m.cad[0] ? "Units" : "Units of the STL", T.m.cad[0]
+    Rectangle cr = prop_row(x, &y, w, STLP.m.cad[0] ? "Units" : "Units of the STL", STLP.m.cad[0]
                               ? "Read from the CAD file and converted to metres: change it only if the size above is wrong."
                               : "STL files have no units; CAD usually writes millimetres. Check the size above looks right.", 34);
     static const char *units[] = { "m", "cm", "mm", "inch" };
     static const double uk[] = { 1, 0.01, 0.001, 0.0254 };
     int us = -1;
-    for (int i = 0; i < 4; i++) if (fabs(T.m.scale - uk[i]) < 1e-12) us = i;
+    for (int i = 0; i < 4; i++) if (fabs(STLP.m.scale - uk[i]) < 1e-12) us = i;
     int pick = us;
     float segW = fminf(280, cr.width - 110), fx = cr.x + segW + 12, fwd = fminf(140, cr.x + cr.width - fx);
     if (ui_segmented(ui_id("stl-units"), (Rectangle){ cr.x, cr.y, segW, 34 }, units, 4, &pick) && pick != us && pick >= 0) {
-        T.m.scale = uk[pick];
-        stl_set_scale(&T.stl, T.m.scale); stl_split_part(&T.stl, T.m.splitAngle, T.casePath);
-        mesher_apply_names(&T.m, &T.stl);
-        mesher_defaults(&T.m, &T.stl);                    /* sizes follow the part's new size */
-        pl_strlcpy(T.m.stl, s->path, sizeof T.m.stl);
-        save_cfg();
+        STLP.m.scale = uk[pick];
+        stl_set_scale(&STLP.stl, STLP.m.scale); stl_split_part(&STLP.stl, STLP.m.splitAngle, STLP.casePath);
+        mesher_apply_names(&STLP.m, &STLP.stl);
+        mesher_defaults(&STLP.m, &STLP.stl);                    /* sizes follow the part's new size */
+        pl_strlcpy(STLP.m.stl, s->path, sizeof STLP.m.stl);
+        sm_save_cfg();
     }
-    double sc = T.m.scale;
-    if (num_field(ui_id("stl-scale"), (Rectangle){ fx, cr.y, fwd, 34 }, &sc, "%g", 1e-9, 1e9, "×") && sc != T.m.scale) {
-        T.m.scale = sc; stl_set_scale(&T.stl, sc); stl_split_part(&T.stl, T.m.splitAngle, T.casePath); mesher_apply_names(&T.m, &T.stl); save_cfg();
+    double sc = STLP.m.scale;
+    if (num_field(ui_id("stl-scale"), (Rectangle){ fx, cr.y, fwd, 34 }, &sc, "%g", 1e-9, 1e9, "×") && sc != STLP.m.scale) {
+        STLP.m.scale = sc; stl_set_scale(&STLP.stl, sc); stl_split_part(&STLP.stl, STLP.m.splitAngle, STLP.casePath); mesher_apply_names(&STLP.m, &STLP.stl); sm_save_cfg();
     }
-    double ang = T.m.splitAngle;
+    double ang = STLP.m.splitAngle;
     char after[96]; snprintf(after, sizeof after, "%d boundar%s", s->nRegions, s->nRegions == 1 ? "y" : "ies");
     if (row_num(x, &y, w, "stl-split", "Split by angle", "Surfaces meeting at a sharper angle become separate boundaries (STAR-CCM+'s split by angle). "
                 "0 keeps the file's own solids. You name them two steps on.", &ang, "%g", 0, 180, "°", after)) {
-        T.m.splitAngle = ang;
-        if (T.stl.face) { char fp[PL_PATH]; pl_join(fp, sizeof fp, T.casePath, "mesher/faces.ini"); unlink(fp); }   /* CAD faces: regrouped by the angle */
-        stl_split_part(&T.stl, ang, T.casePath); mesher_take_names(&T.m, &T.stl); save_cfg();
+        STLP.m.splitAngle = ang;
+        if (STLP.stl.face) { char fp[PL_PATH]; pl_join(fp, sizeof fp, STLP.casePath, "mesher/faces.ini"); unlink(fp); }   /* CAD faces: regrouped by the angle */
+        stl_split_part(&STLP.stl, ang, STLP.casePath); mesher_take_names(&STLP.m, &STLP.stl); sm_save_cfg();
     }
     /* start over: the case without an STL (a mistake, or the wrong part) */
-    if (T.m.cad[0]) y += prep_section(x, y + 4, w) + 4;    /* a CAD part: operations on its exact shape */
-    bool armed = T.removeArm > 0 && ui_time() - T.removeArm < 4;
+    if (STLP.m.cad[0]) y += prep_section(x, y + 4, w) + 4;    /* a CAD part: operations on its exact shape */
+    bool armed = STLP.removeArm > 0 && ui_time() - STLP.removeArm < 4;
     const char *rl = armed ? "Click again to remove" : "Remove STL from this case";
     float rw = ui_button_width(ICON_TRASH_2, rl);
     if (ui_button(ui_id("stl-remove"), (Rectangle){ x, y + 4, rw, 32 }, ICON_TRASH_2, rl, armed ? BTN_DANGER : BTN_GHOST)) {
-        if (armed) { T.removeArm = 0; remove_stl(c); return y + 44 - y0; }
-        T.removeArm = ui_time();
+        if (armed) { STLP.removeArm = 0; remove_stl(c); return y + 44 - y0; }
+        STLP.removeArm = ui_time();
     }
     if (armed) { ui_request_frames(30); ui_text(F_REG, 12.5f, "Deletes mesher/ and the STL's copy in constant/triSurface; the mesh, if any, stays.", x + rw + 14, y + 13, TH.text3); }
     y += 44;
     return y - y0;
 }
 
-/* ============================================================================ the part in 3-D: click a face to pick its boundary */
-#define VIEW_EDGES 60000                                  /* triangle outlines drawn up to this many triangles */
-static struct {
-    Model    model[STL_MAX_REGIONS]; bool has[STL_MAX_REGIONS];
-    double   sig;                                         /* the geometry the models were built from */
-    RenderTexture2D rt; int rtW, rtH; bool rtOk;
-    bool     dirty, dragging, panning, moved;
-    Orbit    O;                                           /* the camera (orbit.h): turned freely or about one axis */
-    Vector2  last, down;
-    double   lastClick;
-    int      hover, drawnSel, drawnHover;
-    bool     engaged;                                     /* clicked in: the wheel zooms until the mouse leaves */
-    bool     touched;                                     /* turned, moved or zoomed by hand: the fit is left alone */
-    int      up;                                          /* the axis the view turns about and keeps up (0 x, 1 y, 2 z; -1: the case's) */
-    int      fitW, fitH;                                  /* the view's size the last fit was for */
-} SV = { .hover = -1, .drawnSel = -2, .drawnHover = -2, .up = -1, .O = { .upAxis = 1, .spin = -1, .back = { 0, 0, 1 }, .up = { 0, 1, 0 } } };
-
-static Color region_color(int i) { return TH.series[i % 10]; }
-
-/* another case: the view is rebuilt and fitted to its part */
-static void view_forget(void)
-{
-    SV.hover = -1; SV.engaged = SV.dragging = SV.panning = false;
-    SV.sig = -1; SV.dirty = true; SV.up = -1;
-}
-
-/* the theme's colours: the models carry them, so a theme change builds them again (the view kept another theme's blue
-   while the list beside it showed this one's orange, user 2026-11-10) */
-static double theme_sig(void)
-{
-    double h = TH.dark ? 0.5 : 0;
-    for (int i = 0; i < 10; i++) h += (TH.series[i].r * 3.0 + TH.series[i].g * 5.0 + TH.series[i].b * 7.0) * (i + 1);
-    return h;
-}
-
-static double geometry_sig(void)
-{
-    const Stl *s = &T.stl;
-    double h = s->nTri * 1.0 + T.gen * 1e3 + s->nRegions * 1e-3 + T.m.scale * 7.1 + T.m.splitAngle * 0.013 + (double)(uintptr_t)s->tri * 1e-9;
-    for (int k = 0; k < 3; k++) h += s->bmin[k] * 3.3 + s->bmax[k] * 5.9;
-    for (int r = 0; r < s->nRegions; r++) h += s->reg[r].nTri * (r + 1) * 1e-6;
-    return h + theme_sig() * 1e-7;
-}
-
-static void view_unload(void)
-{
-    for (int i = 0; i < STL_MAX_REGIONS; i++) if (SV.has[i]) { UnloadModel(SV.model[i]); SV.has[i] = false; }
-}
-
-/* one model a boundary, flat shaded by a fixed light (two-sided), as on Mesh > View */
-static void view_build(void)
-{
-    view_unload();
-    const Stl *s = &T.stl;
-    float L[3] = { 0.45f, 0.75f, 0.5f };
-    float ll = sqrtf(L[0] * L[0] + L[1] * L[1] + L[2] * L[2]);
-    for (int k = 0; k < 3; k++) L[k] /= ll;
-    for (int r = 0; r < s->nRegions; r++) {
-        int n = s->reg[r].nTri;
-        if (n <= 0 || n > 0x7fffffff / 12) continue;
-        Mesh mesh = { 0 };
-        mesh.vertexCount = n * 3; mesh.triangleCount = n;
-        mesh.vertices = MemAlloc((unsigned)(sizeof(float) * 9 * (size_t)n));
-        mesh.colors = MemAlloc((unsigned)(12 * (size_t)n));
-        if (!mesh.vertices || !mesh.colors) { MemFree(mesh.vertices); MemFree(mesh.colors); continue; }
-        Color base = region_color(r);
-        int v = 0;
-        for (int t = 0; t < s->nTri && v < n * 3; t++) {
-            if (s->region[t] != r) continue;
-            const float *p = s->tri + 9 * (size_t)t;
-            float e1[3] = { p[3] - p[0], p[4] - p[1], p[5] - p[2] }, e2[3] = { p[6] - p[0], p[7] - p[1], p[8] - p[2] };
-            float nr[3] = { e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0] };
-            float nl = sqrtf(nr[0] * nr[0] + nr[1] * nr[1] + nr[2] * nr[2]);
-            float d = nl > 0 ? fabsf(nr[0] * L[0] + nr[1] * L[1] + nr[2] * L[2]) / nl : 1;
-            float k = 0.42f + 0.58f * d;
-            Color c = { (unsigned char)(base.r * k), (unsigned char)(base.g * k), (unsigned char)(base.b * k), 255 };
-            memcpy(&mesh.vertices[v * 3], p, sizeof(float) * 9);
-            for (int q = 0; q < 3; q++) memcpy(&mesh.colors[(v + q) * 4], &c, 4);
-            v += 3;
-        }
-        UploadMesh(&mesh, false);
-        SV.model[r] = LoadModelFromMesh(mesh);
-        SV.has[r] = true;
-    }
-    SV.sig = geometry_sig();
-}
-
-/* the whole part in the view, whatever the view's shape: its bounding sphere inside the narrower of the two fields of view.
-   A part much thinner one way (a profile, a plate) is looked at face on, a little from the side, not edge on. */
-static void view_fit(float aspect)
-{
-    const Stl *s = &T.stl;
-    SV.O.target = (Vector3){ (s->bmin[0] + s->bmax[0]) / 2, (s->bmin[1] + s->bmax[1]) / 2, (s->bmin[2] + s->bmax[2]) / 2 };
-    float d[3] = { s->bmax[0] - s->bmin[0], s->bmax[1] - s->bmin[1], s->bmax[2] - s->bmin[2] };
-    int thin = 0; for (int k = 1; k < 3; k++) if (d[k] < d[thin]) thin = k;
-    float big = fmaxf(d[0], fmaxf(d[1], d[2]));
-    int u = SV.up < 0 ? 1 : SV.up;
-    SV.O.upAxis = u;                                      /* the camera's frame: y is the up axis (orbit.h) */
-    if (d[thin] < 0.25f * big) {                          /* the camera along the thin axis, turned a little */
-        if (thin == u) orbit_set(&SV.O, 0.5f, 1.2f);                     /* from above */
-        else if (thin == (u + 2) % 3) orbit_set(&SV.O, 1.2f, 0.25f);     /* the frame's x */
-        else orbit_set(&SV.O, 0.35f, 0.25f);                             /* the frame's z */
-    } else orbit_set(&SV.O, 0.7f, 0.45f);
-    /* as close as the box's corners allow, seen from there: each within the vertical and the horizontal field of view */
-    float tv = tanf(35.f / 2 * DEG2RAD), th = tv * fmaxf(aspect, 0.1f);   /* view_camera's fovy */
-    Vector3 back = SV.O.back, right = orbit_right(&SV.O), up = SV.O.up;
-    float need = 1e-9f;
-    for (int c = 0; c < 8; c++) {
-        float p[3] = { (c & 1 ? d[0] : -d[0]) / 2, (c & 2 ? d[1] : -d[1]) / 2, (c & 4 ? d[2] : -d[2]) / 2 };
-        float x = p[0] * right.x + p[1] * right.y + p[2] * right.z, y = p[0] * up.x + p[1] * up.y + p[2] * up.z;
-        float z = p[0] * back.x + p[1] * back.y + p[2] * back.z;
-        need = fmaxf(need, fmaxf(z + fabsf(x) / th, z + fabsf(y) / tv));
-    }
-    SV.O.dist = need * 1.15f;
-    SV.dirty = true;
-}
-
-static Camera3D view_camera(void)
-{
-    return orbit_camera(&SV.O);
-}
-
-/* the boundary under a point of the view (-1: none): the nearest triangle the ray through it hits */
-static int view_pick_tri(Rectangle view, Vector2 mp)
-{
-    float s = ui_scale();
-    Vector2 pos = { (mp.x - view.x) * s, (mp.y - view.y) * s };
-    Ray ray = GetScreenToWorldRayEx(pos, view_camera(), SV.rtW, SV.rtH);
-    float best = 1e30f; int hit = -1;
-    const Stl *st = &T.stl;
-    for (int t = 0; t < st->nTri; t++) {
-        const float *p = st->tri + 9 * (size_t)t;
-        RayCollision h = GetRayCollisionTriangle(ray, (Vector3){ p[0], p[1], p[2] }, (Vector3){ p[3], p[4], p[5] }, (Vector3){ p[6], p[7], p[8] });
-        if (h.hit && h.distance < best) { best = h.distance; hit = t; }
-    }
-    return hit;
-}
-
-/* the point on the part under the mouse and its triangle's normal; the triangle, -1: none */
-static int view_pick_point(Rectangle view, Vector2 mp, double P[3], double N[3])
-{
-    float s = ui_scale();
-    Vector2 pos = { (mp.x - view.x) * s, (mp.y - view.y) * s };
-    Ray ray = GetScreenToWorldRayEx(pos, view_camera(), SV.rtW, SV.rtH);
-    float best = 1e30f; int hit = -1; Vector3 hp = { 0 }, hn = { 0 };
-    const Stl *st = &T.stl;
-    for (int t = 0; t < st->nTri; t++) {
-        const float *p = st->tri + 9 * (size_t)t;
-        RayCollision h = GetRayCollisionTriangle(ray, (Vector3){ p[0], p[1], p[2] }, (Vector3){ p[3], p[4], p[5] }, (Vector3){ p[6], p[7], p[8] });
-        if (h.hit && h.distance < best) { best = h.distance; hit = t; hp = h.point; hn = h.normal; }
-    }
-    if (hit >= 0) { P[0] = hp.x; P[1] = hp.y; P[2] = hp.z; N[0] = hn.x; N[1] = hn.y; N[2] = hn.z; }
-    return hit;
-}
-
-/* the point in the fluid (picked or worked out) and whether it is in the fluid: worked out again only when the settings or
-   the part change (the automatic point samples the whole part) */
-static void loc_now(double out[3], bool *inFluid)
-{
-    static MeshCfg was; static unsigned wasGen = ~0u; static long wasTri = -1; static double L[3]; static bool ok;
-    if (memcmp(&was, &T.m, sizeof was) || wasGen != T.gen || wasTri != T.stl.nTri) {
-        was = T.m; wasGen = T.gen; wasTri = T.stl.nTri;
-        mesher_location(&T.m, &T.stl, L);
-        ok = mesher_in_fluid(&T.m, &T.stl, L);
-    }
-    for (int k = 0; k < 3; k++) out[k] = L[k];
-    if (inFluid) *inFluid = ok;
-}
-
-/* a click on the part (Pick on the part): a point just off the surface on the fluid's side, checked to be in the fluid */
-static void pick_location(Rectangle view, Vector2 mp)
-{
-    double P[3], N[3];
-    if (view_pick_point(view, mp, P, N) < 0) { ui_toast(TOAST_INFO, "Click on the part: the point goes just off its surface, on the fluid's side"); return; }
-    double size = 0; for (int k = 0; k < 3; k++) size = fmax(size, T.stl.bmax[k] - T.stl.bmin[k]);
-    double d = fmax(0.5 * mesher_surface_cell(&T.m), 1e-3 * size);
-    for (int tries = 0; tries < 6; tries++, d *= 2)
-        for (int sgn = -1; sgn <= 1; sgn += 2) {
-            double q[3]; for (int k = 0; k < 3; k++) q[k] = P[k] + sgn * d * N[k];
-            if (mesher_in_fluid(&T.m, &T.stl, q)) {
-                for (int k = 0; k < 3; k++) T.m.loc[k] = q[k];
-                T.m.locPicked = true; T.pickLoc = false; save_cfg(); SV.dirty = true;
-                ui_toast(TOAST_OK, "Point in the fluid: (%.4g, %.4g, %.4g), %.3g mm off the surface", q[0], q[1], q[2], d * 1e3);
-                return;
-            }
-        }
-    ui_toast(TOAST_WARN, "No point in the fluid next to that spot (a thin wall, or an open part): try another");
-}
-
-static int view_pick(Rectangle view, Vector2 mp)
-{
-    float s = ui_scale();
-    Vector2 pos = { (mp.x - view.x) * s, (mp.y - view.y) * s };
-    Ray ray = GetScreenToWorldRayEx(pos, view_camera(), SV.rtW, SV.rtH);
-    float best = 1e30f; int hit = -1;
-    const Stl *st = &T.stl;
-    for (int t = 0; t < st->nTri; t++) {
-        const float *p = st->tri + 9 * (size_t)t;
-        RayCollision h = GetRayCollisionTriangle(ray, (Vector3){ p[0], p[1], p[2] }, (Vector3){ p[3], p[4], p[5] }, (Vector3){ p[6], p[7], p[8] });
-        if (h.hit && h.distance < best) { best = h.distance; hit = st->region[t]; }
-    }
-    return hit;
-}
-
-/* ---------------------------------------------------------------------------- what each step adds to the view
-   Geometry: the part's box with its sizes (a wrong unit shows at once). Mesh settings: a base cell and a surface cell
-   drawn to scale beside the part, the box kept at the base size round a body in a tunnel, the volumetric controls. */
-static void wire_box(const double lo[3], const double hi[3], Color c)
-{
-    for (int a = 0; a < 3; a++)
-        for (int e = 0; e < 4; e++) {
-            double p0[3], p1[3];
-            int b1 = (a + 1) % 3, b2 = (a + 2) % 3;
-            p0[a] = lo[a]; p1[a] = hi[a];
-            p0[b1] = p1[b1] = e & 1 ? hi[b1] : lo[b1];
-            p0[b2] = p1[b2] = e & 2 ? hi[b2] : lo[b2];
-            DrawLine3D((Vector3){ (float)p0[0], (float)p0[1], (float)p0[2] }, (Vector3){ (float)p1[0], (float)p1[1], (float)p1[2] }, c);
-        }
-}
-
-/* the two cells drawn to scale: under the part (the view's up), side by side along its longest side, so they read
-   from wherever it is seen */
-static void size_glyphs(const Stl *st, double cell[2], double at[2][3])
-{
-    int u = SV.up < 0 ? 2 : SV.up, a = (u + 1) % 3, o;
-    if (st->bmax[(u + 2) % 3] - st->bmin[(u + 2) % 3] > st->bmax[a] - st->bmin[a]) a = (u + 2) % 3;
-    o = 3 - u - a;
-    double L = 0; for (int k = 0; k < 3; k++) L = fmax(L, st->bmax[k] - st->bmin[k]);
-    cell[0] = T.m.base; cell[1] = mesher_surface_cell(&T.m);
-    double along = st->bmin[a];
-    for (int g = 0; g < 2; g++) {
-        at[g][a] = along;
-        at[g][u] = st->bmin[u] - 0.12 * L - cell[g];
-        at[g][o] = (st->bmin[o] + st->bmax[o]) / 2 - cell[g] / 2;
-        along += cell[g] + 0.25 * L;
-    }
-}
-
-static void view_overlay_3d(const Stl *st)
-{
-    Color dim = TH.dark ? (Color){ 230, 200, 120, 220 } : (Color){ 150, 100, 20, 220 };
-    if (T.open == ST_FLOW) {                               /* the point in the fluid: green in the fluid, red not */
-        double L[3]; bool ok; loc_now(L, &ok);
-        double size = 0; for (int k = 0; k < 3; k++) size = fmax(size, st->bmax[k] - st->bmin[k]);
-        rlDrawRenderBatchActive(); rlDisableDepthTest();     /* seen through the part: for internal flow it is inside it */
-        DrawSphere((Vector3){ (float)L[0], (float)L[1], (float)L[2] }, (float)(0.025 * size), ok ? TH.ok : TH.err);
-        rlDrawRenderBatchActive(); rlEnableDepthTest();
-    }
-    if (T.open == ST_GEOM) {
-        double lo[3] = { st->bmin[0], st->bmin[1], st->bmin[2] }, hi[3] = { st->bmax[0], st->bmax[1], st->bmax[2] };
-        wire_box(lo, hi, dim);
-    }
-    if (T.open == ST_MESH) {
-        double cell[2], at[2][3];
-        size_glyphs(st, cell, at);
-        double L = 0; for (int k = 0; k < 3; k++) L = fmax(L, st->bmax[k] - st->bmin[k]);
-        for (int g = 0; g < 2; g++) {
-            if (cell[g] > 3 * L || cell[g] < L * 1e-4) continue;   /* off the scale of the view */
-            Vector3 c = { (float)(at[g][0] + cell[g] / 2), (float)(at[g][1] + cell[g] / 2), (float)(at[g][2] + cell[g] / 2) };
-            Color k = g ? TH.accent : dim;
-            DrawCube(c, (float)cell[g], (float)cell[g], (float)cell[g], ui_alpha(k, 0.35f));
-            DrawCubeWires(c, (float)cell[g], (float)cell[g], (float)cell[g], k);
-        }
-        if (T.m.domain == DOMAIN_EXTERNAL && !T.m.twoD) {
-            double lo[3], hi[3];
-            mesher_near_box(&T.m, st, lo, hi);
-            wire_box(lo, hi, ui_alpha(TH.accent, 0.5f));
-        }
-        for (int i = 0; i < T.m.nZones; i++) {
-            const MeshZone *z = &T.m.zone[i];
-            Color zc = TH.series[(i + 3) % 10];
-            if (z->kind == ZONE_BOX) wire_box(z->a, z->b, zc);
-            else if (z->kind == ZONE_SPHERE) DrawSphereWires((Vector3){ (float)z->a[0], (float)z->a[1], (float)z->a[2] }, (float)z->r, 8, 12, zc);
-            else DrawCylinderWiresEx((Vector3){ (float)z->a[0], (float)z->a[1], (float)z->a[2] }, (Vector3){ (float)z->b[0], (float)z->b[1], (float)z->b[2] },
-                                     (float)z->r, (float)z->r, 16, zc);
-        }
-    }
-    rlDrawRenderBatchActive();
-}
-
-static Rectangle LBL[8]; static int nLbl;              /* the labels drawn in this redraw: the next ones keep clear of them */
-
-static void label_at(Camera3D cam, float s, Vector3 p, const char *t, Color c)
-{
-    Vector2 q = GetWorldToScreenEx(p, cam, SV.rtW, SV.rtH);
-    if (q.x < -50 || q.y < -50 || q.x > SV.rtW + 50 || q.y > SV.rtH + 50) return;
-    Font f = ui_font(F_MED, 14 * s);
-    Vector2 m = MeasureTextEx(f, t, 14 * s, 0);
-    for (int tries = 0; tries < 8; tries++) {             /* overlapping one already there: moved down under it */
-        Rectangle me = { q.x - m.x / 2 - 6 * s, q.y - m.y / 2 - 3 * s, m.x + 12 * s, m.y + 6 * s };
-        bool hit = false;
-        for (int i = 0; i < nLbl && !hit; i++) if (CheckCollisionRecs(me, LBL[i])) { q.y = LBL[i].y + LBL[i].height + m.y / 2 + 5 * s; hit = true; }
-        if (!hit) break;
-    }
-    if (nLbl < 8) LBL[nLbl++] = (Rectangle){ q.x - m.x / 2 - 6 * s, q.y - m.y / 2 - 3 * s, m.x + 12 * s, m.y + 6 * s };
-    DrawRectangleRounded((Rectangle){ q.x - m.x / 2 - 6 * s, q.y - m.y / 2 - 3 * s, m.x + 12 * s, m.y + 6 * s }, 0.4f, 6,
-                         TH.dark ? (Color){ 10, 14, 22, 200 } : (Color){ 255, 255, 255, 210 });
-    DrawTextEx(f, t, (Vector2){ q.x - m.x / 2, q.y - m.y / 2 }, 14 * s, 0, c);
-}
-
-static void view_overlay_labels(Camera3D cam, float s)
-{
-    nLbl = 0;
-    const Stl *st = &T.stl;
-    Color dim = TH.dark ? (Color){ 240, 210, 130, 255 } : (Color){ 130, 85, 10, 255 };
-    char b[48], l[32];
-    if (T.open == ST_GEOM) {                              /* each size along the box edge it measures */
-        for (int a = 0; a < 3; a++) {
-            Vector3 p = { st->bmin[0], st->bmin[1], st->bmin[2] };
-            (&p.x)[a] = (st->bmin[a] + st->bmax[a]) / 2;
-            fmt_len(l, sizeof l, st->bmax[a] - st->bmin[a]);
-            snprintf(b, sizeof b, "%c  %s", "XYZ"[a], l);
-            label_at(cam, s, p, b, dim);
-        }
-    }
-    if (T.open == ST_MESH) {
-        double cell[2], at[2][3], L = 0;
-        size_glyphs(st, cell, at);
-        for (int k = 0; k < 3; k++) L = fmax(L, st->bmax[k] - st->bmin[k]);
-        for (int g = 0; g < 2; g++) {
-            if (cell[g] > 3 * L || cell[g] < L * 1e-4) continue;
-            fmt_len(l, sizeof l, cell[g]);
-            snprintf(b, sizeof b, "%s %s", g ? "surface cell" : "base cell", l);
-            double lp[3] = { at[g][0] + cell[g] / 2, at[g][1] + cell[g] / 2, at[g][2] + cell[g] / 2 };
-            lp[SV.up < 0 ? 2 : SV.up] -= cell[g] / 2 + 0.05 * L;       /* under the cube */
-            label_at(cam, s, (Vector3){ (float)lp[0], (float)lp[1], (float)lp[2] }, b, g ? TH.accent : dim);
-        }
-    }
-}
-
-/* the picked boundary's border: its triangles' edges used once within it (shared with another boundary, or open). Built
-   again when the pick or the geometry changes. Returns the count, *out the segments (6 floats each). */
-/* the border of a set of triangles: their edges used once within the set (shared with a triangle outside it, or open);
-   6 floats a segment into *seg (grown as needed) */
-static int border_build(bool (*in)(const Stl *, int), float **seg, int *cap)
-{
-    const Stl *st = &T.stl;
-    int n = 0;
-    int ne = 0; for (int t = 0; t < st->nTri; t++) if (in(st, t)) ne += 3;
-    size_t hc = 1;
-    while (hc < (size_t)ne * 2 + 2) hc <<= 1;
-    struct E { float a[3], b[3]; int cnt; bool used; } *h = calloc(hc, sizeof *h);
-    if (!h) return n;
-    float L = 0; for (int k = 0; k < 3; k++) L = fmaxf(L, st->bmax[k] - st->bmin[k]);
-    float q = fmaxf(L * 1e-6f, 1e-12f);
-    for (int t = 0; t < st->nTri; t++) {
-        if (!in(st, t)) continue;
-        const float *p = st->tri + 9 * (size_t)t;
-        for (int e = 0; e < 3; e++) {
-            const float *a = p + 3 * e, *b = p + 3 * ((e + 1) % 3);
-            long ka[3], kb[3]; for (int k = 0; k < 3; k++) { ka[k] = lroundf(a[k] / q); kb[k] = lroundf(b[k] / q); }
-            if (memcmp(ka, kb, sizeof ka) > 0) { const float *x = a; a = b; b = x; long y[3]; memcpy(y, ka, sizeof y); memcpy(ka, kb, sizeof ka); memcpy(kb, y, sizeof kb); }
-            uint64_t hh = 1469598103934665603ULL;
-            for (int k = 0; k < 3; k++) { hh = (hh ^ (uint64_t)ka[k]) * 1099511628211ULL; hh = (hh ^ (uint64_t)kb[k]) * 1099511628211ULL; }
-            size_t j = hh & (hc - 1);
-            while (h[j].used) {
-                long ja[3], jb[3]; for (int k = 0; k < 3; k++) { ja[k] = lroundf(h[j].a[k] / q); jb[k] = lroundf(h[j].b[k] / q); }
-                if (!memcmp(ja, ka, sizeof ja) && !memcmp(jb, kb, sizeof jb)) break;
-                j = (j + 1) & (hc - 1);
-            }
-            if (!h[j].used) { h[j].used = true; memcpy(h[j].a, a, sizeof h[j].a); memcpy(h[j].b, b, sizeof h[j].b); }
-            h[j].cnt++;
-        }
-    }
-    for (size_t j = 0; j < hc; j++) {
-        if (!h[j].used || h[j].cnt != 1) continue;
-        if (n == *cap) { *cap = *cap ? *cap * 2 : 1024; float *ns = realloc(*seg, sizeof(float) * 6 * (size_t)*cap); if (!ns) break; *seg = ns; }
-        memcpy(*seg + 6 * (size_t)n, h[j].a, sizeof(float) * 3); memcpy(*seg + 6 * (size_t)n + 3, h[j].b, sizeof(float) * 3);
-        n++;
-    }
-    free(h);
-    return n;
-}
-
-static bool in_sel(const Stl *st, int t) { return st->region[t] == T.sel; }
-
-/* the picked boundary's border, built again when the pick or the geometry changes */
-static int sel_border(const float **out)
-{
-    static float *seg; static int n, cap, forSel = -2; static double forSig = -1;
-    double sig = geometry_sig();
-    if (forSel != T.sel || forSig != sig) {
-        forSel = T.sel; forSig = sig;
-        n = T.sel >= 0 && T.sel < T.stl.nRegions ? border_build(in_sel, &seg, &cap) : 0;
-    }
-    *out = seg;
-    return n;
-}
-
-/* CAD faces picked (Boundaries, a part from STEP or IGES): by face id, shift-click adds or takes away */
-static struct { bool *on; int cap, n; unsigned gen; } PK;
-static void pick_reset(void) { PK.n = 0; if (PK.on) memset(PK.on, 0, (size_t)PK.cap); PK.gen++; }
-static void pick_clear(void) { if (PK.on) memset(PK.on, 0, (size_t)PK.cap); PK.n = 0; PK.gen++; SV.dirty = true; }
-static void pick_face(int f, bool add)
-{
-    if (f < 1) { if (!add) pick_clear(); return; }
-    if (f >= PK.cap) { int nc = f + 64; bool *no = realloc(PK.on, (size_t)nc); if (!no) return; memset(no + PK.cap, 0, (size_t)(nc - PK.cap)); PK.on = no; PK.cap = nc; }
-    if (!add) pick_clear();
-    PK.on[f] = !PK.on[f];
-    PK.n += PK.on[f] ? 1 : -1;
-    PK.gen++; SV.dirty = true;
-}
-static bool in_pick(const Stl *st, int t) { int f = st->face ? st->face[t] : 0; return f > 0 && f < PK.cap && PK.on[f]; }
-static int pick_border(const float **out)
-{
-    static float *seg; static int n, cap; static unsigned forGen = ~0u; static double forSig = -1;
-    double sig = geometry_sig();
-    if (forGen != PK.gen || forSig != sig) { forGen = PK.gen; forSig = sig; n = PK.n ? border_build(in_pick, &seg, &cap) : 0; }
-    *out = seg;
-    return n;
-}
-
-static void view_redraw(Rectangle r)
-{
-    float s = ui_scale();
-    int w = (int)(r.width * s), h = (int)(r.height * s);
-    if (w < 8 || h < 8) return;
-    if (!SV.rtOk || w != SV.rtW || h != SV.rtH) {
-        if (SV.rtOk) UnloadRenderTexture(SV.rt);
-        SV.rt = LoadRenderTexture(w, h);
-        SV.rtOk = SV.rt.id != 0; SV.rtW = w; SV.rtH = h;
-    }
-    if (!SV.rtOk) return;
-    EndScissorMode();
-    BeginTextureMode(SV.rt);
-    ClearBackground(TH.dark ? (Color){ 10, 14, 22, 255 } : (Color){ 236, 240, 247, 255 });
-    rlDrawRenderBatchActive();
-    Camera3D cam = view_camera();
-    BeginMode3D(cam);
-    rlSetClipPlanes(SV.O.dist * 0.01, SV.O.dist * 20.0);
-    rlDisableBackfaceCulling();
-    const Stl *st = &T.stl;
-    for (int r2 = 0; r2 < st->nRegions; r2++) {
-        if (!SV.has[r2]) continue;
-        /* the picked boundary stands out: the others dim; the one under the mouse brightens */
-        unsigned char g = T.sel >= 0 ? (r2 == T.sel ? 255 : r2 == SV.hover ? 200 : 110) : (r2 == SV.hover ? 255 : 215);
-        DrawModel(SV.model[r2], (Vector3){ 0, 0, 0 }, 1, (Color){ g, g, g, 255 });
-    }
-    /* outlines a hair toward the camera: every triangle's when there are few, the picked boundary's in the accent */
-    Vector3 to = { cam.position.x - cam.target.x, cam.position.y - cam.target.y, cam.position.z - cam.target.z };
-    float tl = sqrtf(to.x * to.x + to.y * to.y + to.z * to.z), k = SV.O.dist * 0.0015f / fmaxf(tl, 1e-12f);
-    to.x *= k; to.y *= k; to.z *= k;
-    if (st->nTri <= VIEW_EDGES) {                         /* every triangle's outline, faint */
-        Color ec = TH.dark ? (Color){ 0, 0, 0, 110 } : (Color){ 20, 30, 50, 80 };
-        rlBegin(RL_LINES);
-        rlColor4ub(ec.r, ec.g, ec.b, ec.a);
-        for (int t = 0; t < st->nTri; t++) {
-            const float *p = st->tri + 9 * (size_t)t;
-            for (int e = 0; e < 3; e++) {
-                const float *a = p + 3 * e, *b = p + 3 * ((e + 1) % 3);
-                rlVertex3f(a[0] + to.x, a[1] + to.y, a[2] + to.z);
-                rlVertex3f(b[0] + to.x, b[1] + to.y, b[2] + to.z);
-            }
-        }
-        rlEnd();
-        rlDrawRenderBatchActive();
-    }
-    if (PK.n) {                                           /* CAD faces picked: their border, white over everything */
-        const float *se; int ns = pick_border(&se);
-        rlBegin(RL_LINES);
-        rlColor4ub(255, 255, 255, 255);
-        for (int i = 0; i < ns; i++) {
-            const float *g = se + 6 * (size_t)i;
-            rlVertex3f(g[0] + to.x * 2, g[1] + to.y * 2, g[2] + to.z * 2);
-            rlVertex3f(g[3] + to.x * 2, g[4] + to.y * 2, g[5] + to.z * 2);
-        }
-        rlEnd();
-        rlDrawRenderBatchActive();
-    }
-    if (T.sel >= 0) {                                     /* the picked boundary: its border in the accent, its own colour inside
-                                                             (every triangle outlined painted a fine face all accent) */
-        const float *se; int ns = sel_border(&se);
-        rlBegin(RL_LINES);
-        rlColor4ub(TH.accent.r, TH.accent.g, TH.accent.b, 255);
-        for (int i = 0; i < ns; i++) {
-            const float *g = se + 6 * (size_t)i;
-            rlVertex3f(g[0] + to.x, g[1] + to.y, g[2] + to.z);
-            rlVertex3f(g[3] + to.x, g[4] + to.y, g[5] + to.z);
-        }
-        rlEnd();
-        rlDrawRenderBatchActive();
-    }
-    /* external: the wind tunnel's box, and an arrow ahead of the body the way the flow goes */
-    if (T.m.domain == DOMAIN_EXTERNAL) {
-        double lo[3], hi[3];
-        mesher_domain(&T.m, st, lo, hi);
-        Color bc = TH.dark ? (Color){ 150, 165, 190, 150 } : (Color){ 60, 75, 100, 150 };
-        for (int a = 0; a < 3; a++)                       /* the 12 edges: 4 along each axis */
-            for (int e = 0; e < 4; e++) {
-                double p0[3], p1[3];
-                int b1 = (a + 1) % 3, b2 = (a + 2) % 3;
-                p0[a] = lo[a]; p1[a] = hi[a];
-                p0[b1] = p1[b1] = e & 1 ? hi[b1] : lo[b1];
-                p0[b2] = p1[b2] = e & 2 ? hi[b2] : lo[b2];
-                DrawLine3D((Vector3){ (float)p0[0], (float)p0[1], (float)p0[2] }, (Vector3){ (float)p1[0], (float)p1[1], (float)p1[2] }, bc);
-            }
-        int f = T.m.flowDir / 2; float sg = T.m.flowDir % 2 ? -1.f : 1.f;
-        float c[3], ext = 0;
-        for (int k = 0; k < 3; k++) { c[k] = (st->bmin[k] + st->bmax[k]) / 2; ext = fmaxf(ext, st->bmax[k] - st->bmin[k]); }
-        float half = (st->bmax[f] - st->bmin[f]) / 2, len = ext * 0.45f, r = ext * 0.018f;
-        Vector3 a0 = { c[0], c[1], c[2] }, a1 = a0, a2 = a0;
-        float *p0 = &a0.x, *p1 = &a1.x, *p2 = &a2.x;
-        p0[f] -= sg * (half + len * 1.25f); p1[f] -= sg * (half + len * 0.45f); p2[f] -= sg * (half + len * 0.2f);
-        DrawCylinderEx(a0, a1, r, r, 10, TH.accent);
-        DrawCylinderEx(a1, a2, r * 2.6f, 0, 14, TH.accent);
-        rlDrawRenderBatchActive();
-    }
-    view_overlay_3d(st);
-    rlEnableBackfaceCulling();
-    EndMode3D();
-    view_overlay_labels(cam, s);
-    rlSetClipPlanes(RL_CULL_DISTANCE_NEAR, RL_CULL_DISTANCE_FAR);
-    /* the axes, bottom left */
-    float ax = 46 * s, ay = h - 46 * s, al = 28 * s;
-    orbit_draw_axes(&SV.O, ax, ay, al, s);
-    EndTextureMode();
-    ui_restore_2d();
-    SV.dirty = false;
-    SV.drawnSel = T.sel; SV.drawnHover = SV.hover;
-}
-
-static void select_region(int r);
-
-static void view_panel(Rectangle view)
-{
-    if (SV.sig != geometry_sig() || (!SV.has[0] && T.stl.nRegions > 0)) { view_build(); SV.touched = false; SV.fitW = 0; }
-    {   /* fitted to the view's real shape, again when it changes (a step with the view beside it, or above), until turned by hand */
-        int vw = (int)(view.width * ui_scale()), vh = (int)(view.height * ui_scale());
-        if (!SV.touched && vh > 0 && (vw != SV.fitW || vh != SV.fitH)) { view_fit((float)vw / vh); SV.fitW = vw; SV.fitH = vh; }
-    }
-    ui_rect(view, 12, TH.dark ? (Color){ 10, 14, 22, 255 } : (Color){ 236, 240, 247, 255 });
-    if (SV.up < 0) { SV.up = mesher_up(&T.m) / 2; SV.touched = false; SV.fitW = 0; }   /* the case's up (CAD's z, or the tunnel's Up) */
-    Rectangle upR = { view.x + view.width - 160, view.y + 10, 150, 30 };
-    Rectangle turnR = { view.x + 10, view.y + 6, orbit_tools_w(true) + 16, 40 };       /* top left, or under Up when narrow */
-    if (turnR.x + turnR.width > upR.x - 36) turnR.y = upR.y + upR.height + 8;
-    bool hov = ui_hovered(view) && !ui_hovered(upR) && !ui_hovered(turnR) && A.modal == MD_NONE;
-    Vector2 mp = ui_mouse();
-    if (!hov) SV.engaged = false;
-    if (hov && ui_pressed(view)) {
-        SV.engaged = true;
-        if (ui_time() - SV.lastClick < 0.35) { view_fit(view.height > 0 ? view.width / view.height : 1.5f); SV.touched = false; SV.lastClick = 0; }
-        else SV.lastClick = ui_time();
-        bool shift = inp_key_down(KEY_LEFT_SHIFT) || inp_key_down(KEY_RIGHT_SHIFT);
-        SV.dragging = !shift; SV.panning = shift; SV.last = SV.down = mp; SV.moved = false;
-    }
-    if (hov && IsMouseButtonPressed(MOUSE_BUTTON_RIGHT)) { SV.panning = true; SV.dragging = false; SV.last = SV.down = mp; SV.moved = true; }
-    if (SV.dragging || SV.panning) {
-        bool down = SV.dragging ? ui_mouse_down() : (IsMouseButtonDown(MOUSE_BUTTON_RIGHT) || ui_mouse_down());
-        if (fabsf(mp.x - SV.down.x) + fabsf(mp.y - SV.down.y) > 4) SV.moved = true;
-        if (!down) {
-            if (!SV.moved && hov && T.open == ST_FLOW && T.pickLoc) { pick_location(view, mp); SV.engaged = false; }   /* E8: a pick, not a wish to zoom: the wheel scrolls the page */
-            else if (!SV.moved && hov && T.open == ST_BOUND) {    /* a click, not a drag: pick the boundary there (a CAD part: the face too) */
-                int t = view_pick_tri(view, mp);
-                bool add = inp_key_down(KEY_LEFT_SHIFT) || inp_key_down(KEY_RIGHT_SHIFT);
-                if (T.stl.face) pick_face(t >= 0 ? T.stl.face[t] : 0, add);
-                if (!add) select_region(t >= 0 ? T.stl.region[t] : -1);
-            }
-            SV.dragging = SV.panning = false;
-        } else {
-            float dx = mp.x - SV.last.x, dy = mp.y - SV.last.y;
-            if (SV.moved && (dx != 0 || dy != 0)) {
-                SV.touched = true;
-                if (SV.dragging) orbit_drag(&SV.O, SV.last, mp, (Vector2){ view.x + view.width / 2, view.y + view.height / 2 });
-                else orbit_pan(&SV.O, dx, dy);
-                SV.dirty = true;
-            }
-            SV.last = mp;
-            ui_request_frames(2);
-        }
-    }
-    /* the boundary under the mouse, named beside it (not while turning, nor on very large parts) */
-    int hv = -1;
-    if (hov && !SV.dragging && !SV.panning && T.stl.nTri <= 300000 && SV.rtOk && T.open == ST_BOUND) {
-        static Vector2 at = { -1, -1 }; static int was = -1;
-        if (mp.x != at.x || mp.y != at.y) { at = mp; was = view_pick(view, mp); }
-        hv = was;
-    }
-    if (hv != SV.hover) { SV.hover = hv; SV.dirty = true; }
-    if (hov) {
-        if (orbit_keys(&SV.O)) { SV.dirty = true; SV.touched = true; }
-        /* the view sits in a scrolling page: the wheel scrolls past it, and zooms once it is clicked (or with Ctrl) */
-        if (SV.engaged || inp_key_down(KEY_LEFT_CONTROL) || inp_key_down(KEY_RIGHT_CONTROL)) {
-            float wh = ui_take_wheel();
-            if (wh != 0) { SV.O.dist *= powf(0.88f, wh); SV.dirty = true; SV.touched = true; }
-        }
-        ui_cursor(SV.panning ? MOUSE_CURSOR_RESIZE_ALL : MOUSE_CURSOR_POINTING_HAND);
-    }
-    if (T.sel != SV.drawnSel || SV.hover != SV.drawnHover) SV.dirty = true;
-    {   /* the tunnel and the arrow follow the domain's settings */
-        double ds = T.open * 37.0 + SV.up * 53.0 + T.m.base * 41.0 + T.m.targetPct * 0.43 + T.m.nZones * 3.1 + T.m.scale * 0.17 + T.m.domain + T.m.flowDir * 7.0 + mesher_up(&T.m) * 13.0 + T.m.up * 1.1 + T.m.down * 3.3 + T.m.side * 5.7 + T.m.top * 11.9 + T.m.below * 2.9 + T.m.ground * 0.7 + T.m.refLen * 17.3 + T.m.twoD * 23.0 + T.m.normal2D * 29.0;
-        static double was = -1;
-        if (ds != was) { was = ds; SV.dirty = true; }
-    }
-    if (SV.dirty) view_redraw(view);
-    if (SV.rtOk) DrawTexturePro(SV.rt.texture, (Rectangle){ 0, 0, (float)SV.rtW, -(float)SV.rtH }, view, (Vector2){ 0, 0 }, 0, WHITE);
-    ui_rect_lines(view, 12, 1, TH.lineSoft);
-    ui_register(ui_id("stl-view"), view, "STL view");
-    {   /* which axis is up: the view turns about it (STL files come with x, y or z up, whatever the CAD program likes) */
-        static const char *ax[] = { "X", "Y", "Z" };
-        int u = SV.up;
-        ui_text(F_MED, 12, ui_cap("Up"), upR.x - 26, upR.y + 8, TH.dark ? (Color){ 200, 210, 230, 200 } : (Color){ 60, 70, 90, 200 });
-        if (ui_segmented(ui_id("stl-view-up"), upR, ax, 3, &u) && u != SV.up) { SV.up = u; SV.touched = false; SV.fitW = 0; SV.dirty = true; }
-        ui_tooltip(upR, "The axis that points up in the view");
-    }
-    ui_rect(turnR, 9, ui_alpha(TH.surface, 0.82f));
-    switch (orbit_tools(&SV.O, "stl-view", turnR.x + 8, turnR.y + 5, true)) {
-    case 1: SV.touched = true; SV.dirty = true; break;
-    case 2: SV.touched = false; SV.fitW = 0; SV.dirty = true; break;      /* fitted afresh next frame */
-    }
-    if (SV.hover >= 0 && SV.hover < T.stl.nRegions) {
-        const char *nm = T.stl.reg[SV.hover].name;
-        float tw = ui_text_w(F_MONO_MED, 13, nm) + 18;
-        Rectangle tag = { fminf(mp.x + 14, view.x + view.width - tw - 6), mp.y - 32, tw, 26 };
-        ui_rect(tag, 6, ui_alpha(TH.surface, 0.92f));
-        ui_rect_lines(tag, 6, 1, region_color(SV.hover));
-        ui_text(F_MONO_MED, 13, nm, tag.x + 9, tag.y + 5, TH.text);
-    }
-    char how[240];
-    if (T.open == ST_BOUND) snprintf(how, sizeof how, "Click a face to pick its boundary  ·  %s  ·  right-drag to move  ·  click, then wheel to zoom", orbit_hint(&SV.O));
-    else {
-        snprintf(how, sizeof how, "%s  ·  right-drag to move  ·  click, then wheel to zoom  ·  double-click to fit", orbit_hint(&SV.O));
-        how[0] = (char)(how[0] - 'a' + 'A');
-    }
-    ui_text_clip(F_REG, 12, how, view.x + 96, view.y + view.height - 22, view.width - 110,             /* right of the axes */ TH.dark ? (Color){ 200, 210, 230, 160 } : (Color){ 60, 70, 90, 170 });
-}
-
+/* the part in 3-D (picking faces, what each step adds to the view): page_stlview.c */
 /* ============================================================================ the boundaries */
 static const char *const TYPES[BT__N] = { "Wall", "Opening", "Inlet", "Outlet", "Symmetry" };
 static const char *foam_type_of(int t) { return t == BT_WALL ? "wall" : t == BT_SYMMETRY ? "symmetry" : "patch"; }
 
-static void select_region(int r)
+void sm_select_region(int r)
 {
-    T.sel = r >= 0 && r < T.stl.nRegions ? r : -1;
-    SV.dirty = true;
-    if (T.sel >= 0) ui_focus_input(ui_idn(ui_id("stl-sel-name"), T.sel));     /* type the new name straight away */
+    STLP.sel = r >= 0 && r < STLP.stl.nRegions ? r : -1;
+    STLV.dirty = true;
+    if (STLP.sel >= 0) ui_focus_input(ui_idn(ui_id("stl-sel-name"), STLP.sel));     /* type the new name straight away */
 }
 
 static bool rename_region(int i, const char *typed)
 {
-    Stl *s = &T.stl;
+    Stl *s = &STLP.stl;
     char nm[64]; pl_strlcpy(nm, typed, sizeof nm); pl_trim_inplace(nm);
     for (char *q = nm; *q; q++) if (*q == ' ' || *q == '-') *q = '_';   /* "front inlet" -> front_inlet */
     bool okName = nm[0] != 0 && !(nm[0] >= '0' && nm[0] <= '9');
@@ -1736,47 +1094,47 @@ static bool rename_region(int i, const char *typed)
     char old[64]; pl_strlcpy(old, s->reg[i].name, sizeof old);
     pl_strlcpy(s->reg[i].name, nm, sizeof s->reg[i].name);
     if (s->face) {                                        /* a CAD face group: its faces carry the new name */
-        StlName *g = faces_load(T.casePath, s->nFaces);
+        StlName *g = faces_load(STLP.casePath, s->nFaces);
         if (g) {
             for (int f = 1; f <= s->nFaces; f++) if (!strcmp(g[f], old)) pl_strlcpy(g[f], nm, 64);
-            faces_save(T.casePath, (const StlName *)g, s->nFaces);
+            faces_save(STLP.casePath, (const StlName *)g, s->nFaces);
             free(g);
         }
         for (int t = 0; t < s->nTri; t++) if (!strcmp(s->solid[t], old)) pl_strlcpy(s->solid[t], nm, 64);
     }
-    save_cfg();
+    sm_save_cfg();
     if (A.cs) setup_rename(A.cs, old, nm);                 /* its conditions go with it */
     return true;
 }
 
 static void set_type(int i, int ty)
 {
-    if (T.stl.reg[i].type == ty) return;
-    T.stl.reg[i].type = ty;
-    save_cfg();
+    if (STLP.stl.reg[i].type == ty) return;
+    STLP.stl.reg[i].type = ty;
+    sm_save_cfg();
 }
 
 int stlmesh_patches(Case *c, SimPatch *out, int max, double *size, bool *external)
 {
     sync_case(c);
-    if (!T.loaded) return 0;
-    const Stl *s = &T.stl;
+    if (!STLP.loaded) return 0;
+    const Stl *s = &STLP.stl;
     double L = 0; for (int k = 0; k < 3; k++) L = fmax(L, s->bmax[k] - s->bmin[k]);
-    *size = L; *external = T.m.domain == DOMAIN_EXTERNAL;
+    *size = L; *external = STLP.m.domain == DOMAIN_EXTERNAL;
     int n = 0;
     for (int i = 0; i < s->nRegions && n < max; i++) {
-        if (!mesher_region_meshed(&T.m, s, i)) continue;   /* 2-D: the extrusion's end caps aren't in the mesh */
+        if (!mesher_region_meshed(&STLP.m, s, i)) continue;   /* 2-D: the extrusion's end caps aren't in the mesh */
         out[n++] = (SimPatch){ s->reg[i].name, s->reg[i].type, foam_type_of(s->reg[i].type), true, s->reg[i].area };
     }
-    if (T.m.twoD && n + 2 <= max) {
+    if (STLP.m.twoD && n + 2 <= max) {
         out[n++] = (SimPatch){ "front2D", ROLE_WALL, "empty", false, 0 };
         out[n++] = (SimPatch){ "back2D", ROLE_WALL, "empty", false, 0 };
     }
-    if (T.m.domain == DOMAIN_EXTERNAL) {                   /* the wind tunnel's own (stlmesh.c write_snappy, the SALOME script) */
+    if (STLP.m.domain == DOMAIN_EXTERNAL) {                   /* the wind tunnel's own (stlmesh.c write_snappy, the SALOME script) */
         if (n < max) out[n++] = (SimPatch){ "inlet", ROLE_INLET, "patch", false, 0 };
         if (n < max) out[n++] = (SimPatch){ "outlet", ROLE_OUTLET, "patch", false, 0 };
         if (n < max) out[n++] = (SimPatch){ "farfield", ROLE_SYMMETRY, "patch", false, 0 };
-        if (T.m.ground && n < max) out[n++] = (SimPatch){ "ground", ROLE_WALL, "wall", false, 0 };
+        if (STLP.m.ground && n < max) out[n++] = (SimPatch){ "ground", ROLE_WALL, "wall", false, 0 };
     }
     return n;
 }
@@ -1785,36 +1143,36 @@ void stlmesh_flow(Case *c, double v[3])
 {
     sync_case(c);
     v[0] = v[1] = v[2] = 0;
-    if (!T.loaded || T.m.domain != DOMAIN_EXTERNAL) { v[0] = 1; return; }
-    v[T.m.flowDir / 2] = T.m.flowDir % 2 ? -1 : 1;
+    if (!STLP.loaded || STLP.m.domain != DOMAIN_EXTERNAL) { v[0] = 1; return; }
+    v[STLP.m.flowDir / 2] = STLP.m.flowDir % 2 ? -1 : 1;
 }
 
 bool stlmesh_force_ref(Case *c, SimForceRef *r, bool *twoD)
 {
     sync_case(c);
     *twoD = false;
-    if (!T.loaded) return false;
-    const Stl *s = &T.stl;
+    if (!STLP.loaded) return false;
+    const Stl *s = &STLP.stl;
     double v[3]; stlmesh_flow(c, v);
-    int f = fabs(v[0]) > 0.5 ? 0 : fabs(v[1]) > 0.5 ? 1 : 2, u = mesher_up(&T.m);
+    int f = fabs(v[0]) > 0.5 ? 0 : fabs(v[1]) > 0.5 ? 1 : 2, u = mesher_up(&STLP.m);
     for (int k = 0; k < 3; k++) { r->drag[k] = v[k]; r->lift[k] = 0; }
     r->lift[u / 2] = u % 2 ? -1 : 1;
     double len = s->bmax[f] - s->bmin[f];
     for (int k = 0; k < 3; k++) r->CofR[k] = (s->bmin[k] + s->bmax[k]) / 2;
     r->CofR[f] = v[f] > 0 ? s->bmin[f] + 0.25 * len : s->bmax[f] - 0.25 * len;   /* an airfoil's quarter chord */
     r->Uinf = 0;
-    if (T.m.twoD) {
-        int n = T.m.normal2D % 3;
+    if (STLP.m.twoD) {
+        int n = STLP.m.normal2D % 3;
         *twoD = true;
         r->lRef = len;
         r->aRef = len * (s->bmax[n] - s->bmin[n]);         /* the mesh is the part's depth thick (extrudeMeshDict) */
         return true;
     }
-    r->lRef = mesher_ref_length(&T.m, s);
+    r->lRef = mesher_ref_length(&STLP.m, s);
     /* the frontal area: the part seen along the flow, half the sum of |n . flow| over a closed surface */
     double a = 0;
     for (int t = 0; t < s->nTri; t++) {
-        if (!mesher_region_meshed(&T.m, s, s->region[t])) continue;
+        if (!mesher_region_meshed(&STLP.m, s, s->region[t])) continue;
         const float *p = s->tri + 9 * (size_t)t;
         double e1[3] = { p[3] - p[0], p[4] - p[1], p[5] - p[2] }, e2[3] = { p[6] - p[0], p[7] - p[1], p[8] - p[2] };
         double nr[3] = { e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0] };
@@ -1827,7 +1185,7 @@ bool stlmesh_force_ref(Case *c, SimForceRef *r, bool *twoD)
 bool stlmesh_set_role(Case *c, const char *name, int role)
 {
     sync_case(c);
-    for (int i = 0; i < T.stl.nRegions; i++) if (!strcmp(T.stl.reg[i].name, name)) { set_type(i, role); return true; }
+    for (int i = 0; i < STLP.stl.nRegions; i++) if (!strcmp(STLP.stl.reg[i].name, name)) { set_type(i, role); return true; }
     return false;
 }
 
@@ -1837,8 +1195,8 @@ static float selection_panel(Case *c, float x, float y, float w, float h)
     Rectangle box = { x, y, w, h };
     ui_rect(box, 12, TH.surface2); ui_rect_lines(box, 12, 1, TH.lineSoft);
     float px = x + 18, pw = w - 36, py = y + 18;
-    Stl *s = &T.stl;
-    if (T.sel < 0 || T.sel >= s->nRegions) {
+    Stl *s = &STLP.stl;
+    if (STLP.sel < 0 || STLP.sel >= s->nRegions) {
         ui_icon(ICON_CIRCLE_DOT, px + 10, py + 12, 18, TH.accent);
         ui_text(F_SEMI, 16, "Click a face of the part", px + 30, py + 2, TH.text);
         py += 34;
@@ -1850,22 +1208,22 @@ static float selection_panel(Case *c, float x, float y, float w, float h)
         }
         return h;
     }
-    StlRegion *R = &s->reg[T.sel];
-    UiId nid = ui_idn(ui_id("stl-sel-name"), T.sel);       /* the id select_region focuses: made at the same level */
-    ui_push_id(ui_idn(ui_id("stl-sel"), T.sel));
-    ui_rect((Rectangle){ px, py + 4, 14, 14 }, 4, region_color(T.sel));
+    StlRegion *R = &s->reg[STLP.sel];
+    UiId nid = ui_idn(ui_id("stl-sel-name"), STLP.sel);       /* the id select_region focuses: made at the same level */
+    ui_push_id(ui_idn(ui_id("stl-sel"), STLP.sel));
+    ui_rect((Rectangle){ px, py + 4, 14, 14 }, 4, sm_region_color(STLP.sel));
     char info[160]; pl_fmt_ui(info, sizeof info, "%d triangles  ·  %.3g m²", R->nTri, R->area);
     ui_text_clip(F_REG, 12.5f, info, px + 22, py + 3, pw - 60, TH.text3);
-    if (ui_button(ui_id("close"), (Rectangle){ x + w - 46, y + 10, 30, 30 }, ICON_X, NULL, BTN_ICON)) { select_region(-1); ui_pop_id(); return h; }
+    if (ui_button(ui_id("close"), (Rectangle){ x + w - 46, y + 10, 30, 30 }, ICON_X, NULL, BTN_ICON)) { sm_select_region(-1); ui_pop_id(); return h; }
     py += 30;
     ui_pop_id();
     ui_text(F_MED, 12.5f, ui_cap("Name"), px, py, TH.text2);
     char nm[64]; pl_strlcpy(nm, R->name, sizeof nm);
-    if (ui_input(nid, (Rectangle){ px, py + 20, pw, 36 }, nm, sizeof nm, "boundary name", INPUT_MONO)) rename_region(T.sel, nm);
+    if (ui_input(nid, (Rectangle){ px, py + 20, pw, 36 }, nm, sizeof nm, "boundary name", INPUT_MONO)) rename_region(STLP.sel, nm);
     py += 68;
     ui_text(F_MED, 12.5f, ui_cap("It is"), px, py, TH.text2);
     int ty = R->type;
-    if (ui_segmented(ui_id("stl-sel-type"), (Rectangle){ px, py + 20, pw, 34 }, (const char **)TYPES, BT__N, &ty)) set_type(T.sel, ty);
+    if (ui_segmented(ui_id("stl-sel-type"), (Rectangle){ px, py + 20, pw, 34 }, (const char **)TYPES, BT__N, &ty)) set_type(STLP.sel, ty);
     py += 66;
     py += setup_boundary_editor(c, R->name, px, py, pw);
     return fmaxf(h, py - y + 10);
@@ -1875,9 +1233,9 @@ static float selection_panel(Case *c, float x, float y, float w, float h)
 static void boundary_counts(int *in, int *out, int *wall, int *other)
 {
     *in = *out = *wall = *other = 0;
-    for (int i = 0; i < T.stl.nRegions; i++) {
-        if (!mesher_region_meshed(&T.m, &T.stl, i)) continue;
-        int t = T.stl.reg[i].type;
+    for (int i = 0; i < STLP.stl.nRegions; i++) {
+        if (!mesher_region_meshed(&STLP.m, &STLP.stl, i)) continue;
+        int t = STLP.stl.reg[i].type;
         if (t == BT_INLET) (*in)++; else if (t == BT_OUTLET || t == BT_PATCH) (*out)++; else if (t == BT_WALL) (*wall)++; else (*other)++;
     }
 }
@@ -1903,45 +1261,45 @@ static int name_role(const char *name)
 /* the picked faces into a boundary (new or one there is): faces.ini changed, the part split by it again */
 static void group_picked(const char *name)
 {
-    Stl *s = &T.stl;
-    StlName *g = faces_load(T.casePath, s->nFaces);
+    Stl *s = &STLP.stl;
+    StlName *g = faces_load(STLP.casePath, s->nFaces);
     if (!g) {
         g = calloc((size_t)s->nFaces + 1, sizeof *g);
         if (!g) { ui_toast(TOAST_ERR, "Out of memory: the faces were not grouped"); return; }
-        faces_default(s, T.m.splitAngle, g);
+        faces_default(s, STLP.m.splitAngle, g);
     }
-    for (int f = 1; f <= s->nFaces && f < PK.cap; f++) if (PK.on[f]) pl_strlcpy(g[f], name, 64);
-    faces_save(T.casePath, (const StlName *)g, s->nFaces);
+    for (int f = 1; f <= s->nFaces && f < STLPK.cap; f++) if (STLPK.on[f]) pl_strlcpy(g[f], name, 64);
+    faces_save(STLP.casePath, (const StlName *)g, s->nFaces);
     free(g);
-    MeshCfg keep = T.m;
-    stl_split_part(&T.stl, T.m.splitAngle, T.casePath);
-    mesher_apply_names(&keep, &T.stl);                   /* the kinds by name: the new one a wall until said otherwise */
-    save_cfg();
-    for (int r = 0; r < s->nRegions; r++) if (!strcmp(s->reg[r].name, name)) { T.sel = r; break; }
-    SV.dirty = true;
-    ui_toast(TOAST_OK, "%d face%s now in %s", PK.n, PK.n == 1 ? "" : "s", name);
+    MeshCfg keep = STLP.m;
+    stl_split_part(&STLP.stl, STLP.m.splitAngle, STLP.casePath);
+    mesher_apply_names(&keep, &STLP.stl);                   /* the kinds by name: the new one a wall until said otherwise */
+    sm_save_cfg();
+    for (int r = 0; r < s->nRegions; r++) if (!strcmp(s->reg[r].name, name)) { STLP.sel = r; break; }
+    STLV.dirty = true;
+    ui_toast(TOAST_OK, "%d face%s now in %s", STLPK.n, STLPK.n == 1 ? "" : "s", name);
 }
 
 static float faces_bar(float x, float y, float w)
 {
     float y0 = y;
-    Stl *s = &T.stl;
+    Stl *s = &STLP.stl;
     double area = 0; char ids[200] = ""; int k = 0;
-    for (int t = 0; t < s->nTri; t++) if (in_pick(s, t)) {
+    for (int t = 0; t < s->nTri; t++) if (sm_in_pick(s, t)) {
         const float *p = s->tri + 9 * (size_t)t;
         float e1[3] = { p[3] - p[0], p[4] - p[1], p[5] - p[2] }, e2[3] = { p[6] - p[0], p[7] - p[1], p[8] - p[2] };
         float c[3] = { e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0] };
         area += 0.5 * sqrtf(c[0] * c[0] + c[1] * c[1] + c[2] * c[2]);
     }
-    for (int f = 1; f < PK.cap && f <= s->nFaces; f++) if (PK.on[f]) { if (k++) pl_strlcpy(ids + strlen(ids), ",", sizeof ids - strlen(ids)); snprintf(ids + strlen(ids), sizeof ids - strlen(ids), "%d", f); }
+    for (int f = 1; f < STLPK.cap && f <= s->nFaces; f++) if (STLPK.on[f]) { if (k++) pl_strlcpy(ids + strlen(ids), ",", sizeof ids - strlen(ids)); snprintf(ids + strlen(ids), sizeof ids - strlen(ids), "%d", f); }
     Rectangle box = { x, y, w, 96 };
     ui_rect(box, 10, TH.surface2); ui_rect_lines(box, 10, 1, TH.lineSoft);
     char t[300];
-    if (PK.n) pl_fmt_ui(t, sizeof t, "%d face%s picked  ·  %.4g m²  ·  CAD face%s %s", PK.n, PK.n == 1 ? "" : "s", area, PK.n == 1 ? "" : "s", ids);
+    if (STLPK.n) pl_fmt_ui(t, sizeof t, "%d face%s picked  ·  %.4g m²  ·  CAD face%s %s", STLPK.n, STLPK.n == 1 ? "" : "s", area, STLPK.n == 1 ? "" : "s", ids);
     else pl_strlcpy(t, "CAD faces: click a face to pick it, shift-click to pick more, then make them a boundary of their own.", sizeof t);
-    ui_text_clip(PK.n ? F_MED : F_REG, 13.5f, t, x + 14, y + 10, w - 60, PK.n ? TH.text : TH.text3);
-    if (PK.n && ui_button(ui_id("pk-clear"), (Rectangle){ x + w - 42, y + 6, 30, 30 }, ICON_X, NULL, BTN_ICON)) pick_clear();
-    ui_disable(!PK.n);                                    /* the same height picked or not: the view doesn't jump on the first click */
+    ui_text_clip(STLPK.n ? F_MED : F_REG, 13.5f, t, x + 14, y + 10, w - 60, STLPK.n ? TH.text : TH.text3);
+    if (STLPK.n && ui_button(ui_id("pk-clear"), (Rectangle){ x + w - 42, y + 6, 30, 30 }, ICON_X, NULL, BTN_ICON)) sm_pick_clear();
+    ui_disable(!STLPK.n);                                    /* the same height picked or not: the view doesn't jump on the first click */
     static char nm[64];
     float by = y + 46, bx = x + 14;
     ui_input(ui_id("pk-name"), (Rectangle){ bx, by, 200, 36 }, nm, sizeof nm, "new boundary name", INPUT_MONO);
@@ -1964,12 +1322,12 @@ static float faces_bar(float x, float y, float w)
     }
     if (sw > 120) bx += sw + 10;
     float rw = ui_button_width(ICON_TRASH_2, "Remove from the part");
-    ui_disable(!PK.n || !T.m.cad[0] || !A.env.salome[0] || stool_busy(NULL));
+    ui_disable(!STLPK.n || !STLP.m.cad[0] || !A.env.salome[0] || stool_busy(NULL));
     if (ui_button(ui_id("pk-remove"), (Rectangle){ fminf(bx, x + w - rw - 14), by, rw, 36 }, ICON_TRASH_2, "Remove from the part", BTN_GHOST)) {
         geo_load();
         if (G.n < GO_MAX) {
             G.kind[G.n] = GO_REMOVE; G.val[G.n] = 0; pl_strlcpy(G.ids[G.n], ids, sizeof G.ids[0]); G.n++;
-            geo_save(); geo_apply(); pick_clear();
+            geo_save(); geo_apply(); sm_pick_clear();
             ui_toast(TOAST_INFO, "Removing the faces (Geometry > Prepare the geometry shows it): SALOME heals the part round them");
         }
     }
@@ -1982,12 +1340,12 @@ static float boundaries_step(Case *c, float x, float y, float w)
     float y0 = y;
     y += note(x, y, w, "Each boundary becomes an OpenFOAM patch with this name. Click a face of the part to pick its boundary, then name "
                        "it and say what it is; walls get prism layers. The list under the view picks them too.");
-    Stl *s = &T.stl;
-    if (T.sel >= s->nRegions) T.sel = -1;
+    Stl *s = &STLP.stl;
+    if (STLP.sel >= s->nRegions) STLP.sel = -1;
     if (s->face) y += faces_bar(x, y, w);                /* a CAD part: its faces picked into boundaries (above the view: in sight while picking) */
     float pw = fminf(460, w * 0.42f), vh = 440;
     Rectangle view = { x, y, w - pw - 16, vh };
-    view_panel(view);
+    sm_view_panel(view);
     float ph = selection_panel(c, x + view.width + 16, y, pw, vh);
     y += fmaxf(vh, ph) + 16;
     for (int i = 0; i < s->nRegions; i++) {
@@ -2002,13 +1360,13 @@ static float boundaries_step(Case *c, float x, float y, float w)
         }
         ui_push_id(ui_idn(ui_id("stl-b"), i));
         Rectangle sw = { x, y + 2, 30, 30 };                /* the colour in the view; click to pick it */
-        if (ui_row(ui_id("pick"), sw, T.sel == i)) select_region(T.sel == i ? -1 : i);
-        ui_rect((Rectangle){ sw.x + 8, sw.y + 8, 14, 14 }, 4, region_color(i));
-        if (T.sel == i) ui_rect_lines(sw, 7, 1.5f, TH.accent);
+        if (ui_row(ui_id("pick"), sw, STLP.sel == i)) sm_select_region(STLP.sel == i ? -1 : i);
+        ui_rect((Rectangle){ sw.x + 8, sw.y + 8, 14, 14 }, 4, sm_region_color(i));
+        if (STLP.sel == i) ui_rect_lines(sw, 7, 1.5f, TH.accent);
         ui_tooltip(sw, "Pick it: it lights up in the view");
         char nm[64]; pl_strlcpy(nm, R->name, sizeof nm);
         if (ui_input(ui_id("name"), (Rectangle){ x + 40, y, 240, 34 }, nm, sizeof nm, "name", INPUT_MONO)) rename_region(i, nm);
-        if (ui_input_focused(ui_id("name")) && T.sel != i) { T.sel = i; SV.dirty = true; }   /* typing in a row picks it in the view */
+        if (ui_input_focused(ui_id("name")) && STLP.sel != i) { STLP.sel = i; STLV.dirty = true; }   /* typing in a row picks it in the view */
         int ty = R->type;
         if (ui_select(ui_id("type"), (Rectangle){ x + 292, y, 140, 34 }, TYPES, BT__N, &ty)) set_type(i, ty);
         char info[160]; pl_fmt_ui(info, sizeof info, "%d triangles  ·  %.3g m²  ·  %s", R->nTri, R->area, axis_word(R->n));
@@ -2021,7 +1379,7 @@ static float boundaries_step(Case *c, float x, float y, float w)
     {
         char names[300] = ""; int nMis = 0;
         for (int i = 0; i < s->nRegions; i++) {
-            if (!mesher_region_meshed(&T.m, s, i)) continue;
+            if (!mesher_region_meshed(&STLP.m, s, i)) continue;
             int want = name_role(s->reg[i].name), ty = s->reg[i].type;
             if (want < 0 || ty == want || (want == BT_OUTLET && ty == BT_PATCH)) continue;   /* an outlet as an opening: fine */
             if (nMis < 4) pl_fmt_ui(names + strlen(names), sizeof names - strlen(names), "%s%s (%s)", nMis ? ", " : "", s->reg[i].name, TYPES[s->reg[i].type]);
@@ -2038,7 +1396,7 @@ static float boundaries_step(Case *c, float x, float y, float w)
             if (ui_button(ui_id("stl-name-kinds"), (Rectangle){ x + 42, y + 8 + ch - 44, fw, 34 }, ICON_WRENCH, "Make them what their names say", BTN_PRIMARY)) {
                 for (int i = 0; i < s->nRegions; i++) {
                     int want = name_role(s->reg[i].name), ty = s->reg[i].type;
-                    if (want >= 0 && mesher_region_meshed(&T.m, s, i) && ty != want && !(want == BT_OUTLET && ty == BT_PATCH)) set_type(i, want);
+                    if (want >= 0 && mesher_region_meshed(&STLP.m, s, i) && ty != want && !(want == BT_OUTLET && ty == BT_PATCH)) set_type(i, want);
                 }
                 ui_toast(TOAST_OK, "Set %d boundar%s from %s name%s", nMis, nMis == 1 ? "y" : "ies", nMis == 1 ? "its" : "their", nMis == 1 ? "" : "s");
             }
@@ -2049,7 +1407,7 @@ static float boundaries_step(Case *c, float x, float y, float w)
     int in, out, wall, other;
     boundary_counts(&in, &out, &wall, &other);
     y += 8;
-    if (T.m.domain == DOMAIN_EXTERNAL) {
+    if (STLP.m.domain == DOMAIN_EXTERNAL) {
         const char *d = "The wind tunnel adds its own inlet, outlet and far field (and the ground, when the body sits on it): the part's "
                         "own boundaries are usually all walls. Their conditions are on Physics > Setup.";
         float ch = callout_height(w, NULL, d);
@@ -2076,13 +1434,13 @@ static float boundaries_step(Case *c, float x, float y, float w)
 /* 2-D: a profile (an airfoil, a duct's cross section) extruded along an axis, meshed one cell thick across it */
 static void set_two_d(bool on, int axis)
 {
-    T.m.twoD = on; T.m.normal2D = axis;
-    if (on && T.m.flowDir / 2 == axis) {                  /* the flow goes in the plane */
-        T.m.flowDir = axis == 0 ? DIR_PY : DIR_PX;
+    STLP.m.twoD = on; STLP.m.normal2D = axis;
+    if (on && STLP.m.flowDir / 2 == axis) {                  /* the flow goes in the plane */
+        STLP.m.flowDir = axis == 0 ? DIR_PY : DIR_PX;
         setup_flow_changed(A.cs);
     }
-    T.m.upDir = mesher_up(&T.m);
-    save_cfg();
+    STLP.m.upDir = mesher_up(&STLP.m);
+    sm_save_cfg();
 }
 
 static float profile_rows(float x, float y, float w);
@@ -2091,12 +1449,12 @@ static float two_d_rows(float x, float y, float w)
 {
     float y0 = y;
     double thick = part_thickness();
-    int ta = stl_thin_axis(&T.stl);
-    double text = T.stl.bmax[ta] - T.stl.bmin[ta], other = 0;
-    for (int k = 0; k < 3; k++) if (k != ta) other = fmax(other, T.stl.bmax[k] - T.stl.bmin[k]);
+    int ta = stl_thin_axis(&STLP.stl);
+    double text = STLP.stl.bmax[ta] - STLP.stl.bmin[ta], other = 0;
+    for (int k = 0; k < 3; k++) if (k != ta) other = fmax(other, STLP.stl.bmax[k] - STLP.stl.bmin[k]);
     /* the whole part thin along an axis, and much thinner than it is long: a profile extruded, best meshed 2-D */
-    if (!T.m.twoD && thick > 0 && fabs(text - thick) < 0.2 * text && text < 0.25 * other) {
-        char t[32], d[400]; fmt_len(t, sizeof t, text);
+    if (!STLP.m.twoD && thick > 0 && fabs(text - thick) < 0.2 * text && text < 0.25 * other) {
+        char t[32], d[400]; sm_fmt_len(t, sizeof t, text);
         pl_fmt_ui(d, sizeof d, "It is %s deep along %c and much larger the other ways: a profile extruded (an airfoil, a section). "
                   "Meshed 2-D, one cell thick across %c, it needs far fewer cells than in 3-D, where the cells must be smaller than %s.",
                   t, "XYZ"[ta], "XYZ"[ta], t);
@@ -2105,21 +1463,21 @@ static float two_d_rows(float x, float y, float w)
         float tw = ui_button_width(ICON_LAYERS, "Mesh it 2-D");
         if (ui_button(ui_id("stl-2d-fix"), (Rectangle){ x + 42, y + ch - 44, tw, 34 }, ICON_LAYERS, "Mesh it 2-D", BTN_PRIMARY)) {
             set_two_d(true, ta);
-            ui_toast(TOAST_OK, "2-D across %c: about %.0f thousand cells", "XYZ"[ta], mesher_estimate_cells(&T.m, &T.stl) / 1e3);
+            ui_toast(TOAST_OK, "2-D across %c: about %.0f thousand cells", "XYZ"[ta], mesher_estimate_cells(&STLP.m, &STLP.stl) / 1e3);
         }
         y += ch + 14;
     }
     Rectangle cr = prop_row(x, &y, w, "2-D", "A profile (an airfoil, a section) extruded along one axis: meshed [[empty|one cell thick]] across it, with "
                             "its front and back empty, as OpenFOAM's 2-D cases are. Far fewer cells than 3-D.", 24);
-    bool on = T.m.twoD;
-    if (ui_switch(ui_id("stl-2d"), cr.x, cr.y + 2, &on)) set_two_d(on, on ? stl_thin_axis(&T.stl) : T.m.normal2D);
-    if (T.m.twoD) {
+    bool on = STLP.m.twoD;
+    if (ui_switch(ui_id("stl-2d"), cr.x, cr.y + 2, &on)) set_two_d(on, on ? stl_thin_axis(&STLP.stl) : STLP.m.normal2D);
+    if (STLP.m.twoD) {
         static const char *const AX[3] = { "Across X", "Across Y", "Across Z" };
-        int a = T.m.normal2D;
-        if (ui_segmented(ui_id("stl-2d-axis"), (Rectangle){ cr.x + 60, cr.y - 5, fminf(330, cr.width - 60), 34 }, (const char **)AX, 3, &a) && a != T.m.normal2D)
+        int a = STLP.m.normal2D;
+        if (ui_segmented(ui_id("stl-2d-axis"), (Rectangle){ cr.x + 60, cr.y - 5, fminf(330, cr.width - 60), 34 }, (const char **)AX, 3, &a) && a != STLP.m.normal2D)
             set_two_d(true, a);
-        char t[32]; fmt_len(t, sizeof t, T.stl.bmax[T.m.normal2D] - T.stl.bmin[T.m.normal2D]);
-        char h[160]; pl_fmt_ui(h, sizeof h, "extruded %s along %c", t, "XYZ"[T.m.normal2D]);
+        char t[32]; sm_fmt_len(t, sizeof t, STLP.stl.bmax[STLP.m.normal2D] - STLP.stl.bmin[STLP.m.normal2D]);
+        char h[160]; pl_fmt_ui(h, sizeof h, "extruded %s along %c", t, "XYZ"[STLP.m.normal2D]);
         ui_text_clip(F_REG, 13, h, cr.x + 60 + fminf(330, cr.width - 60) + 12, cr.y + 2, cr.width - 420, TH.text3);
         y += profile_rows(x, y, w);
     }
@@ -2131,44 +1489,44 @@ static void smooth_profile(bool on)
 {
     char err[300];
     if (!on) {
-        if (!T.m.stlOriginal[0]) return;
-        char orig[PL_PATH]; pl_strlcpy(orig, T.m.stlOriginal, sizeof orig);
-        pl_strlcpy(T.m.stl, orig, sizeof T.m.stl); T.m.stlOriginal[0] = 0;
+        if (!STLP.m.stlOriginal[0]) return;
+        char orig[PL_PATH]; pl_strlcpy(orig, STLP.m.stlOriginal, sizeof orig);
+        pl_strlcpy(STLP.m.stl, orig, sizeof STLP.m.stl); STLP.m.stlOriginal[0] = 0;
         if (load_stl(orig, false)) ui_toast(TOAST_OK, "Back to %s", pl_basename(orig));
         return;
     }
     char dir[PL_PATH], out[PL_PATH], name[200];
-    pl_join(dir, sizeof dir, T.casePath, "mesher"); pl_mkdirs(dir);
-    pl_strlcpy(name, pl_basename(T.m.stl), sizeof name);
+    pl_join(dir, sizeof dir, STLP.casePath, "mesher"); pl_mkdirs(dir);
+    pl_strlcpy(name, pl_basename(STLP.m.stl), sizeof name);
     char *dot = strrchr(name, '.'); if (dot) *dot = 0;
     char fn[240]; snprintf(fn, sizeof fn, "%s-smooth.stl", name);
     pl_join(out, sizeof out, dir, fn);
-    int np0; double k0; stl_profile_facets(&T.stl, T.m.normal2D, 30, &np0, &k0);
+    int np0; double k0; stl_profile_facets(&STLP.stl, STLP.m.normal2D, 30, &np0, &k0);
     /* points about the minimum surface cell apart, so the curvature refinement sees no corners */
-    int no = stl_smooth_profile(&T.stl, T.m.normal2D, 30, T.m.base * fmin(T.m.minPct, T.m.targetPct) / 100, out, err, sizeof err);
+    int no = stl_smooth_profile(&STLP.stl, STLP.m.normal2D, 30, STLP.m.base * fmin(STLP.m.minPct, STLP.m.targetPct) / 100, out, err, sizeof err);
     if (!no) { ui_toast(TOAST_ERR, "%s", err); return; }
-    char orig[PL_PATH]; pl_strlcpy(orig, T.m.stl, sizeof orig);
-    pl_strlcpy(T.m.stl, out, sizeof T.m.stl);
-    if (!load_stl(out, false)) { pl_strlcpy(T.m.stl, orig, sizeof T.m.stl); return; }
-    pl_strlcpy(T.m.stlOriginal, orig, sizeof T.m.stlOriginal);
-    save_cfg();
+    char orig[PL_PATH]; pl_strlcpy(orig, STLP.m.stl, sizeof orig);
+    pl_strlcpy(STLP.m.stl, out, sizeof STLP.m.stl);
+    if (!load_stl(out, false)) { pl_strlcpy(STLP.m.stl, orig, sizeof STLP.m.stl); return; }
+    pl_strlcpy(STLP.m.stlOriginal, orig, sizeof STLP.m.stlOriginal);
+    sm_save_cfg();
     ui_toast(TOAST_OK, "The profile is smooth now: %d points instead of %d (mesher/%s)", no, np0, fn);
 }
 
 static float profile_rows(float x, float y, float w)
 {
-    if (!T.m.twoD || !T.loaded) return 0;
+    if (!STLP.m.twoD || !STLP.loaded) return 0;
     static double sig = -1; static int nAx = -1, np; static double kink; static bool ok;
-    if (sig != geometry_sig() || nAx != T.m.normal2D) { sig = geometry_sig(); nAx = T.m.normal2D; ok = stl_profile_facets(&T.stl, nAx, 30, &np, &kink); }
+    if (sig != sm_geometry_sig() || nAx != STLP.m.normal2D) { sig = sm_geometry_sig(); nAx = STLP.m.normal2D; ok = stl_profile_facets(&STLP.stl, nAx, 30, &np, &kink); }
     float y0 = y;
-    if (T.m.stlOriginal[0]) {
-        char t[400]; pl_fmt_ui(t, sizeof t, "A smooth profile (%d points) made of %s, its sharp corners kept.", np, pl_basename(T.m.stlOriginal));
+    if (STLP.m.stlOriginal[0]) {
+        char t[400]; pl_fmt_ui(t, sizeof t, "A smooth profile (%d points) made of %s, its sharp corners kept.", np, pl_basename(STLP.m.stlOriginal));
         float bw = ui_button_width(ICON_UNDO_2, "Use the original");
         ui_text_clip(F_REG, 13, t, x, y + 9, w - bw - 16, TH.text3);
         if (ui_button(ui_id("stl-unsmooth"), (Rectangle){ x + w - bw, y, bw, 34 }, ICON_UNDO_2, "Use the original", BTN_GHOST)) smooth_profile(false);
         return 46;
     }
-    double resolve = 360.0 / fmax(3, T.m.curvature), limit = fmax(2, fmin(5, resolve));
+    double resolve = 360.0 / fmax(3, STLP.m.curvature), limit = fmax(2, fmin(5, resolve));
     if (!ok || kink <= limit) return 0;
     /* the user's airfoil, 2026-10-26: 45 points round a 1 m chord; snappy refined at each corner and the layers broke there */
     char d[800], why[300];
@@ -2180,7 +1538,7 @@ static float profile_rows(float x, float y, float w)
                   "lift and drag come out a little off.");
     pl_fmt_ui(d, sizeof d, "Its outline is only %d straight segments, with corners up to %.1f°. %s Smooth the profile draws a spline "
               "through the points, about every %.3g mm, keeping sharp corners such as a trailing edge. Exporting the STL finer from "
-              "CAD (a smaller chord tolerance) works as well.", np, kink, why, T.m.base * fmin(T.m.minPct, T.m.targetPct) / 100 * 1000);
+              "CAD (a smaller chord tolerance) works as well.", np, kink, why, STLP.m.base * fmin(STLP.m.minPct, STLP.m.targetPct) / 100 * 1000);
     float ch = callout_height(w, "The profile is coarse", d) + 46;
     callout((Rectangle){ x, y, w, ch }, TOAST_WARN, ICON_TRIANGLE_ALERT, "The profile is coarse", d);
     float tw = ui_button_width(ICON_SPARKLES, "Smooth the profile");
@@ -2236,40 +1594,40 @@ static bool flow_card(UiId id, Rectangle r, int kind, bool on)
 static float flow_step(float x, float y, float w)
 {
     float y0 = y;
-    int d = T.m.domain;
+    int d = STLP.m.domain;
     float cw = fminf(360, (w - 16) / 2), ch = 150;
     for (int i = 0; i < 2; i++) {
         Rectangle cr = { x + i * (cw + 16), y, cw, ch };
         if (flow_card(ui_idn(ui_id("stl-domain"), i), cr, i, d == i)) d = i;
     }
-    if (d != T.m.domain) {
-        T.m.domain = d;
-        if (T.m.locPicked) { T.m.locPicked = false; ui_toast(TOAST_INFO, "The picked point in the fluid was for the other kind of flow: worked out again"); }
-        mesher_size_defaults(&T.m, &T.stl, part_thickness());   /* the sizes suit each kind (and a thin part); the rest stays */
-        save_cfg();
+    if (d != STLP.m.domain) {
+        STLP.m.domain = d;
+        if (STLP.m.locPicked) { STLP.m.locPicked = false; ui_toast(TOAST_INFO, "The picked point in the fluid was for the other kind of flow: worked out again"); }
+        mesher_size_defaults(&STLP.m, &STLP.stl, part_thickness());   /* the sizes suit each kind (and a thin part); the rest stays */
+        sm_save_cfg();
     }
     y += ch + 14;
-    y += note(x, y, w, T.m.domain == DOMAIN_INTERNAL
+    y += note(x, y, w, STLP.m.domain == DOMAIN_INTERNAL
                      ? "The fluid fills the inside of the part: a duct, a manifold, a room. The part must be closed, with its inlets and outlets "
                        "as faces of it (you name them next)."
                      : "The part is a body in a wind tunnel: a wing, a car, a building. Say which way the air goes and which way is up; the "
                        "tunnel's size is in reference lengths, and the view shows it.");
     y += two_d_rows(x, y, w);
     {   /* E8: the point in the fluid (locationInMesh), worked out or picked on the part, with its check */
-        double L[3]; bool ok; loc_now(L, &ok);
+        double L[3]; bool ok; sm_loc_now(L, &ok);
         Rectangle cr = prop_row(x, &y, w, "Point in the fluid", "snappyHexMesh and cfMesh keep the cells on the side of the surface this point is on "
                                 "([[location-in-mesh|locationInMesh]]). Worked out from the part; pick it on the part for a part with more than one "
                                 "space inside, where the worked-out one can land in the wrong one.", 34);
-        char t[160]; pl_fmt_ui(t, sizeof t, "(%.4g, %.4g, %.4g)  %s  ·  %s", L[0], L[1], L[2], T.m.locPicked ? "picked" : "worked out", ok ? "in the fluid" : "NOT in the fluid");
+        char t[160]; pl_fmt_ui(t, sizeof t, "(%.4g, %.4g, %.4g)  %s  ·  %s", L[0], L[1], L[2], STLP.m.locPicked ? "picked" : "worked out", ok ? "in the fluid" : "NOT in the fluid");
         ui_text_clip(F_MONO, 12.5f, t, cr.x, cr.y + 9, cr.width, ok ? TH.text2 : TH.err);
         y += 4;
-        float bx = cr.x, bw = ui_button_width(ICON_CIRCLE_DOT, T.pickLoc ? "Click on the part ..." : "Pick on the part");
-        if (ui_button(ui_id("stl-loc-pick"), (Rectangle){ bx, y, bw, 32 }, ICON_CIRCLE_DOT, T.pickLoc ? "Click on the part ..." : "Pick on the part", T.pickLoc ? BTN_PRIMARY : BTN_SECONDARY))
-            T.pickLoc = !T.pickLoc;
+        float bx = cr.x, bw = ui_button_width(ICON_CIRCLE_DOT, STLP.pickLoc ? "Click on the part ..." : "Pick on the part");
+        if (ui_button(ui_id("stl-loc-pick"), (Rectangle){ bx, y, bw, 32 }, ICON_CIRCLE_DOT, STLP.pickLoc ? "Click on the part ..." : "Pick on the part", STLP.pickLoc ? BTN_PRIMARY : BTN_SECONDARY))
+            STLP.pickLoc = !STLP.pickLoc;
         bx += bw + 8;
-        if (T.m.locPicked) {
+        if (STLP.m.locPicked) {
             bw = ui_button_width(ICON_UNDO_2, "Work it out");
-            if (ui_button(ui_id("stl-loc-auto"), (Rectangle){ bx, y, bw, 32 }, ICON_UNDO_2, "Work it out", BTN_GHOST)) { T.m.locPicked = false; save_cfg(); SV.dirty = true; }
+            if (ui_button(ui_id("stl-loc-auto"), (Rectangle){ bx, y, bw, 32 }, ICON_UNDO_2, "Work it out", BTN_GHOST)) { STLP.m.locPicked = false; sm_save_cfg(); STLV.dirty = true; }
         }
         y += 44;
         if (!ok) {
@@ -2280,39 +1638,39 @@ static float flow_step(float x, float y, float w)
             y += ch + 10;
         }
     }
-    if (T.m.domain == DOMAIN_EXTERNAL) {
+    if (STLP.m.domain == DOMAIN_EXTERNAL) {
         /* which way the flow goes (the view's arrow), which way is up (the ground and the top), what L is */
         Rectangle cr = prop_row(x, &y, w, "Flow direction", "The way the air goes, in the STL's axes: the inlet is on the other side. "
                                 "A blade or a wing: along its chord, not across its span.", 34);
-        int fd = T.m.flowDir;
-        if (ui_segmented(ui_id("stl-flow"), (Rectangle){ cr.x, cr.y, fminf(360, cr.width), 34 }, (const char **)DIR_NAME, DIR__N, &fd) && fd != T.m.flowDir) {
-            if (T.m.twoD && fd / 2 == T.m.normal2D) ui_toast(TOAST_ERR, "In 2-D the flow is in the plane: not along %c, the axis it is one cell thick across", "XYZ"[T.m.normal2D]);
-            else { T.m.flowDir = fd; T.m.upDir = mesher_up(&T.m); save_cfg(); setup_flow_changed(A.cs); }
+        int fd = STLP.m.flowDir;
+        if (ui_segmented(ui_id("stl-flow"), (Rectangle){ cr.x, cr.y, fminf(360, cr.width), 34 }, (const char **)DIR_NAME, DIR__N, &fd) && fd != STLP.m.flowDir) {
+            if (STLP.m.twoD && fd / 2 == STLP.m.normal2D) ui_toast(TOAST_ERR, "In 2-D the flow is in the plane: not along %c, the axis it is one cell thick across", "XYZ"[STLP.m.normal2D]);
+            else { STLP.m.flowDir = fd; STLP.m.upDir = mesher_up(&STLP.m); sm_save_cfg(); setup_flow_changed(A.cs); }
         }
         /* up: one of the four directions square to the flow */
-        const char *upNames[4]; int upDirs[4], nu = 0, cur = 0, ud = mesher_up(&T.m);
-        for (int d = 0; d < DIR__N; d++) if (d / 2 != T.m.flowDir / 2) { if (d == ud) cur = nu; upDirs[nu] = d; upNames[nu++] = DIR_NAME[d]; }
+        const char *upNames[4]; int upDirs[4], nu = 0, cur = 0, ud = mesher_up(&STLP.m);
+        for (int d = 0; d < DIR__N; d++) if (d / 2 != STLP.m.flowDir / 2) { if (d == ud) cur = nu; upDirs[nu] = d; upNames[nu++] = DIR_NAME[d]; }
         cr = prop_row(x, &y, w, "Up", "Where the top of the [[domain|tunnel]] is; the ground (if the body sits on it) is the other way.", 34);
         if (ui_segmented(ui_id("stl-updir"), (Rectangle){ cr.x, cr.y, fminf(240, cr.width), 34 }, upNames, nu, &cur) && upDirs[cur] != ud) {
-            T.m.upDir = upDirs[cur]; save_cfg();
+            STLP.m.upDir = upDirs[cur]; sm_save_cfg();
         }
-        double Lauto = T.stl.bmax[T.m.flowDir / 2] - T.stl.bmin[T.m.flowDir / 2];
+        double Lauto = STLP.stl.bmax[STLP.m.flowDir / 2] - STLP.stl.bmin[STLP.m.flowDir / 2];
         char a[96];
-        pl_fmt_ui(a, sizeof a, T.m.refLen > 0 ? "L = %.4g m (the body is %.4g m along the flow)" : "0: the body's length along the flow, L = %.4g m",
-                  T.m.refLen > 0 ? T.m.refLen : Lauto, Lauto);
+        pl_fmt_ui(a, sizeof a, STLP.m.refLen > 0 ? "L = %.4g m (the body is %.4g m along the flow)" : "0: the body's length along the flow, L = %.4g m",
+                  STLP.m.refLen > 0 ? STLP.m.refLen : Lauto, Lauto);
         if (row_num(x, &y, w, "stl-ref", "Reference length L", "The tunnel's distances below are in it. 0 takes the body's length along the flow "
-                    "(a blade's chord); type a span or a diameter to measure in that instead.", &T.m.refLen, "%g", 0, 1e6, "m", a)) save_cfg();
-        if (row_num(x, &y, w, "stl-up", "Upstream", "Inlet distance ahead of the body.", &T.m.up, "%g", 0, 100, "L", NULL)) save_cfg();
-        if (row_num(x, &y, w, "stl-down", "Downstream", "Room for the wake.", &T.m.down, "%g", 0, 200, "L", NULL)) save_cfg();
-        if (row_num(x, &y, w, "stl-side", "Sides", T.m.twoD ? "Across the flow, in the plane. (2-D: not across the extrusion, which is one cell.)"
-                                                           : "Across the flow, both sides.", &T.m.side, "%g", 0, 100, "L", NULL)) save_cfg();
-        if (row_num(x, &y, w, "stl-top", "Above", "Room over the body, toward Up.", &T.m.top, "%g", 0, 100, "L", NULL)) save_cfg();
-        ui_disable(T.m.ground);
-        if (row_num(x, &y, w, "stl-below", "Below", T.m.ground ? "On the ground: the floor touches the body." : "Room under the body, away from Up.",
-                    &T.m.below, "%g", 0, 100, "L", NULL)) save_cfg();
+                    "(a blade's chord); type a span or a diameter to measure in that instead.", &STLP.m.refLen, "%g", 0, 1e6, "m", a)) sm_save_cfg();
+        if (row_num(x, &y, w, "stl-up", "Upstream", "Inlet distance ahead of the body.", &STLP.m.up, "%g", 0, 100, "L", NULL)) sm_save_cfg();
+        if (row_num(x, &y, w, "stl-down", "Downstream", "Room for the wake.", &STLP.m.down, "%g", 0, 200, "L", NULL)) sm_save_cfg();
+        if (row_num(x, &y, w, "stl-side", "Sides", STLP.m.twoD ? "Across the flow, in the plane. (2-D: not across the extrusion, which is one cell.)"
+                                                           : "Across the flow, both sides.", &STLP.m.side, "%g", 0, 100, "L", NULL)) sm_save_cfg();
+        if (row_num(x, &y, w, "stl-top", "Above", "Room over the body, toward Up.", &STLP.m.top, "%g", 0, 100, "L", NULL)) sm_save_cfg();
+        ui_disable(STLP.m.ground);
+        if (row_num(x, &y, w, "stl-below", "Below", STLP.m.ground ? "On the ground: the floor touches the body." : "Room under the body, away from Up.",
+                    &STLP.m.below, "%g", 0, 100, "L", NULL)) sm_save_cfg();
         ui_disable(false);
         cr = prop_row(x, &y, w, "On the ground", "The floor is under the body (on the side away from Up), touching it, and is a wall (a car, a building).", 24);
-        if (ui_switch(ui_id("stl-ground"), cr.x, cr.y + 2, &T.m.ground)) save_cfg();
+        if (ui_switch(ui_id("stl-ground"), cr.x, cr.y + 2, &STLP.m.ground)) sm_save_cfg();
     }
     return y - y0;
 }
@@ -2321,21 +1679,21 @@ static float mesher_section(float x, float y, float w)
 {
     float y0 = y;
     y += section_head(x, y, w, "Mesher", NULL);
-    int ms = T.m.mesher;
+    int ms = STLP.m.mesher;
     /* listed by engine: OpenFOAM's, then SALOME's (MESHERS keeps mesher.ini's order) */
     static const char *names[MESHER__N]; static int order[MESHER__N]; int no = 0;
     for (int e = ENG_OPENFOAM; e <= ENG_SALOME; e++) for (int k = 0; k < MESHER__N; k++) if (MESHERS[k].engine == e) { order[no] = k; names[no++] = MESHERS[k].name; }
     int shown = 0; for (int i = 0; i < no; i++) if (order[i] == ms) shown = i;
     float dw = fminf(440, w - 230);                       /* the names are long ("OpenFOAM · Cartesian hex: cfMesh cartesianMesh") */
-    if (ui_select(ui_id("stl-mesher"), (Rectangle){ x, y, dw, 36 }, names, no, &shown) && order[shown] != T.m.mesher) { T.m.mesher = order[shown]; save_cfg(); }
-    if (salome_mesher() && !T.m.twoD) {                  /* 2-D: SALOME always builds the profile's face as CAD */
+    if (ui_select(ui_id("stl-mesher"), (Rectangle){ x, y, dw, 36 }, names, no, &shown) && order[shown] != STLP.m.mesher) { STLP.m.mesher = order[shown]; sm_save_cfg(); }
+    if (salome_mesher() && !STLP.m.twoD) {                  /* 2-D: SALOME always builds the profile's face as CAD */
         float sx = x + dw + 20;
-        if (MESHERS[T.m.mesher].flags & MF_CAD) { ui_disable(true); bool on = true; ui_switch(ui_id("stl-remesh-cad"), sx, y + 8, &on); }
+        if (MESHERS[STLP.m.mesher].flags & MF_CAD) { ui_disable(true); bool on = true; ui_switch(ui_id("stl-remesh-cad"), sx, y + 8, &on); }
         else
-        if (ui_switch(ui_id("stl-remesh"), sx, y + 8, &T.m.remesh)) save_cfg();
+        if (ui_switch(ui_id("stl-remesh"), sx, y + 8, &STLP.m.remesh)) sm_save_cfg();
         ui_disable(false);
-        if (MESHERS[T.m.mesher].flags & MF_CAD) ui_tooltip((Rectangle){ sx, y, 200, 36 }, "This mesher works on CAD faces: always on");
-        bool cad = T.m.cad[0] && fabs(T.m.scale - 1) < 1e-12;
+        if (MESHERS[STLP.m.mesher].flags & MF_CAD) ui_tooltip((Rectangle){ sx, y, 200, 36 }, "This mesher works on CAD faces: always on");
+        bool cad = STLP.m.cad[0] && fabs(STLP.m.scale - 1) < 1e-12;
         ui_text(F_MED, 13, cad ? "Mesh the exact CAD" : "Remesh surface", sx + 46, y + 9, TH.text2);
         if (cad) ui_tooltip((Rectangle){ sx, y, 200, 36 }, "On: NETGEN meshes the CAD file's own faces at the target size: round holes stay round, "
                             "fast, and it can grow prism layers. Off: NETGEN meshes on the STL made from it.");
@@ -2346,9 +1704,9 @@ static float mesher_section(float x, float y, float w)
     }
     y += 44;
     {   /* what it makes; a mesher that can't run here says why */
-        const MesherInfo *M = &MESHERS[T.m.mesher];
-        y += note(x, y, w, T.m.twoD ? (M->what2D ? M->what2D : "2-D: this mesher meshes 3-D parts only; pick another for a profile.") : M->what);
-        if (M->engine == ENG_SALOME && !T.m.twoD && !T.m.cad[0]) {   /* user's intake, 2026-11-10: 110 k STL triangles became
+        const MesherInfo *M = &MESHERS[STLP.m.mesher];
+        y += note(x, y, w, STLP.m.twoD ? (M->what2D ? M->what2D : "2-D: this mesher meshes 3-D parts only; pick another for a profile.") : M->what);
+        if (M->engine == ENG_SALOME && !STLP.m.twoD && !STLP.m.cad[0]) {   /* user's intake, 2026-11-10: 110 k STL triangles became
                                                                             110 k CAD faces, and NETGEN's layers need CAD faces */
             const char *t = "SALOME works better from a STEP file";
             const char *d = "From an STL, SALOME has to build CAD out of its triangles: slow on a fine STL (one face per triangle), and "
@@ -2358,30 +1716,30 @@ static float mesher_section(float x, float y, float w)
             callout((Rectangle){ x, y, w, ch }, TOAST_INFO, ICON_INFO, t, d);
             y += ch + 12;
         }
-        if (T.m.mesher == MESHER_SGMSH) {                 /* Gmsh's own choice */
+        if (STLP.m.mesher == MESHER_SGMSH) {                 /* Gmsh's own choice */
             Rectangle cr = prop_row(x, &y, w, "Gmsh 3-D algorithm", "Delaunay: robust. Frontal: better-shaped cells, slower. HXT: fast, "
                                     "parallel, for big parts. MMG3D: Delaunay then optimised. R-tree: experimental.", 34);
-            int ga = T.m.gmshAlgo;
-            if (ui_segmented(ui_id("stl-gmsh-algo"), (Rectangle){ cr.x, cr.y, fminf(420, cr.width), 34 }, (const char **)GMSH_ALGO_NAME, GMSH_ALGOS, &ga) && ga != T.m.gmshAlgo) {
-                T.m.gmshAlgo = ga; save_cfg();
+            int ga = STLP.m.gmshAlgo;
+            if (ui_segmented(ui_id("stl-gmsh-algo"), (Rectangle){ cr.x, cr.y, fminf(420, cr.width), 34 }, (const char **)GMSH_ALGO_NAME, GMSH_ALGOS, &ga) && ga != STLP.m.gmshAlgo) {
+                STLP.m.gmshAlgo = ga; sm_save_cfg();
             }
         }
-        if (M->engine == ENG_SALOME && !(M->flags & MF_CAD) && !T.m.remesh && !T.m.twoD) {   /* the STL's triangles: who remeshes them */
+        if (M->engine == ENG_SALOME && !(M->flags & MF_CAD) && !STLP.m.remesh && !STLP.m.twoD) {   /* the STL's triangles: who remeshes them */
             static const char *RM[2] = { "NETGEN", "MMG" };
             Rectangle cr = prop_row(x, &y, w, "Surface remesher", "When the STL's triangles are much coarser than the target size, or "
                                     "slivers, they are remeshed first. MMG keeps sharp edges and the shape closer on curved parts.", 34);
-            int rm = T.m.surfRemesher;
-            if (ui_segmented(ui_id("stl-surf-remesh"), (Rectangle){ cr.x, cr.y, fminf(240, cr.width), 34 }, RM, 2, &rm) && rm != T.m.surfRemesher) {
-                T.m.surfRemesher = rm; save_cfg();
+            int rm = STLP.m.surfRemesher;
+            if (ui_segmented(ui_id("stl-surf-remesh"), (Rectangle){ cr.x, cr.y, fminf(240, cr.width), 34 }, RM, 2, &rm) && rm != STLP.m.surfRemesher) {
+                STLP.m.surfRemesher = rm; sm_save_cfg();
             }
         }
-        if (!T.m.twoD && !(M->flags & MF_POLY)) {         /* any 3-D mesh can be made polyhedral afterwards */
-            ui_switch(ui_id("stl-polyconv"), x, y + 2, &T.m.polyConvert) ? save_cfg() : (void)0;
+        if (!STLP.m.twoD && !(M->flags & MF_POLY)) {         /* any 3-D mesh can be made polyhedral afterwards */
+            ui_switch(ui_id("stl-polyconv"), x, y + 2, &STLP.m.polyConvert) ? sm_save_cfg() : (void)0;
             ui_text(F_MED, 13, "Convert to polyhedra afterwards (polyDualMesh)", x + 46, y + 3, TH.text2);
             ui_tooltip((Rectangle){ x, y, 380, 26 }, "Each cell of the finished mesh becomes a polyhedron round its corner points: fewer, better-connected "
                        "cells, often a faster-converging run. Layers stay layers.");
             y += 34;
-            if (T.m.polyConvert && T.m.prism && T.m.layers > 0 && (M->flags & MF_LAYERS)) {
+            if (STLP.m.polyConvert && STLP.m.prism && STLP.m.layers > 0 && (M->flags & MF_LAYERS)) {
                 const char *t = "Polyhedra and prism layers";
                 const char *d = "polyDualMesh can turn thin prism layers inside out (on some parts a hundred or so cells). "
                                 "Generate checks the result and keeps the mesh as the mesher made it if any cell is inside out.";
@@ -2392,7 +1750,7 @@ static float mesher_section(float x, float y, float w)
         }
         char why[300];
         const FoamInstall *fi = env_active(&A.env, &A.set);
-        if (!mesher_available(T.m.mesher, fi ? fi->root : "", A.env.salome[0] != 0, why, sizeof why) && M->engine == ENG_OPENFOAM) {
+        if (!mesher_available(STLP.m.mesher, fi ? fi->root : "", A.env.salome[0] != 0, why, sizeof why) && M->engine == ENG_OPENFOAM) {
             float ch = callout_height(w, "Not in this OpenFOAM", why);
             callout((Rectangle){ x, y, w, ch }, TOAST_WARN, ICON_TRIANGLE_ALERT, "Not in this OpenFOAM", why);
             y += ch + 12;
@@ -2404,19 +1762,19 @@ static float mesher_section(float x, float y, float w)
        SALOME's triangles with layers all round (the fewest cells); anything else snappyHexMesh (the only one that passed every
        check on the curved flange) */
     {
-        bool block = !T.m.twoD && T.m.domain == DOMAIN_INTERNAL && T.stl.nRegions == 6;
-        for (int i = 0; i < T.stl.nRegions && block; i++) {
-            const float *n = T.stl.reg[i].n;
+        bool block = !STLP.m.twoD && STLP.m.domain == DOMAIN_INTERNAL && STLP.stl.nRegions == 6;
+        for (int i = 0; i < STLP.stl.nRegions && block; i++) {
+            const float *n = STLP.stl.reg[i].n;
             if (fmaxf(fabsf(n[0]), fmaxf(fabsf(n[1]), fabsf(n[2]))) < 0.999f) block = false;   /* a flat face square to an axis */
         }
         bool sa = A.env.salome[0] != 0;
-        int rec = block && sa ? MESHER_SHEXA : T.m.twoD && sa ? MESHER_TET : MESHER_SNAPPY;
+        int rec = block && sa ? MESHER_SHEXA : STLP.m.twoD && sa ? MESHER_TET : MESHER_SNAPPY;
         const char *why = rec == MESHER_SHEXA ? "a block: perfect hexahedra in the fewest cells"
                         : rec == MESHER_TET ? "layers all round the profile, the fewest cells"
                         : "the most robust: it passed every check on curved parts";
         char t[200];
         pl_fmt_ui(t, sizeof t, "Recommended for this part: %s (%s).", MESHERS[rec].shortName, why);
-        if (rec == T.m.mesher) {
+        if (rec == STLP.m.mesher) {
             ui_icon(ICON_CIRCLE_CHECK, x + 9, y + 9, 15, TH.ok);
             ui_text_clip(F_MED, 13, t, x + 24, y + 1, w - 24, TH.ok);
             y += 28;
@@ -2426,7 +1784,7 @@ static float mesher_section(float x, float y, float w)
             float tw = fminf(ui_text_w(F_MED, 13, t), w - uw - 40);
             ui_text_clip(F_MED, 13, t, x + 24, y + 7, tw, TH.text2);
             if (ui_button(ui_id("stl-use-rec"), (Rectangle){ x + 24 + tw + 14, y, uw, 30 }, NULL, "Use it", BTN_SECONDARY)) {
-                T.m.mesher = rec; save_cfg();
+                STLP.m.mesher = rec; sm_save_cfg();
             }
             y += 40;
         }
@@ -2450,13 +1808,13 @@ static float mesher_section(float x, float y, float w)
 static float sizes_section(float x, float y, float w)
 {
     float y0 = y;
-    MeshCfg *m = &T.m;
+    MeshCfg *m = &STLP.m;
     y += section_head(x, y, w, "Cell size", "Everything is sized from the [[base-size|base size]], as in STAR-CCM+. Pick a density to start from; the "
                                            "numbers under it are what it sets.");
     /* the density: the defaults for this part and flow, the base size doubled or halved */
     {
         MeshCfg def = *m;
-        mesher_size_defaults(&def, &T.stl, part_thickness());
+        mesher_size_defaults(&def, &STLP.stl, part_thickness());
         static const char *dn[] = { "Coarse", "Medium", "Fine", "Custom" };
         static const double dk[] = { 2, 1, 0.5 };
         int cur = 3;
@@ -2465,12 +1823,12 @@ static float sizes_section(float x, float y, float w)
         int pick = cur;
         if (ui_segmented(ui_id("stl-density"), (Rectangle){ x, y, fminf(420, w), 34 }, dn, 4, &pick) && pick != cur && pick < 3) {
             m->base = def.base * dk[pick]; m->targetPct = def.targetPct; m->minPct = def.minPct; m->prismPct = def.prismPct;
-            save_cfg();
-        } else if (pick == 3 && cur != 3) T.adv = true;   /* Custom: the numbers to change are below */
+            sm_save_cfg();
+        } else if (pick == 3 && cur != 3) STLP.adv = true;   /* Custom: the numbers to change are below */
         y += 44;
         /* what that means, in numbers anyone can picture */
-        double Lp = 0; for (int k = 0; k < 3; k++) Lp = fmax(Lp, T.stl.bmax[k] - T.stl.bmin[k]);
-        double hs = mesher_surface_cell(m), n = mesher_estimate_cells(m, &T.stl);
+        double Lp = 0; for (int k = 0; k < 3; k++) Lp = fmax(Lp, STLP.stl.bmax[k] - STLP.stl.bmin[k]);
+        double hs = mesher_surface_cell(m), n = mesher_estimate_cells(m, &STLP.stl);
         char t[400], cl[64]; fmt_cells(cl, sizeof cl, n);
         pl_fmt_ui(t, sizeof t, "About %.0f cells along the part's length at its [[surface-size|surface]], %s in all. Finer is more accurate and slower to run, until "
                   "the answer [[mesh-independence|stops changing]].",
@@ -2482,13 +1840,13 @@ static float sizes_section(float x, float y, float w)
     char a[96], l1[32], l2[32];
     /* a part thinner than its surface cells: snappyHexMesh can't carve it out */
     double thick = part_thickness();
-    int ta = stl_thin_axis(&T.stl);
-    double text = T.stl.bmax[ta] - T.stl.bmin[ta];
+    int ta = stl_thin_axis(&STLP.stl);
+    double text = STLP.stl.bmax[ta] - STLP.stl.bmin[ta];
     bool extrusion = thick > 0 && fabs(text - thick) < 0.2 * text;   /* the thinnest is the whole part along an axis: a profile extruded */
     if (m->twoD && extrusion && ta == m->normal2D) thick = 0;          /* 2-D: that depth is one cell anyway */
     if (thick > 0 && !mesher_fits(m, thick)) {
         char t2[32], ts[32], d[500];
-        fmt_len(t2, sizeof t2, thick); fmt_len(ts, sizeof ts, m->base * m->targetPct / 100);
+        sm_fmt_len(t2, sizeof t2, thick); sm_fmt_len(ts, sizeof ts, m->base * m->targetPct / 100);
         pl_fmt_ui(d, sizeof d, "The part is about %s thick in places, but its surface cells are %s. snappyHexMesh can't carve a body thinner "
                   "than the cells it cuts: it comes out as a sliver, or not at all. Fit the sizes makes the surface cells smaller than the "
                   "thickness (whole refinement levels), the base size staying.", t2, ts);
@@ -2504,29 +1862,29 @@ static float sizes_section(float x, float y, float w)
             float tw = ui_button_width(ICON_LAYERS, "Mesh it 2-D");
             if (ui_button(ui_id("stl-2d-fix2"), (Rectangle){ bx, y + ch - 44, tw, 34 }, ICON_LAYERS, "Mesh it 2-D", BTN_PRIMARY)) {
                 set_two_d(true, ta);
-                ui_toast(TOAST_OK, "2-D across %c: about %.0f thousand cells", "XYZ"[ta], mesher_estimate_cells(m, &T.stl) / 1e3);
+                ui_toast(TOAST_OK, "2-D across %c: about %.0f thousand cells", "XYZ"[ta], mesher_estimate_cells(m, &STLP.stl) / 1e3);
             }
             bx += tw + 10;
         }
         if (ui_button(ui_id("stl-fit"), (Rectangle){ bx, y + ch - 44, fw, 34 }, ICON_WRENCH, "Fit the sizes", extrusion && !m->twoD ? BTN_SECONDARY : BTN_PRIMARY)) {
-            mesher_fit(m, thick); save_cfg();
+            mesher_fit(m, thick); sm_save_cfg();
             ui_toast(TOAST_OK, "Surface cells %g %% and %g %% of the base size: about %.0f thousand cells", m->targetPct, m->minPct,
-                     mesher_estimate_cells(m, &T.stl) / 1e3);
+                     mesher_estimate_cells(m, &STLP.stl) / 1e3);
         }
         y += ch + 14;
     }
-    if (row_num(x, &y, w, "stl-base", "Base size", "The largest [[cell]], away from the surface.", &m->base, "%.4g", 1e-9, 1e6, "m", NULL)) save_cfg();
-    fmt_len(l1, sizeof l1, m->base * m->targetPct / 100);
+    if (row_num(x, &y, w, "stl-base", "Base size", "The largest [[cell]], away from the surface.", &m->base, "%.4g", 1e-9, 1e6, "m", NULL)) sm_save_cfg();
+    sm_fmt_len(l1, sizeof l1, m->base * m->targetPct / 100);
     snprintf(a, sizeof a, "= %s", l1);
-    if (row_num(x, &y, w, "stl-target", "Target surface size", "The [[surface-size|cell size on the surface]].", &m->targetPct, "%g", 0.01, 1000, "%", a)) save_cfg();
-    if (!T.adv) return y - y0;
-    fmt_len(l2, sizeof l2, m->base * m->minPct / 100);
+    if (row_num(x, &y, w, "stl-target", "Target surface size", "The [[surface-size|cell size on the surface]].", &m->targetPct, "%g", 0.01, 1000, "%", a)) sm_save_cfg();
+    if (!STLP.adv) return y - y0;
+    sm_fmt_len(l2, sizeof l2, m->base * m->minPct / 100);
     snprintf(a, sizeof a, "= %s", l2);
-    if (row_num(x, &y, w, "stl-min", "Minimum surface size", "Reached on tight curves and sharp edges.", &m->minPct, "%g", 0.01, 1000, "%", a)) save_cfg();
-    if (row_num(x, &y, w, "stl-curv", "Surface curvature", "Cells around a full circle on curved surfaces ([[curvature]]).", &m->curvature, "%g", 4, 360, "pts/circle", NULL)) save_cfg();
-    if (row_num(x, &y, w, "stl-sgrow", "Surface growth rate", "How fast cells grow along the surface (SALOME).", &m->surfGrowth, "%g", 1.01, 3, NULL, NULL)) save_cfg();
-    if (row_num(x, &y, w, "stl-vgrow", "Volume growth rate", "How fast cells grow away from the surface ([[expansion-ratio|growth rate]]): lower is smoother and more cells.", &m->volGrowth, "%g", 1.01, 3, NULL, NULL)) save_cfg();
-    if (row_num(x, &y, w, "stl-feat", "Feature angle", "[[feature-edge|Edges]] sharper than this are kept crisp (snapped to, not smoothed over).", &m->featureAngle, "%g", 1, 180, "°", NULL)) save_cfg();
+    if (row_num(x, &y, w, "stl-min", "Minimum surface size", "Reached on tight curves and sharp edges.", &m->minPct, "%g", 0.01, 1000, "%", a)) sm_save_cfg();
+    if (row_num(x, &y, w, "stl-curv", "Surface curvature", "Cells around a full circle on curved surfaces ([[curvature]]).", &m->curvature, "%g", 4, 360, "pts/circle", NULL)) sm_save_cfg();
+    if (row_num(x, &y, w, "stl-sgrow", "Surface growth rate", "How fast cells grow along the surface (SALOME).", &m->surfGrowth, "%g", 1.01, 3, NULL, NULL)) sm_save_cfg();
+    if (row_num(x, &y, w, "stl-vgrow", "Volume growth rate", "How fast cells grow away from the surface ([[expansion-ratio|growth rate]]): lower is smoother and more cells.", &m->volGrowth, "%g", 1.01, 3, NULL, NULL)) sm_save_cfg();
+    if (row_num(x, &y, w, "stl-feat", "Feature angle", "[[feature-edge|Edges]] sharper than this are kept crisp (snapped to, not smoothed over).", &m->featureAngle, "%g", 1, 180, "°", NULL)) sm_save_cfg();
     return y - y0;
 }
 
@@ -2538,20 +1896,20 @@ static bool salome_layers(const MeshCfg *m)
     if (!(MESHERS[m->mesher].flags & MF_LAYERS)) return false;
     if (MESHERS[m->mesher].flags & MF_CAD) return true;
     if (m->remesh) return true;
-    if (m->domain != DOMAIN_EXTERNAL || m->ground || !T.loaded) return false;
-    for (int i = 0; i < T.stl.nRegions; i++) if (T.stl.reg[i].type != BT_WALL) return false;
+    if (m->domain != DOMAIN_EXTERNAL || m->ground || !STLP.loaded) return false;
+    for (int i = 0; i < STLP.stl.nRegions; i++) if (STLP.stl.reg[i].type != BT_WALL) return false;
     return true;
 }
 
 static float prism_section(float x, float y, float w)
 {
     float y0 = y;
-    MeshCfg *m = &T.m;
+    MeshCfg *m = &STLP.m;
     bool none = salome_mesher() && !salome_layers(m);
     y += section_head(x, y, w, "Prism layers", m->twoD ? "Thin cells along the walls, for the [[boundary-layer]]: in 2-D they follow the profile's outline."
                                                       : "Thin [[prism-layers|cells stacked on the walls]], for the [[boundary-layer]].");
     Rectangle cr = prop_row(x, &y, w, "Prism layer mesher", NULL, 24);
-    if (ui_switch(ui_id("stl-prism"), cr.x, cr.y + 2, &m->prism)) save_cfg();
+    if (ui_switch(ui_id("stl-prism"), cr.x, cr.y + 2, &m->prism)) sm_save_cfg();
     if (!m->prism) return y - y0;
     if (none) {                                           /* SALOME 3-D on the STL's triangles: viscous layers need CAD faces */
         bool noLayers = !(MESHERS[m->mesher].flags & MF_LAYERS);
@@ -2566,28 +1924,28 @@ static float prism_section(float x, float y, float w)
         return y + ch + 18 - y0;
     }
     double n = m->layers;
-    if (row_num(x, &y, w, "stl-nl", "Number of prism layers", NULL, &n, "%g", 1, 50, NULL, NULL)) { m->layers = (int)n; save_cfg(); }
+    if (row_num(x, &y, w, "stl-nl", "Number of prism layers", NULL, &n, "%g", 1, 50, NULL, NULL)) { m->layers = (int)n; sm_save_cfg(); }
     /* both meshers hold the outer layer to a share of the surface cell next to it (stlmesh.h mesher_layer_rel) */
     if (m->mesher == MESHER_SNAPPY) {
         /* snappy's layers collapse where the surface cells halve: a coarse STL's facet corners and the curvature refinement
            make steps all along a profile, and the layers broke at each (user's airfoil, 2026-10-26: 12 of 20 layers) */
-        mesher_resolve_even(m, &T.stl);
+        mesher_resolve_even(m, &STLP.stl);
         bool even = mesher_even_layers(m), was = even, autoEven = m->twoD || m->evenAuto;
         Rectangle er = prop_row(x, &y, w, "Even surface cells under the layers",
                                 "The walls with layers all at the minimum surface size, so the layers don't break where the size steps. "
                                 "More cells: a fifth more on a curved part, many times more on a flat-sided one. On by itself in 2-D and where it "
                                 "costs at most half again as many cells.", 24);
         ui_switch(ui_id("stl-even"), er.x, er.y + 2, &even);
-        if (even != was) { m->evenLayers = even == autoEven ? -1 : even; save_cfg(); }
+        if (even != was) { m->evenLayers = even == autoEven ? -1 : even; sm_save_cfg(); }
     }
     double T0 = m->base * m->prismPct / 100, h = mesher_layer_cell(m), Tm = mesher_layer_rel(m, NULL) * h;
-    char a[96], l[32], t0[32]; fmt_len(t0, sizeof t0, T0); snprintf(a, sizeof a, "= %s", t0);
-    if (row_num(x, &y, w, "stl-pt", "Prism layer total thickness", "[[layer-thickness|The whole stack]], as a share of the base size.", &m->prismPct, "%g", 0.1, 500, "%", a)) save_cfg();
+    char a[96], l[32], t0[32]; sm_fmt_len(t0, sizeof t0, T0); snprintf(a, sizeof a, "= %s", t0);
+    if (row_num(x, &y, w, "stl-pt", "Prism layer total thickness", "[[layer-thickness|The whole stack]], as a share of the base size.", &m->prismPct, "%g", 0.1, 500, "%", a)) sm_save_cfg();
     double r = m->stretch, first = r == 1 ? Tm / m->layers : Tm * (r - 1) / (pow(r, m->layers) - 1);
-    fmt_len(l, sizeof l, first); snprintf(a, sizeof a, "first layer %s", l);
-    if (row_num(x, &y, w, "stl-ps", "Prism layer stretching", "Each layer this much thicker than the one below (the [[expansion-ratio]]).", &m->stretch, "%g", 1, 3, NULL, a)) save_cfg();
+    sm_fmt_len(l, sizeof l, first); snprintf(a, sizeof a, "first layer %s", l);
+    if (row_num(x, &y, w, "stl-ps", "Prism layer stretching", "Each layer this much thicker than the one below (the [[expansion-ratio]]).", &m->stretch, "%g", 1, 3, NULL, a)) sm_save_cfg();
     char tl[32], hl[32], t2[480];
-    fmt_len(tl, sizeof tl, Tm); fmt_len(hl, sizeof hl, h);
+    sm_fmt_len(tl, sizeof tl, Tm); sm_fmt_len(hl, sizeof hl, h);
     if (fabs(Tm - T0) > 0.02 * T0)
         pl_fmt_ui(t2, sizeof t2, "%s makes these %s thick, not %s: the outer layer has to be %.0f%% to %.0f%% of the %s surface cells next to "
                   "it. Thinner, the jump from it to those cells fails %s and makes the flow solver diverge there. Fewer layers or more "
@@ -2617,7 +1975,7 @@ static float prism_section(float x, float y, float w)
 static float zones_section(float x, float y, float w)
 {
     float y0 = y;
-    MeshCfg *m = &T.m;
+    MeshCfg *m = &STLP.m;
     y += section_head(x, y, w, "Volumetric controls", "[[refinement-region|Finer cells]] inside a box, sphere or cylinder: a wake, a gap, a jet. Coordinates in metres.");
     static const char *kinds[] = { "Box", "Sphere", "Cylinder" };
     static const char *const AX[3] = { "x", "y", "z" };
@@ -2628,34 +1986,34 @@ static float zones_section(float x, float y, float w)
         Rectangle box = { x, y, w, z->kind == ZONE_SPHERE ? 92 : 132 };
         ui_rect(box, 8, TH.surface2); ui_rect_lines(box, 8, 1, TH.lineSoft);
         int k = z->kind;
-        if (ui_select(ui_id("kind"), (Rectangle){ x + 12, y + 12, 130, 32 }, kinds, 3, &k) && k != z->kind) { z->kind = k; save_cfg(); }
+        if (ui_select(ui_id("kind"), (Rectangle){ x + 12, y + 12, 130, 32 }, kinds, 3, &k) && k != z->kind) { z->kind = k; sm_save_cfg(); }
         double sz = z->sizePct;
         ui_text(F_REG, 13, "Size", x + 160, y + 20, TH.text2);
-        char l[32], a[48]; fmt_len(l, sizeof l, m->base * z->sizePct / 100); snprintf(a, sizeof a, "= %s", l);
-        if (num_field(ui_id("size"), (Rectangle){ x + 200, y + 12, 110, 32 }, &sz, "%g", 0.01, 1000, "%")) { z->sizePct = sz; save_cfg(); }
+        char l[32], a[48]; sm_fmt_len(l, sizeof l, m->base * z->sizePct / 100); snprintf(a, sizeof a, "= %s", l);
+        if (num_field(ui_id("size"), (Rectangle){ x + 200, y + 12, 110, 32 }, &sz, "%g", 0.01, 1000, "%")) { z->sizePct = sz; sm_save_cfg(); }
         ui_text(F_REG, 13, a, x + 320, y + 20, TH.text3);
         if (ui_button(ui_id("del"), (Rectangle){ x + w - 44, y + 12, 32, 32 }, ICON_TRASH_2, NULL, BTN_ICON)) del = i;
         const char *la = z->kind == ZONE_BOX ? "Min" : z->kind == ZONE_SPHERE ? "Centre" : "End 1";
         float fy = y + 52;
         ui_text(F_REG, 13, la, x + 12, fy + 8, TH.text2);
         for (int c = 0; c < 3; c++)
-            if (num_field(ui_idn(ui_id("a"), c), (Rectangle){ x + 70 + c * 130, fy, 120, 32 }, &z->a[c], "%.4g", -1e9, 1e9, AX[c])) save_cfg();
+            if (num_field(ui_idn(ui_id("a"), c), (Rectangle){ x + 70 + c * 130, fy, 120, 32 }, &z->a[c], "%.4g", -1e9, 1e9, AX[c])) sm_save_cfg();
         if (z->kind == ZONE_SPHERE || z->kind == ZONE_CYLINDER) {
             ui_text(F_REG, 13, "Radius", x + 470, fy + 8, TH.text2);
-            if (num_field(ui_id("r"), (Rectangle){ x + 530, fy, 120, 32 }, &z->r, "%.4g", 1e-9, 1e9, "m")) save_cfg();
+            if (num_field(ui_id("r"), (Rectangle){ x + 530, fy, 120, 32 }, &z->r, "%.4g", 1e-9, 1e9, "m")) sm_save_cfg();
         }
         if (z->kind != ZONE_SPHERE) {
             fy += 40;
             ui_text(F_REG, 13, z->kind == ZONE_BOX ? "Max" : "End 2", x + 12, fy + 8, TH.text2);
             for (int c = 0; c < 3; c++)
-                if (num_field(ui_idn(ui_id("b"), c), (Rectangle){ x + 70 + c * 130, fy, 120, 32 }, &z->b[c], "%.4g", -1e9, 1e9, AX[c])) save_cfg();
+                if (num_field(ui_idn(ui_id("b"), c), (Rectangle){ x + 70 + c * 130, fy, 120, 32 }, &z->b[c], "%.4g", -1e9, 1e9, AX[c])) sm_save_cfg();
         }
         ui_pop_id();
         y += box.height + 10;
     }
     if (del >= 0) {
         for (int i = del; i < m->nZones - 1; i++) m->zone[i] = m->zone[i + 1];
-        m->nZones--; save_cfg();
+        m->nZones--; sm_save_cfg();
     }
     ui_disable(m->nZones >= STL_MAX_ZONES);
     float bx = x;
@@ -2666,7 +2024,7 @@ static float zones_section(float x, float y, float w)
             MeshZone *z = &m->zone[m->nZones++];
             memset(z, 0, sizeof *z);
             z->kind = k; z->sizePct = 50;
-            const Stl *s = &T.stl;
+            const Stl *s = &STLP.stl;
             double L = 0, c[3];
             for (int q = 0; q < 3; q++) { L = fmax(L, s->bmax[q] - s->bmin[q]); c[q] = (s->bmin[q] + s->bmax[q]) / 2; }
             if (k == ZONE_BOX) {                           /* external: the wake behind the body; internal: the middle third */
@@ -2677,7 +2035,7 @@ static float zones_section(float x, float y, float w)
                 if (m->domain == DOMAIN_EXTERNAL) { z->a[0] = s->bmin[0] - 0.2 * L; z->b[0] = s->bmax[0] + 1.5 * L; }
             } else if (k == ZONE_SPHERE) { for (int q = 0; q < 3; q++) z->a[q] = c[q]; z->r = L * 0.3; }
             else { for (int q = 0; q < 3; q++) z->a[q] = z->b[q] = c[q]; z->a[0] = s->bmin[0]; z->b[0] = s->bmax[0]; z->r = L * 0.15; }
-            save_cfg();
+            sm_save_cfg();
         }
         bx += bw + 10;
     }
@@ -2705,7 +2063,7 @@ static float presets_row(float x, float y, float w)
         const char *items[64]; for (int i = 0; i < n; i++) items[i] = names[i];
         int sel = -1;
         if (ui_select_ph(ui_id("stl-preset"), (Rectangle){ px, y, 220, 34 }, items, n, &sel, "Use a preset ...") && sel >= 0) {
-            if (mesher_preset_apply(dir, names[sel], &T.m, &T.stl)) { save_cfg(); ui_toast(TOAST_OK, "Preset %s: its sizes, layers and mesher (the base size scaled to this part)", names[sel]); }
+            if (mesher_preset_apply(dir, names[sel], &STLP.m, &STLP.stl)) { sm_save_cfg(); ui_toast(TOAST_OK, "Preset %s: its sizes, layers and mesher (the base size scaled to this part)", names[sel]); }
             else ui_toast(TOAST_ERR, "Could not read the preset %s", names[sel]);
         }
         px += 230;
@@ -2718,7 +2076,7 @@ static float presets_row(float x, float y, float w)
     if (ui_button(ui_id("stl-preset-save"), (Rectangle){ px + 188, y, bw, 34 }, ICON_SAVE, "Save as preset", BTN_GHOST)) {
         bool okName = nm[0] && !strchr(nm, '/') && nm[0] != '.';
         if (!okName) ui_toast(TOAST_ERR, "Give the preset a name (no /)");
-        else if (mesher_preset_save(dir, nm, &T.m, &T.stl)) { ui_toast(TOAST_OK, "Saved the preset %s (~/.config/q-continuum/mesh-presets)", nm); n = -1; nm[0] = 0; }
+        else if (mesher_preset_save(dir, nm, &STLP.m, &STLP.stl)) { ui_toast(TOAST_OK, "Saved the preset %s (~/.config/q-continuum/mesh-presets)", nm); n = -1; nm[0] = 0; }
         else ui_toast(TOAST_ERR, "Could not write the preset");
     }
     ui_tooltip((Rectangle){ px + 188, y, bw, 34 }, "These sizes, layers, mesher and quality limits kept by name: Use a preset on any other part");
@@ -2733,32 +2091,32 @@ static float mesh_step(float x, float y, float w)
     y += sizes_section(x, y + 6, w) + 6;
     y += prism_section(x, y + 6, w) + 6;
     /* the rest when wanted: growth, curvature, feature angle (in the sizes above) and the refinement regions */
-    if (T.m.nZones > 0) T.adv = true;
-    ui_switch(ui_id("stl-adv"), x, y + 10, &T.adv);
-    int mine = meshadv_count(T.casePath, &T.m);
+    if (STLP.m.nZones > 0) STLP.adv = true;
+    ui_switch(ui_id("stl-adv"), x, y + 10, &STLP.adv);
+    int mine = meshadv_count(STLP.casePath, &STLP.m);
     char al[160];
     pl_fmt_ui(al, sizeof al, "Advanced: every OpenFOAM meshing setting, refinement regions, minimum size, growth%s", "");
     ui_text_clip(F_MED, 13.5f, al, x + 46, y + 11, w - 46, TH.text2);
-    if (mine && !T.adv) {                                  /* hidden, still applied: say so */
+    if (mine && !STLP.adv) {                                  /* hidden, still applied: say so */
         char t[96]; pl_fmt_ui(t, sizeof t, "%d OpenFOAM setting%s of yours in use", mine, mine == 1 ? "" : "s");
         ui_text_clip(F_REG, 12.5f, t, x + 46, y + 31, w - 46, TH.accent);
         y += 18;
     }
     y += 44;
-    if (T.adv) {
+    if (STLP.adv) {
         y += zones_section(x, y + 6, w) + 6;
-        y += meshadv_panel(T.casePath, &T.m, &T.stl, x, y + 10, w) + 10;
+        y += meshadv_panel(STLP.casePath, &STLP.m, &STLP.stl, x, y + 10, w) + 10;
     }
     return y - y0;
 }
 
-static double cells_estimate(void) { return mesher_estimate_cells(&T.m, &T.stl); }
+static double cells_estimate(void) { return mesher_estimate_cells(&STLP.m, &STLP.stl); }
 
 double stlmesh_cells_estimate(Case *c)
 {
     if (!c) return 0;
     sync_case(c);
-    return T.loaded ? cells_estimate() : 0;
+    return STLP.loaded ? cells_estimate() : 0;
 }
 
 static void fmt_cells(char *b, size_t cap, double n)
@@ -2793,7 +2151,7 @@ static bool layers_missing(Case *c, char *why, size_t cap)
         if (p) prisms = atol(p + 7);
         free(k);
     }
-    bool poly = T.m.mesher == MESHER_POLY || T.m.polyConvert;  /* polyDualMesh turns the prisms into polyhedra: only the log tells */
+    bool poly = STLP.m.mesher == MESHER_POLY || STLP.m.polyConvert;  /* polyDualMesh turns the prisms into polyhedra: only the log tells */
     if (have) { snprintf(why, cap, "SALOME said: %s.", said); return true; }
     if (!poly && prisms == 0) { snprintf(why, cap, "checkMesh counts no prisms in it."); return true; }
     return false;
@@ -2801,12 +2159,12 @@ static bool layers_missing(Case *c, char *why, size_t cap)
 
 static float layers_missing_notice(Case *c, float x, float y, float w)
 {
-    MeshCfg *m = &T.m;
+    MeshCfg *m = &STLP.m;
     if (!c->s.meshed || !salome_mesher() || !m->prism || m->layers <= 0 || stlmesh_mesh_current(c) == 0) return 0;
     char why[460];
     if (!layers_missing(c, why, sizeof why)) return 0;
     char t[1100], hl[32];
-    fmt_len(hl, sizeof hl, mesher_surface_cell(m));
+    sm_fmt_len(hl, sizeof hl, mesher_surface_cell(m));
     bool said = !strncmp(why, "SALOME said", 11);          /* its words name the fixes already: add only the STEP file */
     pl_fmt_ui(t, sizeof t, "You asked for %d prism layers; this mesh has none. %s Without them the cells on the walls are as big as the "
               "surface cells (%s): y+ is far above 1, so a resolved wall isn't, and the wall shear stress, drag and heat transfer come out "
@@ -2876,7 +2234,7 @@ static float generate_step(Case *c, float x, float y, float w)
     if (ui_button(ui_id("stl-write"), (Rectangle){ bx, y, bw, 42 }, ICON_FILE_TEXT, "Write files only", BTN_SECONDARY) && prepare(c))
         ui_toast(TOAST_OK, salome_mesher() ? "Wrote salome/stl_mesh.py, mesher/mesher.ini and the STL" : "Wrote the snappyHexMesh, blockMesh and feature dictionaries");
     bx += bw + 10;
-    if (!salome_mesher() && T.m.mesher == MESHER_SNAPPY && layers_split()) {   /* E3: layer tuning without a remesh */
+    if (!salome_mesher() && STLP.m.mesher == MESHER_SNAPPY && layers_split()) {   /* E3: layer tuning without a remesh */
         char lp[PL_PATH]; pl_join(lp, sizeof lp, c->s.path, SNAP_KEEP "/polyMesh/owner");
         bool have = pl_is_file(lp);
         ui_disable(running || !have);
@@ -2892,14 +2250,14 @@ static float generate_step(Case *c, float x, float y, float w)
     if (ui_button(ui_id("stl-salome"), (Rectangle){ bx, y, bw, 42 }, ICON_EXTERNAL_LINK, "Open in SALOME", BTN_GHOST)) open_salome(c);
     ui_disable(false);
     y += 56;
-    if (!salome_mesher() && T.m.mesher == MESHER_SNAPPY) {   /* E4: snappyHexMesh in parallel */
-        double np = T.m.meshProcs > 1 ? T.m.meshProcs : 1;
+    if (!salome_mesher() && STLP.m.mesher == MESHER_SNAPPY) {   /* E4: snappyHexMesh in parallel */
+        double np = STLP.m.meshProcs > 1 ? STLP.m.meshProcs : 1;
         ui_text(F_REG, 13.5f, "Processes", x, y + 9, TH.text2);
         char b[16]; snprintf(b, sizeof b, "%g", np);
         if (ui_input(ui_id("stl-nprocs"), (Rectangle){ x + 96, y, 70, 32 }, b, sizeof b, NULL, INPUT_MONO | INPUT_NUMERIC)) {
             char *e; double v = strtod(b, &e);
             if (e == b || *e || !isfinite(v) || v < 1 || v > 1024) ui_toast(TOAST_ERR, "Give a number of processes from 1 to 1024");
-            else { T.m.meshProcs = (int)v; save_cfg(); }
+            else { STLP.m.meshProcs = (int)v; sm_save_cfg(); }
         }
         char t[200]; pl_fmt_ui(t, sizeof t, "%s (this machine has %d cores)", np > 1 ? "snappyHexMesh in parallel: decomposePar, -parallel, reconstructParMesh"
                                                                                        : "1: snappyHexMesh in serial; more runs it decomposed", A.env.nCpu);
@@ -2912,7 +2270,7 @@ static float generate_step(Case *c, float x, float y, float w)
         : "Generate writes the dictionaries (the ones there before are kept as .orig; your hand edits to them are kept) and runs "
           "surfaceFeatureExtract, blockMesh for the background, snappyHexMesh (with prism layers in two stages, castellate and snap then "
           "the layers, so Redo the layers only can repeat just them) and checkMesh. Open in SALOME meshes the same STL with SALOME's script instead, in its window.%s";
-    char hb[600]; pl_fmt_ui(hb, sizeof hb, how, T.m.mesher == MESHER_POLY ? ", turns the tetrahedra into polyhedra (polyDualMesh)" : "");
+    char hb[600]; pl_fmt_ui(hb, sizeof hb, how, STLP.m.mesher == MESHER_POLY ? ", turns the tetrahedra into polyhedra (polyDualMesh)" : "");
     y += note(x, y, w, hb) + 4;
     if (!running && A.cj->failed && !strcmp(A.cj->title, "Mesh") && !strcmp(A.cj->casePath, c->s.path)) {
         /* it failed: which step, what OpenFOAM said, and what usually fixes it, in words a beginner can act on */
@@ -2985,24 +2343,24 @@ static const char *const STEP_WHY[ST__N] = {
 static void step_summary(Case *c, int k, char *b, size_t cap)
 {
     b[0] = 0;
-    if (!T.loaded) { if (k == ST_GEOM) pl_strlcpy(b, "Choose the STL to mesh", cap); return; }
-    const Stl *s = &T.stl;
+    if (!STLP.loaded) { if (k == ST_GEOM) pl_strlcpy(b, "Choose the STL to mesh", cap); return; }
+    const Stl *s = &STLP.stl;
     if (k == ST_GEOM) {
         char l[32]; double L = 0; for (int q = 0; q < 3; q++) L = fmax(L, s->bmax[q] - s->bmin[q]);
-        fmt_len(l, sizeof l, L);
-        pl_fmt_ui(b, cap, "%s  ·  %s across  ·  %s", pl_basename(T.m.cad[0] ? T.m.cad : T.m.stl), l, s->openEdges == 0 && s->nonManifold == 0 ? "closed" : "not watertight");
+        sm_fmt_len(l, sizeof l, L);
+        pl_fmt_ui(b, cap, "%s  ·  %s across  ·  %s", pl_basename(STLP.m.cad[0] ? STLP.m.cad : STLP.m.stl), l, s->openEdges == 0 && s->nonManifold == 0 ? "closed" : "not watertight");
     } else if (k == ST_FLOW) {
-        if (T.m.domain == DOMAIN_INTERNAL) pl_fmt_ui(b, cap, "Internal flow%s", T.m.twoD ? TextFormat(", 2-D across %c", "XYZ"[T.m.normal2D]) : "");
-        else pl_fmt_ui(b, cap, "External: flow %s, up %s%s%s", DIR_NAME[T.m.flowDir], DIR_NAME[mesher_up(&T.m)], T.m.ground ? ", on the ground" : "",
-                       T.m.twoD ? TextFormat(", 2-D across %c", "XYZ"[T.m.normal2D]) : "");
+        if (STLP.m.domain == DOMAIN_INTERNAL) pl_fmt_ui(b, cap, "Internal flow%s", STLP.m.twoD ? TextFormat(", 2-D across %c", "XYZ"[STLP.m.normal2D]) : "");
+        else pl_fmt_ui(b, cap, "External: flow %s, up %s%s%s", DIR_NAME[STLP.m.flowDir], DIR_NAME[mesher_up(&STLP.m)], STLP.m.ground ? ", on the ground" : "",
+                       STLP.m.twoD ? TextFormat(", 2-D across %c", "XYZ"[STLP.m.normal2D]) : "");
     } else if (k == ST_BOUND) {
         int in, out, wall, other; boundary_counts(&in, &out, &wall, &other);
-        if (T.m.domain == DOMAIN_EXTERNAL && !in && !out)
+        if (STLP.m.domain == DOMAIN_EXTERNAL && !in && !out)
             pl_fmt_ui(b, cap, "%d wall%s; the wind tunnel brings the inlet, outlet and far field", wall, wall == 1 ? "" : "s");
         else pl_fmt_ui(b, cap, "%d inlet%s, %d outlet%s, %d wall%s", in, in == 1 ? "" : "s", out, out == 1 ? "" : "s", wall, wall == 1 ? "" : "s");
     } else if (k == ST_MESH) {
-        char bs[32], cl[96]; fmt_len(bs, sizeof bs, T.m.base); fmt_cells(cl, sizeof cl, cells_estimate());
-        pl_fmt_ui(b, cap, "%s  ·  base %s  ·  %s  ·  %s", MESHERS[T.m.mesher].shortName, bs, T.m.prism && (MESHERS[T.m.mesher].flags & MF_LAYERS) ? TextFormat("%d prism layers", T.m.layers) : "no prism layers", cl);
+        char bs[32], cl[96]; sm_fmt_len(bs, sizeof bs, STLP.m.base); fmt_cells(cl, sizeof cl, cells_estimate());
+        pl_fmt_ui(b, cap, "%s  ·  base %s  ·  %s  ·  %s", MESHERS[STLP.m.mesher].shortName, bs, STLP.m.prism && (MESHERS[STLP.m.mesher].flags & MF_LAYERS) ? TextFormat("%d prism layers", STLP.m.layers) : "no prism layers", cl);
     } else {
         bool meshing = A.cj->active && !strcmp(A.cj->casePath, c->s.path) && !strcmp(A.cj->title, "Mesh");
         int cur = c->s.meshed ? stlmesh_mesh_current(c) : -1;
@@ -3018,7 +2376,7 @@ static void step_summary(Case *c, int k, char *b, size_t cap)
    greyed: it opens when the one before is done. Returns the head's height. */
 static float step_head(Case *c, int k, float x, float y, float w, float *cy)
 {
-    bool open = T.open == k, reached = k <= T.reached, passed = k < T.reached && !open;
+    bool open = STLP.open == k, reached = k <= STLP.reached, passed = k < STLP.reached && !open;
     float h = 50;
     Rectangle r = { x, y, w, h };
     UiId id = ui_idn(ui_id("stl-step"), k);
@@ -3050,11 +2408,11 @@ static float step_next(int k, float x, float y, float w)
 {
     if (k >= ST_GEN) return 0;
     char lab[64]; pl_fmt_ui(lab, sizeof lab, "Next: %s", STEP_TITLE[k + 1]);
-    ui_disable(!T.loaded);
+    ui_disable(!STLP.loaded);
     float bw = ui_button_width(ICON_ARROW_RIGHT, lab);
     if (ui_button(ui_id("stl-next"), (Rectangle){ x, y, bw, 40 }, ICON_ARROW_RIGHT, lab, BTN_PRIMARY)) step_open(k + 1);
     ui_disable(false);
-    if (k + 1 < T.reached) {
+    if (k + 1 < STLP.reached) {
         float jw = ui_button_width(ICON_PLAY, "Go to Generate");
         if (ui_button(ui_id("stl-skip"), (Rectangle){ x + bw + 10, y, jw, 40 }, ICON_PLAY, "Go to Generate", BTN_GHOST)) step_open(ST_GEN);
     }
@@ -3068,43 +2426,43 @@ float page_stlmesh(Rectangle r, float x, float y, float w)
     float y0 = y;
     poll_picker();
     sync_case(c);
-    if (!T.loaded) T.reached = T.open = ST_GEOM;
+    if (!STLP.loaded) STLP.reached = STLP.open = ST_GEOM;
     float cys[ST__N];
     float bx = x + 52, bw = w - 52;
     for (int k = 0; k < ST__N; k++) {
-        if (T.open == k && T.scrollTo == 1) {             /* the step just opened: its head to the top of the page */
+        if (STLP.open == k && STLP.scrollTo == 1) {             /* the step just opened: its head to the top of the page */
             UiScroll *sc = &A.scr[4];
             ui_scroll_to(sc, y - r.y + sc->y - 16);
-            T.scrollTo = 0;
+            STLP.scrollTo = 0;
         }
         y += step_head(c, k, x, y, w, &cys[k]);
-        if (T.open == k) {
+        if (STLP.open == k) {
             y += 2;
             y += note(bx, y, bw, STEP_WHY[k]) + 2;
             /* the part beside the settings (a wide page) or above them, with what this step adds to it */
             /* beside the settings when they keep 640 px of their own, else above them, the page's width */
-            bool side = T.loaded && (k == ST_GEOM || k == ST_FLOW || k == ST_MESH);
+            bool side = STLP.loaded && (k == ST_GEOM || k == ST_FLOW || k == ST_MESH);
             float sx = bx, sw = bw, top = y, vh = 0;
             if (side) {
                 float vw = fminf(620, fmaxf(380, bw * 0.4f));
-                if (bw - vw - 20 >= 640) { sw = bw - vw - 20; vh = fminf(440, vw * 0.85f); view_panel((Rectangle){ bx + sw + 20, y, vw, vh }); }
-                else { view_panel((Rectangle){ bx, y, bw, fminf(360, bw * 0.5f) }); y += fminf(360, bw * 0.5f) + 14; top = y; }
+                if (bw - vw - 20 >= 640) { sw = bw - vw - 20; vh = fminf(440, vw * 0.85f); sm_view_panel((Rectangle){ bx + sw + 20, y, vw, vh }); }
+                else { sm_view_panel((Rectangle){ bx, y, bw, fminf(360, bw * 0.5f) }); y += fminf(360, bw * 0.5f) + 14; top = y; }
             }
             if (k == ST_GEOM) y += geometry_step(c, sx, y, sw);
             else if (k == ST_FLOW) y += flow_step(sx, y, sw);
             else if (k == ST_BOUND) y += boundaries_step(c, bx, y, bw);
             else if (k == ST_MESH) y += mesh_step(sx, y, sw);
             else y += generate_step(c, bx, y, bw);
-            if (T.loaded) y += 4 + step_next(k, sx, y + 4, sw);
+            if (STLP.loaded) y += 4 + step_next(k, sx, y + 4, sw);
             if (side && vh > 0 && y < top + vh + 10) y = top + vh + 10;   /* the next head below the view, not under it */
         }
         y += 10;
     }
-    if (T.scrollTo == 2) { T.scrollTo = 1; ui_request_frames(2); }
+    if (STLP.scrollTo == 2) { STLP.scrollTo = 1; ui_request_frames(2); }
     /* the line joining the steps, the part done in the accent */
     for (int k = 0; k + 1 < ST__N; k++) {
         float a = cys[k] + 17, b = cys[k + 1] - 17;
-        if (b > a) ui_line(x + 22, a, x + 22, b, 2, k < T.reached ? ui_alpha(TH.accent, 0.7f) : TH.lineSoft);
+        if (b > a) ui_line(x + 22, a, x + 22, b, 2, k < STLP.reached ? ui_alpha(TH.accent, 0.7f) : TH.lineSoft);
     }
     return y - y0;
 }
@@ -3112,16 +2470,16 @@ float page_stlmesh(Rectangle r, float x, float y, float w)
 bool stlmesh_two_d(Case *c)
 {
     sync_case(c);
-    return T.loaded && T.m.twoD;
+    return STLP.loaded && STLP.m.twoD;
 }
 
 /* a Setup template picked before meshing: the mesh it wants (prism layers on the walls for the boundary layer) */
 bool stlmesh_template_hints(Case *c, bool layers)
 {
     sync_case(c);
-    if (!T.loaded || c->s.meshed || !layers || T.m.prism) return false;
-    T.m.prism = true;
-    save_cfg();
+    if (!STLP.loaded || c->s.meshed || !layers || STLP.m.prism) return false;
+    STLP.m.prism = true;
+    sm_save_cfg();
     return true;
 }
 
@@ -3136,35 +2494,35 @@ static double first_layer(const MeshCfg *m)
 bool stlmesh_wall_layers(Case *c, double *first, int *n, double *cell)
 {
     sync_case(c);
-    if (!T.loaded) return false;
-    if (cell) *cell = mesher_layer_cell(&T.m);
-    if (!T.m.prism || T.m.layers < 1) return false;
-    if (first) *first = first_layer(&T.m);
-    if (n) *n = T.m.layers;
+    if (!STLP.loaded) return false;
+    if (cell) *cell = mesher_layer_cell(&STLP.m);
+    if (!STLP.m.prism || STLP.m.layers < 1) return false;
+    if (first) *first = first_layer(&STLP.m);
+    if (n) *n = STLP.m.layers;
     return true;
 }
 
 bool stlmesh_set_wall_layers(Case *c, double y1, double *first, int *n)
 {
     sync_case(c);
-    if (!T.loaded || !(y1 > 0)) return false;
-    double h = mesher_layer_cell(&T.m), r = T.m.stretch > 1.0001 ? T.m.stretch : 1.2, total;
+    if (!STLP.loaded || !(y1 > 0)) return false;
+    double h = mesher_layer_cell(&STLP.m), r = STLP.m.stretch > 1.0001 ? STLP.m.stretch : 1.2, total;
     int k = sim_layer_count(y1, 0.5 * h, r, &total);
     if (k >= 60) return false;
-    MeshCfg m = T.m;
+    MeshCfg m = STLP.m;
     m.prism = true; m.layers = k; m.stretch = r; m.prismPct = 100 * total / m.base;
     if (first) *first = first_layer(&m);
     if (n) *n = k;
-    T.m = m;
-    save_cfg();
+    STLP.m = m;
+    sm_save_cfg();
     return true;
 }
 
 bool stlmesh_gravity(Case *c, double g[3])
 {
     sync_case(c);
-    if (!T.loaded) return false;
-    int up = mesher_up(&T.m);                               /* the tunnel's Up (or CAD's z): gravity points the other way */
+    if (!STLP.loaded) return false;
+    int up = mesher_up(&STLP.m);                               /* the tunnel's Up (or CAD's z): gravity points the other way */
     g[0] = g[1] = g[2] = 0;
     g[up / 2] = up % 2 ? 9.81 : -9.81;
     return true;
@@ -3173,6 +2531,6 @@ bool stlmesh_gravity(Case *c, double g[3])
 int stlmesh_up_axis(Case *c)
 {
     sync_case(c);
-    if (!T.loaded) return -1;
-    return SV.up >= 0 ? SV.up : mesher_up(&T.m) / 2;
+    if (!STLP.loaded) return -1;
+    return STLV.up >= 0 ? STLV.up : mesher_up(&STLP.m) / 2;
 }

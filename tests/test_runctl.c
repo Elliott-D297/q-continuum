@@ -38,7 +38,8 @@ int main(int argc, char **argv)
     CHECK(!rc_write_by_time(w, NULL, 0), "already by time");
     fd_free(w);
 
-    if (argc == 3) {
+    if (argc == 3 && !pl_is_dir(argv[1])) printf("note: no tutorial cavity at %s: the case conversion part is not run\n", argv[1]);
+    if (argc == 3 && pl_is_dir(argv[1])) {
         char dst[PL_PATH], cmd[PL_PATH * 3];
         pl_join(dst, sizeof dst, argv[2], "rc_case");
         snprintf(cmd, sizeof cmd, "rm -rf '%s' && cp -r '%s' '%s'", dst, argv[1], dst);

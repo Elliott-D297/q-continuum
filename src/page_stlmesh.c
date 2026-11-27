@@ -3038,7 +3038,7 @@ static float step_head(Case *c, int k, float x, float y, float w, float *cy)
     ui_text(F_SEMI, 17, title, tx, *cy - 11, reached ? TH.text : TH.text3);
     float tw = ui_text_w(F_SEMI, 17, title);
     char sum[300];
-    if (!reached) pl_fmt_ui(sum, sizeof sum, "after %s", STEP_TITLE[k - 1]);
+    if (!reached) pl_fmt_ui(sum, sizeof sum, "after %s", STEP_TITLE[k - 1]);  // NOLINT(clang-analyzer-core.CallAndMessage): false positive, step 0 is always reached, so k >= 1 here
     else step_summary(c, k, sum, sizeof sum);
     if (sum[0] && !open) ui_text_clip(F_REG, 13.5f, sum, tx + tw + 16, *cy - 8, w - (tx - x) - tw - 60, reached ? TH.text2 : TH.text3);
     if (reached && !open) ui_icon(ICON_PENCIL, x + w - 22, *cy, 15, TH.text3);

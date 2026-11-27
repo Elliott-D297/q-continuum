@@ -548,7 +548,7 @@ int bm_points_text(const BmEdge *e, char *out, int cap)
 bool bm_points_parse(const char *text, BmEdge *e)
 {
     Tk t = { text, 0, (int)strlen(text), 0, "" };
-    double (*p)[3] = malloc(sizeof(double) * 3 * BM_MAXPTS);
+    double (*p)[3] = malloc(sizeof *p * BM_MAXPTS);
     if (!p) return false;
     int n = 0, ty;
     bool ok = true;
@@ -638,7 +638,8 @@ static void edge_between(const BmModel *m, int a, int b, double t, double *out)
         for (int k = 0; k < 3; k++) out[k] = c[k] + R * (cos(a2) * u[k] + sin(a2) * w[k]);
         return;
     }
-    double (*pts)[3] = malloc(sizeof(double) * 3 * (size_t)(e->np + 2));
+    double (*pts)[3] = malloc(sizeof *pts * (size_t)(e->np + 2));
+    if (!pts) { for (int k = 0; k < 3; k++) out[k] = s0[k] + tt * (s1[k] - s0[k]); return; }   /* out of memory: straight */
     memcpy(pts[0], s0, sizeof(double) * 3);
     for (int i = 0; i < e->np; i++) memcpy(pts[i + 1], e->p[i], sizeof(double) * 3);
     memcpy(pts[e->np + 1], s1, sizeof(double) * 3);
@@ -751,7 +752,7 @@ void bm_draw_build(const BmModel *m, BmDraw *d)
     free(seen);
     for (int i = 0; i < d->nSeg; i++)
         for (int k = 0; k < 3; k++) {
-            float a = d->seg[i * 6 + k], b = d->seg[i * 6 + 3 + k];
+            float a = d->seg[i * 6 + k], b = d->seg[i * 6 + 3 + k];  // NOLINT(clang-analyzer-core.uninitialized.Assign): false positive, every segment below nSeg was written above
             d->lo[k] = fminf(d->lo[k], fminf(a, b)); d->hi[k] = fmaxf(d->hi[k], fmaxf(a, b));
         }
     if (!d->nSeg) for (int k = 0; k < 3; k++) { d->lo[k] = 0; d->hi[k] = 1; }
@@ -837,7 +838,7 @@ int bm_check(const BmModel *m, BmIssue *out, int max)
     }
     /* faces: each block face once (boundary) or twice (between blocks); boundary faces in a patch */
     int nf = 0, cap = m->nb * 6;
-    int (*keys)[4] = malloc(sizeof(int) * 4 * (size_t)cap);
+    int (*keys)[4] = malloc(sizeof *keys * (size_t)cap);
     int *count = calloc((size_t)cap, sizeof(int)), *owner = malloc(sizeof(int) * (size_t)cap);
     int *inPatch = calloc((size_t)cap, sizeof(int));
     for (int i = 0; i < m->nb; i++)
@@ -1000,6 +1001,9 @@ int bm_template_par(int t, const char *key)
     return -1;
 }
 
+/* a template's parameter by key; a key the template doesn't have reads 0, never v[-1] (clang-tidy 18, 2026-11-26) */
+static double tpar(const double *v, int t, const char *key) { int i = bm_template_par(t, key); return i >= 0 ? v[i] : 0; }
+
 static double first_cell(double L, int n, double r) { return fabs(r - 1) < 1e-12 ? L / n : L * (r - 1) / (pow(r, n) - 1); }
 
 double bm_ratio_for_first(double L, int n, double d1)
@@ -1134,7 +1138,7 @@ bool bm_template(int t, const double *val, BmModel *m, char *err, int cap)
     err[0] = 0;
     if (t < 0 || t >= BT__N) { snprintf(err, (size_t)cap, "No such template"); return false; }
     const BmTemplate *T = &BM_TEMPLATES[t];
-    double v[BT_MAXPAR];
+    double v[BT_MAXPAR] = { 0 };
     for (int i = 0; i < T->nPar; i++) {
         v[i] = val ? val[i] : T->par[i].def;
         if (!(v[i] >= T->par[i].lo && v[i] <= T->par[i].hi)) {
@@ -1142,7 +1146,7 @@ bool bm_template(int t, const double *val, BmModel *m, char *err, int cap)
             return false;
         }
     }
-#define V(k) v[bm_template_par(t, k)]
+#define V(k) tpar(v, t, k)
     Flat F = { m, 0, 0 };
     switch (t) {
     case BT_CAVITY: {

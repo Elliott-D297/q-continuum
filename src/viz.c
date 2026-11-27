@@ -33,8 +33,8 @@ int vz_patch_of_face(const VzMesh *m, long f)
 /* the derived arrays: each false when memory runs out (vz_mesh_load then frees the mesh and says so) */
 static bool face_geometry(VzMesh *m)
 {
-    m->fCtr = malloc(sizeof(double) * 3 * (size_t)m->nFaces);
-    m->fArea = malloc(sizeof(double) * 3 * (size_t)m->nFaces);
+    m->fCtr = malloc(sizeof(double) * 3 * (size_t)(m->nFaces + 1));   /* +1: malloc(0) may give NULL, read as out of memory */
+    m->fArea = malloc(sizeof(double) * 3 * (size_t)(m->nFaces + 1));
     if (!m->fCtr || !m->fArea) return false;
     for (long f = 0; f < m->nFaces; f++) {
         long a = m->fOff[f], n = m->fOff[f + 1] - a;
@@ -56,8 +56,8 @@ static bool face_geometry(VzMesh *m)
 static bool cell_geometry(VzMesh *m)
 {
     long nc = m->nCells;
-    double *est = calloc((size_t)nc * 3, sizeof(double));
-    int *cnt = calloc((size_t)nc, sizeof(int));
+    double *est = calloc((size_t)nc * 3 + 1, sizeof(double));   /* +1: calloc(0) may give NULL */
+    int *cnt = calloc((size_t)nc + 1, sizeof(int));
     m->cCtr = calloc((size_t)nc * 3, sizeof(double));
     m->cVol = calloc((size_t)nc, sizeof(double));
     if (!est || !cnt || !m->cCtr || !m->cVol) { free(est); free(cnt); return false; }
@@ -163,6 +163,7 @@ bool vz_mesh_load(VzMesh *m, const char *dir)
         snprintf(m->err, sizeof m->err, "Could not read the mesh in %s (%s)", dir, what);
         return false;
     }
+    if (!m->nei && nn > 0) { vz_mesh_free(m); snprintf(m->err, sizeof m->err, "Could not read the mesh in %s (neighbour)", dir); return false; }
     if (!m->nei && nn == 0 && !(m->nei = malloc(sizeof(long)))) { vz_mesh_free(m); snprintf(m->err, sizeof m->err, "Out of memory"); return false; }
     m->nInternal = nn;
     long mc = -1;
@@ -685,7 +686,7 @@ void vz_cut(const VzMesh *m, const double *fn, const VzField *f, int q, bool smo
     memset(out, 0, sizeof *out);
     TB tb = { out, 0 };
     Cross *cr = malloc(sizeof(Cross) * 512);
-    int (*seg)[2] = malloc(sizeof(int) * 2 * 512);
+    int (*seg)[2] = malloc(sizeof *seg * 512);
     if (!cr || !seg) { free(cr); free(seg); return; }
     for (long c = 0; c < m->nCells; c++) {
         /* a quick look: does the function change sign over the cell's points? */

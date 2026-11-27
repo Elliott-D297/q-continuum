@@ -5,6 +5,7 @@
 #settings: away_host=aerofly
 #settings: away_user=tester
 #settings: away_dir=~/cases
+require /usr/lib/openfoam/openfoam2412/etc/bashrc
 open $SB/ws/cavity
 click nav:run
 wait-until page Run

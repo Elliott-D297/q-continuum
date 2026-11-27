@@ -1,0 +1,27 @@
+# Build, the fast tests and the static analysis on every push and pull request (improvement plan A1, 2026-11-26).
+# OpenFOAM, SALOME and the GUI journeys are not on the runner: tests that need the OpenFOAM tutorials skip (exit 77),
+# and the long suites (ctest -L full, tests/run_all_journeys.sh) stay on the development machine.
+name: CI
+on:
+  push:
+  pull_request:
+jobs:
+  build-test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential cmake python3 calculix-ccx \
+            libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libgl1-mesa-dev cppcheck clang-tidy-18
+          mkdir -p "$HOME/.local/qc-dev/bin" && ln -s "$(command -v clang-tidy-18)" "$HOME/.local/qc-dev/bin/clang-tidy" \
+            && ln -s "$(command -v cppcheck)" "$HOME/.local/qc-dev/bin/cppcheck"
+      - name: Configure (raylib 5.5 downloaded by CMake)
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DQC_TUTORIALS=/nonexistent -DQC_BASHRC=/nonexistent
+      - name: Build
+        run: cmake --build build -j"$(nproc)"
+      - name: Fast tests
+        run: ctest --test-dir build -L fast --output-on-failure
+      - name: Static analysis (cppcheck 2.13, clang-tidy 18)
+        run: tests/static_analysis.sh

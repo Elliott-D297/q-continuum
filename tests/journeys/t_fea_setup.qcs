@@ -15,6 +15,23 @@ click clone-go
 wait-until page Setup timeout 10
 wait-until widget fea-view timeout 180
 wait 30
+# plan B3: the mesh's quality and walls shown; finer elements on the boss's top, meshed again
+assert widget fea-quality
+assert widget fea-walls
+click fea-addref
+wait 5
+clickat fea-view 0.5 0.26
+wait 10
+click fea-pick#300
+wait 5
+assert log study.ini [refine]
+screenshot $OUT/fea_mesh_rows.png
+click fea-mesh
+wait 20
+wait-until widget fea-mesh timeout 300
+wait 30
+assert file refine.txt
+assert log log.mesh refinement:
 # heat: a face held hot, convection on the boss's top
 click fea-an#4
 wait 5

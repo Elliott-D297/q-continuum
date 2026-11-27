@@ -18,6 +18,7 @@
 #include "orbit.h"
 #include "femesh.h"
 #include "festudy.h"
+#include "femeshq.h"
 #include "ccxmodel.h"
 #include "program.h"
 #include "pl_util.h"
@@ -42,6 +43,7 @@ static struct {
     pid_t   pid; char log[PL_PATH], jobProj[PL_PATH]; double t0;
     /* results */
     CcxFrd  r; bool rOk; time_t rMt; char rPath[PL_PATH]; int *rmap; int rmapN;
+    FeQuality q; FeThickness th; bool thOk;            /* plan B3: the mesh's quality and its thinnest wall, at load */
 } F = { .hoverG = -1, .active = -1, .pid = -1 };
 
 /* ============================================================================ the study on disk */
@@ -118,7 +120,7 @@ static void fea_sync(const char *proj)
         F.ok = mt && femesh_load(mp, &F.m, err, sizeof err);
         if (mt && !F.ok) ui_toast(TOAST_ERR, "%s", err);
         F.meshMt = mt;
-        if (F.ok) { feature_edges(); F.touched = false; F.fitAspect = 0; }
+        if (F.ok) { feature_edges(); F.touched = false; F.fitAspect = 0; fe_quality(&F.m, &F.q); F.thOk = fe_thickness(&F.m, &F.th); }
         F.dirty = true;
     }
 }
@@ -145,8 +147,13 @@ void fea_mesh_start(const char *proj)
     char qi[PL_PATH + 8], qo[PL_PATH + 8], qs[PL_PATH + 8], qp[PL_PATH + 8], qd[PL_PATH + 8], cmd[PL_PATH * 6];
     pl_shell_quote(qi, sizeof qi, part); pl_shell_quote(qo, sizeof qo, out); pl_shell_quote(qs, sizeof qs, A.env.salome);
     pl_shell_quote(qp, sizeof qp, script); pl_shell_quote(qd, sizeof qd, md);
-    if (!pl_fmt(cmd, sizeof cmd, "cd %s && QC_IN=%s QC_OUT=%s QC_SIZE=%g QC_SCALE=%g QC_ORDER=%d env -u LD_LIBRARY_PATH -u PYTHONPATH -u PYTHONHOME %s -t "
-                                "--shutdown-servers=1 %s; [ -s %s ]", qd, qi, qo, s.size, s.scale, s.order, qs, qp, qo)) { ui_toast(TOAST_ERR, "The path is too long"); return; }
+    /* plan B3: the picked faces' points (from the mesh now) and CAD face names, for finer elements there */
+    char rf[PL_PATH], qr[PL_PATH + 8], renv[PL_PATH + 24] = "";
+    pl_join(rf, sizeof rf, proj, "refine.txt");
+    bool same = F.ok && !strcmp(F.proj, proj);
+    if (fe_refine_write(&s, same ? &F.m : NULL, proj)) { pl_shell_quote(qr, sizeof qr, rf); snprintf(renv, sizeof renv, "QC_REFINE=%s ", qr); }
+    if (!pl_fmt(cmd, sizeof cmd, "cd %s && QC_IN=%s QC_OUT=%s QC_SIZE=%g QC_SCALE=%g QC_ORDER=%d %senv -u LD_LIBRARY_PATH -u PYTHONPATH -u PYTHONHOME %s -t "
+                                "--shutdown-servers=1 %s; [ -s %s ]", qd, qi, qo, s.size, s.scale, s.order, renv, qs, qp, qo)) { ui_toast(TOAST_ERR, "The path is too long"); return; }
     F.pid = pl_spawn_shell(cmd, F.log);
     F.t0 = GetTime();
     if (F.pid <= 0) ui_toast(TOAST_ERR, "Could not start SALOME");
@@ -218,7 +225,8 @@ static void fit(void)
 /* the face list of the item being picked for (a support, a load, a thermal condition), NULL when none */
 static char (*active_faces(int **nf))[64]
 {
-    if (F.active >= 200 && F.active - 200 < F.s.nTh) { *nf = &F.s.th[F.active - 200].nf; return F.s.th[F.active - 200].face; }
+    if (F.active >= 300 && F.active - 300 < F.s.nRef) { *nf = &F.s.ref[F.active - 300].nf; return F.s.ref[F.active - 300].face; }
+    if (F.active >= 200 && F.active < 300 && F.active - 200 < F.s.nTh) { *nf = &F.s.th[F.active - 200].nf; return F.s.th[F.active - 200].face; }
     if (F.active >= 100 && F.active < 200 && F.active - 100 < F.s.nLoad) { *nf = &F.s.load[F.active - 100].nf; return F.s.load[F.active - 100].face; }
     if (F.active >= 0 && F.active < 100 && F.active < F.s.nFix) { *nf = &F.s.fix[F.active].nf; return F.s.fix[F.active].face; }
     return NULL;
@@ -866,6 +874,80 @@ static float thermal_rows(float x, float y, float w)
     return y - y0 + 48;
 }
 
+/* ---- the mesh (plan B3): element order, finer on picked faces, quality, the thinnest wall, what solving will take */
+static float mesh_rows(float x, float y, float w)
+{
+    float y0 = y;
+    char t[400];
+    static const char *ORD[2] = { "Quadratic", "Linear" };
+    int o = F.s.order == 1 ? 1 : 0;
+    ui_text(F_MED, 13, "Elements", x, y + 8, TH.text2);
+    if (ui_segmented(ui_id("fea-order"), (Rectangle){ x + 130, y, w - 130, 32 }, ORD, 2, &o)) { F.s.order = o ? 1 : 2; save_study(); }
+    ui_tooltip((Rectangle){ x + 130, y, w - 130, 32 }, "Quadratic: 10-node tetrahedra (C3D10), curved edges, right in bending. Linear: 4-node (C3D4), too stiff in bending.");
+    y += 38;
+    if (F.s.order == 1)
+        y += ui_text_wrap(F_REG, 12.5f, "Linear tetrahedra are far too stiff in bending (a beam deflects a fraction of what it should): use them only "
+                          "for heat or a quick look. Mesh again after changing.", (Rectangle){ x + 8, y, w - 8, 60 }, 18, TH.warn, true) + 6;
+    /* finer on picked faces */
+    for (int i = 0; i < F.s.nRef; i++) {
+        FeRefine *rf = &F.s.ref[i];
+        char ttl[64]; pl_fmt_ui(ttl, sizeof ttl, "Finer here %d", i + 1);
+        bool del = false;
+        y += item_head(x, y, w, ICON_GRID_3X3, (Color){ 120, 160, 255, 255 }, ttl, 300 + i, true, &del);
+        if (del) { memmove(&F.s.ref[i], &F.s.ref[i + 1], sizeof(FeRefine) * (size_t)(F.s.nRef - i - 1)); F.s.nRef--; F.active = -1; save_study(); break; }
+        if (fnum("fea-refsz", i, x + 24, y, 160, &rf->size, "mm", 1e-6, 1e6)) save_study();
+        ui_text_clip(F_REG, 12.5f, "Mesh again to use it", x + 194, y + 9, w - 194, TH.text3);
+        y += 38;
+        y += faces_line(x + 24, y, w - 24, rf->face, rf->nf) + 12;
+    }
+    if (F.s.nRef < FE_MAXREF && F.ok) {
+        float bw = ui_button_width(ICON_PLUS, "Finer on faces");
+        if (ui_button(ui_id("fea-addref"), (Rectangle){ x, y, bw, 32 }, ICON_PLUS, "Finer on faces", BTN_GHOST)) {
+            FeRefine *rf = &F.s.ref[F.s.nRef++]; memset(rf, 0, sizeof *rf);
+            double L = part_size(), h = F.s.size > 0 ? F.s.size : L / 20;
+            rf->size = h > 0 ? h / 4 : 1;
+            F.active = 300 + F.s.nRef - 1; save_study();
+        }
+        y += 40;
+    }
+    if (!F.ok) return y - y0 + 6;
+    /* quality */
+    if (F.q.n) {
+        const char *verdict = F.q.arOver30 ? "some elements are badly stretched" : F.q.arOver10 ? "a few elements are stretched" : "good";
+        pl_fmt_ui(t, sizeof t, "Quality: aspect ratio %.2g on average, %.3g at worst (%s)%s", F.q.arMean, F.q.arMax, verdict,
+                  F.m.quadratic ? TextFormat("; mid-side nodes bend the worst corner to %.2f%s", F.q.jacMin, F.q.jacBad ? " (poor)" : "") : "");
+        ui_icon(F.q.arOver30 || F.q.jacBad ? ICON_TRIANGLE_ALERT : ICON_CIRCLE_CHECK, x + 8, y + 9, 14, F.q.arOver30 || F.q.jacBad ? TH.warn : TH.ok);
+        float qh = ui_text_wrap(F_REG, 12.5f, t, (Rectangle){ x + 24, y, w - 24, 80 }, 18, TH.text2, true);
+        ui_register(ui_id("fea-quality"), (Rectangle){ x, y, w, qh }, t);
+        ui_tooltip((Rectangle){ x, y, w, qh }, "Aspect ratio: 1 for a regular tetrahedron; stresses in elements past 10 are less accurate, past 30 unreliable. "
+                                             "The mid-side bend (scaled Jacobian): 1 straight-sided, below 0.2 the element is badly curved.");
+        y += qh + 6;
+    }
+    /* the thinnest wall and the elements across it */
+    if (F.thOk) {
+        double h = F.s.size > 0 ? F.s.size : part_size() / 20, across = h > 0 ? F.th.p5 / h : 0;
+        bool few = across < (F.s.order == 2 ? 2 : 4) - 0.05;      /* 1.98 shows as 2.0: no warning for that */
+        pl_fmt_ui(t, sizeof t, "Thinnest walls about %.3g mm (the thinnest %.3g): %.1f element%s across%s", F.th.p5, F.th.thin, across, fabs(across - 1) < 0.05 ? "" : "s",
+                  few ? TextFormat(". For bending, at least %d across: make the mesh Fine, or Finer on those faces.", F.s.order == 2 ? 2 : 4) : "");
+        ui_icon(few ? ICON_TRIANGLE_ALERT : ICON_CIRCLE_CHECK, x + 8, y + 9, 14, few ? TH.warn : TH.ok);
+        float th = ui_text_wrap(F_REG, 12.5f, t, (Rectangle){ x + 24, y, w - 24, 80 }, 18, TH.text2, true);
+        ui_register(ui_id("fea-walls"), (Rectangle){ x, y, w, th }, t);
+        y += th + 6;
+    }
+    /* what solving it takes: calibrated on the flange (27 700 unknowns: 124 MB, 1 s static) growing as unknowns^1.33, an upper
+       bound for a compact part (a slender one needs much less) */
+    {
+        double dof = 3.0 * F.m.n, mb = 124 * pow(dof / 27678, 1.33), sec = 1.0 * pow(dof / 27678, 1.4);
+        int an = F.s.analysis;
+        double k = an == AN_FREQUENCY || an == AN_BUCKLE ? 4 : an == AN_DYNAMIC || an == AN_HARMONIC ? 6 : an == AN_NONLINEAR ? 15 : (an == AN_HEAT || an == AN_THERMSTRESS) && F.s.transient ? 30 : 1;
+        char d[32]; pl_duration(d, sizeof d, fmax(1, sec * k));
+        pl_fmt_ui(t, sizeof t, "%.0f unknowns: up to about %.0f MB of memory and %s to solve (rough: a slender part needs less)", dof, mb < 50 ? 50 : mb, d);
+        ui_text_wrap(F_REG, 12.5f, t, (Rectangle){ x + 24, y, w - 24, 60 }, 18, TH.text3, true);
+        y += 40;
+    }
+    return y - y0 + 6;
+}
+
 void fea_setup_page(Rectangle r)
 {
     Case *c = A.cs;
@@ -918,6 +1000,7 @@ void fea_setup_page(Rectangle r)
         if (ui_button(ui_id("fea-mesh"), (Rectangle){ x, y, w, 38 }, ICON_BOXES, lab, F.ok ? BTN_SECONDARY : BTN_PRIMARY)) fea_mesh_start(c->s.path);
         y += 50;
     }
+    y += mesh_rows(x, y, w);
     y += material_rows(x, y, w);
     y += analysis_rows(x, y, w);
     if (fe_an_mechanical(F.s.analysis)) { y += support_rows(x, y, w); if (F.s.analysis != AN_FREQUENCY) y += load_rows(x, y, w); }

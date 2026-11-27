@@ -105,7 +105,7 @@ configure_file(${QC_ASSETS_C}.tmp ${QC_ASSETS_C} COPYONLY)
 
 # ---------------------------------------------------------------- core (no graphics) + app
 add_library(qc_core STATIC
-  src/pl_util.c src/foamdict.c src/foamcase.c src/runner.c src/env.c src/xmlspan.c src/coupling.c src/safety.c src/precheck.c src/monitor.c src/xsection.c src/explain.c src/physics.c src/fieldinfo.c src/redalert.c src/sweep.c src/demeparams.c src/program.c src/params.c src/textdiff.c src/runlog.c src/plume.c src/cplbuild.c src/stlmesh.c src/meshopts.c src/meshexamples.c src/simsetup.c src/simmodels.c src/qjson.c src/ccxmodel.c src/femesh.c src/festudy.c src/progblank.c src/glossary.c src/working.c src/calc.c src/quality.c src/bmesh.c src/extrude.c src/viz.c src/meshadvice.c src/gci.c src/meshtools.c src/allrun.c src/runctl.c src/chtsetup.c src/teachcases.c src/report.c src/simadopt.c
+  src/pl_util.c src/foamdict.c src/foamcase.c src/runner.c src/env.c src/xmlspan.c src/coupling.c src/safety.c src/precheck.c src/monitor.c src/xsection.c src/explain.c src/physics.c src/fieldinfo.c src/redalert.c src/sweep.c src/demeparams.c src/program.c src/params.c src/textdiff.c src/runlog.c src/plume.c src/cplbuild.c src/stlmesh.c src/meshopts.c src/meshexamples.c src/simsetup.c src/simmodels.c src/qjson.c src/ccxmodel.c src/femesh.c src/festudy.c src/progblank.c src/glossary.c src/working.c src/calc.c src/quality.c src/bmesh.c src/extrude.c src/viz.c src/meshadvice.c src/gci.c src/meshtools.c src/allrun.c src/runctl.c src/chtsetup.c src/teachcases.c src/report.c src/simadopt.c src/femeshq.c
   ${QC_ASSETS_C})   # the embedded fonts and starters (program.c writes the Chrono starter)
 target_include_directories(qc_core PUBLIC src)
 target_link_libraries(qc_core PUBLIC m)

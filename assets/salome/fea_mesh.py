@@ -6,6 +6,9 @@
 #   QC_SIZE   the target element size in millimetres (0: a twentieth of the part's largest side)
 #   QC_SCALE  millimetres per unit of a file without a unit (STL, BREP, MED, UNV): 1 for mm, 1000 for metres, 25.4 inches
 #   QC_ORDER  2 (quadratic tetrahedra, C3D10: the default, accurate in bending) or 1 (linear)
+#   QC_REFINE refine.txt (improvement plan B3): lines "x y z size" (points of picked faces, mm) and "face <name> = size" (a CAD
+#             part's faces by name): finer elements there. An STL's surface remesh (MMG) takes them as a size map, NETGEN's
+#             volume as its mesh-size file (.msz); a CAD face gets NETGEN's local size on that face
 # Everything is written in millimetres. STEP and IGES carry their unit: SALOME reads them into metres, scaled here by 1000.
 # The .qcmesh:
 #   QCMESH 1
@@ -32,6 +35,24 @@ SCALE = float(os.environ.get("QC_SCALE", "1") or 1)
 ORDER = int(os.environ.get("QC_ORDER", "2") or 2)
 ext = os.path.splitext(src)[1].lower()
 HERE = os.path.dirname(os.path.abspath(out))
+REF_PTS, REF_FACES = [], {}
+_rf = os.environ.get("QC_REFINE", "")
+if _rf and os.path.exists(_rf):
+    for _line in open(_rf):
+        _line = _line.strip()
+        if _line.startswith("face "):
+            _n, _, _v = _line[5:].rpartition("=")
+            try:
+                REF_FACES[_n.strip()] = float(_v)
+            except ValueError:
+                pass
+        else:
+            _p = _line.split()
+            if len(_p) == 4:
+                try:
+                    REF_PTS.append(tuple(float(q) for q in _p))
+                except ValueError:
+                    pass
 
 
 def say(*a):
@@ -47,6 +68,65 @@ def fail(msg):
 def bbox_mesh(m):
     b = m.GetBoundingBox()
     return b.minX, b.maxX, b.minY, b.maxY, b.minZ, b.maxZ
+
+
+# ---------------------------------------------------------------- refinement (plan B3)
+def msz_file():
+    """NETGEN's mesh-size file: the points with their sizes, then no lines"""
+    if not REF_PTS:
+        return None
+    path = os.path.join(HERE, "refine.msz")
+    with open(path, "w") as f:
+        f.write("%d\n" % len(REF_PTS))
+        for x, y, z, h in REF_PTS:
+            f.write("%.6g %.6g %.6g %.6g\n" % (x, y, z, h))
+        f.write("0\n")
+    return path
+
+
+def size_at(pts, h):
+    """the size wanted at each point: a picked face's size there, growing 30 %% of the distance away, at most h"""
+    if not REF_PTS:
+        return None
+    smin = min(r[3] for r in REF_PTS)
+    R = max((h - smin) / 0.3, 1e-9)
+    cell = {}
+    for x, y, z, s in REF_PTS:
+        cell.setdefault((int(math.floor(x / R)), int(math.floor(y / R)), int(math.floor(z / R))), []).append((x, y, z, s))
+    out = []
+    for x, y, z in pts:
+        best = h
+        cx, cy, cz = int(math.floor(x / R)), int(math.floor(y / R)), int(math.floor(z / R))
+        for i in (cx - 1, cx, cx + 1):
+            for j in (cy - 1, cy, cy + 1):
+                for k in (cz - 1, cz, cz + 1):
+                    for px, py, pz, s in cell.get((i, j, k), ()):
+                        d = math.sqrt((x - px) ** 2 + (y - py) ** 2 + (z - pz) ** 2)
+                        best = min(best, s + 0.3 * d)
+        out.append(best)
+    return out
+
+
+def mmg_sol(gmf, sol, h):
+    """MMG's size map for the surface it remeshes: one size per vertex of the .mesh it reads"""
+    pts, lines = [], open(gmf).read().split("\n")
+    for i, l in enumerate(lines):
+        if l.strip() == "Vertices":
+            n = int(lines[i + 1].split()[0])
+            for q in lines[i + 2:i + 2 + n]:
+                a = q.split()
+                pts.append((float(a[0]), float(a[1]), float(a[2])))
+            break
+    sizes = size_at(pts, h)
+    if not sizes:
+        return False
+    with open(sol, "w") as f:
+        f.write("MeshVersionFormatted 2\n\nDimension 3\n\nSolAtVertices\n%d\n1 1\n" % len(sizes))
+        for v in sizes:
+            f.write("%.6g\n" % v)
+        f.write("\nEnd\n")
+    say("refinement: %d points from the picked faces, sizes down to %.3g mm" % (len(REF_PTS), min(sizes)))
+    return True
 
 
 # ---------------------------------------------------------------- CAD: STEP, IGES, BREP
@@ -115,9 +195,29 @@ def mesh_cad():
             getattr(p, setter)(value)
         except Exception:
             pass
+    faces = geompy.SubShapeAllSortedCentres(shape, geompy.ShapeType["FACE"])
+    if REF_FACES:
+        # NETGEN takes a local size only on a shape published in the study ("shape is not published in study!", found
+        # 2026-11-26): the part and its faces published first
+        geompy.addToStudy(shape, "part")
+        for i, f in enumerate(faces):
+            geompy.addToStudyInFather(shape, f, "Face %d" % (i + 1))
+    for name, size in REF_FACES.items():                  # "Face 3" is the third face in centre order, as named below
+        try:
+            k = int(name.split()[-1]) - 1
+        except ValueError:
+            say("refinement: %s is not a face of this part (meshed again with other faces?)" % name)
+            continue
+        if not 0 <= k < len(faces):
+            say("refinement: %s is not a face of this part (meshed again with other faces?)" % name)
+            continue
+        try:
+            p.SetLocalSizeOnShape(faces[k], size)
+            say("refinement: %s at %.3g mm" % (name, size))
+        except Exception as e:
+            say("refinement: NETGEN refused a size on %s (%s)" % (name, e))
     if not mesh.Compute() or mesh.NbVolumes() == 0:
         fail("NETGEN could not mesh the part at %.3g mm: try another element size (a smaller one for thin walls)" % h)
-    faces = geompy.SubShapeAllSortedCentres(shape, geompy.ShapeType["FACE"])
     groups = []
     for i, f in enumerate(faces):
         g = mesh.GroupOnGeom(f, "Face %d" % (i + 1), SMESH.FACE)
@@ -137,8 +237,14 @@ def mmg_remesh(m, h):
         if os.path.exists(f):
             os.remove(f)
     m.ExportGMF(a)
-    r = subprocess.run([exe, "-in", a, "-out", b, "-hmax", "%g" % h, "-hmin", "%g" % (h / 10), "-hausd", "%g" % (0.01 * h),
-                        "-hgrad", "1.3", "-ar", "30", "-v", "0"], capture_output=True, text=True)
+    args = [exe, "-in", a, "-out", b, "-hmax", "%g" % h, "-hmin", "%g" % (min([h] + [r[3] for r in REF_PTS]) / 10), "-hausd", "%g" % (0.01 * h),
+            "-hgrad", "1.3", "-ar", "30", "-v", "0"]
+    sol = os.path.join(HERE, "mmg_in.sol")
+    if os.path.exists(sol):
+        os.remove(sol)
+    if REF_PTS and mmg_sol(a, sol, h):
+        args += ["-sol", sol]
+    r = subprocess.run(args, capture_output=True, text=True)
     if r.returncode != 0 or not os.path.exists(b):
         return None
     got = smesh.CreateMeshesFromGMF(b)
@@ -193,9 +299,16 @@ def mesh_stl():
     algo = s.Tetrahedron(algo=smeshBuilder.NETGEN_3D)
     p = algo.Parameters()
     p.SetMaxSize(h)
-    p.SetMinSize(h / 20)
+    p.SetMinSize(min([h] + [r[3] for r in REF_PTS]) / 20)
     p.SetOptimize(True)
     p.SetGrowthRate(0.3)
+    msz = msz_file()
+    if msz:
+        try:
+            p.SetMeshSizeFile(msz)
+            say("refinement: NETGEN's volume follows %d points (refine.msz)" % len(REF_PTS))
+        except Exception as e:
+            say("refinement: NETGEN's volume can't take the size file here (%s): the finer surface leads it" % e)
     if not s.Compute() or s.NbVolumes() == 0:
         fail("NETGEN could not fill the STL with tetrahedra: is it closed, without overlapping or self-crossing triangles?")
     if ORDER == 2:

@@ -61,7 +61,7 @@ bool fe_study_load(const char *proj, FeStudy *s)
     char p[PL_PATH]; pl_join(p, sizeof p, proj, "study.ini");
     char *t = pl_read_file(p, NULL);
     if (!t) return false;
-    enum { S_NONE, S_PART, S_MAT, S_STUDY, S_FIX, S_LOAD, S_TH } sec = S_NONE;
+    enum { S_NONE, S_PART, S_MAT, S_STUDY, S_FIX, S_LOAD, S_TH, S_REF } sec = S_NONE;
     for (char *l = t; l && *l; ) {
         char *e = strchr(l, '\n'); if (e) *e = 0;
         char *line = trim(l);
@@ -74,6 +74,7 @@ bool fe_study_load(const char *proj, FeStudy *s)
             else if (!strncasecmp(line, "[fixture]", 9) && s->nFix < FE_MAXITEM) { sec = S_FIX; s->nFix++; }
             else if (!strncasecmp(line, "[load]", 6) && s->nLoad < FE_MAXITEM) { sec = S_LOAD; s->nLoad++; s->load[s->nLoad - 1].dir = DIR_NORMAL; }
             else if (!strncasecmp(line, "[thermal]", 9) && s->nTh < FE_MAXITEM) { sec = S_TH; s->nTh++; s->th[s->nTh - 1].value2 = 293.15; }
+            else if (!strncasecmp(line, "[refine]", 8) && s->nRef < FE_MAXREF) { sec = S_REF; s->nRef++; s->ref[s->nRef - 1].size = 1; }
             else sec = S_NONE;
             continue;
         }
@@ -123,6 +124,10 @@ bool fe_study_load(const char *proj, FeStudy *s)
             else if (!strcmp(k, "faces")) th->nf = faces_parse(v, th->face, FE_MAXFACES);
             else if (!strcmp(k, "value")) th->value = d;
             else if (!strcmp(k, "ambient")) th->value2 = d;
+        } else if (sec == S_REF) {
+            FeRefine *r = &s->ref[s->nRef - 1];
+            if (!strcmp(k, "faces")) r->nf = faces_parse(v, r->face, FE_MAXFACES);
+            else if (!strcmp(k, "size")) r->size = d > 0 ? d : 1;
         }
     }
     free(t);
@@ -165,10 +170,44 @@ bool fe_study_save(const char *proj, const FeStudy *s)
         str_catf(&o, "\n[thermal]\nkind = %s\nvalue = %.9g\nambient = %.9g\nfaces = ", FE_TH_NAME[t->kind], t->value, t->value2);
         faces_cat(&o, t->face, t->nf);
     }
+    for (int i = 0; i < s->nRef; i++) { str_catf(&o, "\n[refine]\nsize = %.9g\nfaces = ", s->ref[i].size); faces_cat(&o, s->ref[i].face, s->ref[i].nf); }
     char p[PL_PATH]; pl_join(p, sizeof p, proj, "study.ini");
     bool ok = pl_write_file(p, o.s, o.len);
     str_free(&o);
     return ok;
+}
+
+static void face_centre(const FeMesh *m, int f, double c[3]);
+
+bool fe_refine_write(const FeStudy *s, const FeMesh *m, const char *proj)
+{
+    char p[PL_PATH]; pl_join(p, sizeof p, proj, "refine.txt");
+    Str o; str_init(&o);
+    int pts = 0;
+    for (int i = 0; i < s->nRef; i++) {
+        const FeRefine *r = &s->ref[i];
+        for (int j = 0; j < r->nf; j++) str_catf(&o, "face %s = %.9g\n", r->face[j], r->size);   /* a CAD part: the face by name */
+        if (!m || !m->n) continue;
+        for (int j = 0; j < r->nf; j++) {
+            int g = fe_group(m, r->face[j]);
+            if (g < 0) continue;
+            /* the faces' corners and centres, at most 4000 points per face group (every k-th face) */
+            int nfg = 0; for (int f = 0; f < m->nf; f++) nfg += m->fg[f] == g;
+            int every = nfg > 4000 ? nfg / 4000 + 1 : 1, k = 0;
+            for (int f = 0; f < m->nf; f++) {
+                if (m->fg[f] != g || k++ % every) continue;
+                double c[3]; face_centre(m, f, c);
+                str_catf(&o, "%.6g %.6g %.6g %.6g\n", c[0], c[1], c[2], r->size);
+                int v = m->fn[8 * f];
+                str_catf(&o, "%.6g %.6g %.6g %.6g\n", m->x[3 * v], m->x[3 * v + 1], m->x[3 * v + 2], r->size);
+                pts += 2;
+            }
+        }
+    }
+    if (!o.len) { remove(p); str_free(&o); return false; }
+    bool ok = pl_write_file(p, o.s, o.len);
+    str_free(&o);
+    return ok && (pts > 0 || s->nRef > 0);
 }
 
 int fe_group(const FeMesh *m, const char *name)

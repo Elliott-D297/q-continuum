@@ -51,6 +51,9 @@ enum { AMP_STEP = 0, AMP_RAMP, AMP_PULSE, AMP__N };
 typedef struct { int kind; int nf; char face[FE_MAXFACES][64]; double value; int dir; } FeFixture;   /* value: FX_DISP mm */
 typedef struct { int kind; int nf; char face[FE_MAXFACES][64]; double value; int dir; double pt[3]; } FeLoad;
 typedef struct { int kind; int nf; char face[FE_MAXFACES][64]; double value, value2; } FeThermal;  /* value2: Ta */
+/* plan B3: finer elements on picked faces (a fillet, a hole, a thin wall), size mm */
+#define FE_MAXREF 8
+typedef struct { int nf; char face[FE_MAXFACES][64]; double size; } FeRefine;
 /* the material: a library name, or the library's values changed (custom) */
 typedef struct { double E, nu, rho, yield, uts, elong, k, cp, alpha; } FeMatProps;   /* SI: Pa, kg/m³, W/(m K), J/(kg K), 1/K */
 
@@ -71,7 +74,8 @@ typedef struct {
     double damping;            /* dynamic, harmonic: modal damping ratio (0.02 = 2 %)            */
     int    amp; double ampT;   /* dynamic: the load's shape in time and its rise or pulse time (s) */
     double T0;                 /* starting temperature, and the stress-free one, K              */
-    int    nFix, nLoad, nTh;
+    int    nFix, nLoad, nTh, nRef;
+    FeRefine  ref[FE_MAXREF];
     FeFixture fix[FE_MAXITEM];
     FeLoad    load[FE_MAXITEM];
     FeThermal th[FE_MAXITEM];
@@ -99,4 +103,7 @@ bool fe_cylinder(const FeMesh *m, int g, double axis[3], double ctr[3], double *
 typedef struct { double force[3]; int fixedNodes, loadedNodes, unknownFaces; char problem[400]; } FeSummary;
 void fe_study_summary(const FeStudy *s, const FeMesh *m, FeSummary *out);
 bool fe_study_write(const FeStudy *s, const FeMesh *m, const char *proj, char *err, int cap);
+/* the refinement for the next mesh: refine.txt in proj, a line per point of the picked faces of the mesh now (x y z size,
+   mm), and the CAD faces by name ("Face 3 = 1.5") for a CAD part; false when there is none (the file removed) */
+bool fe_refine_write(const FeStudy *s, const FeMesh *m, const char *proj);
 #endif

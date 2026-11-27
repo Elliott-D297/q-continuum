@@ -1005,6 +1005,49 @@ void fea_setup_page(Rectangle r)
     y += analysis_rows(x, y, w);
     if (fe_an_mechanical(F.s.analysis)) { y += support_rows(x, y, w); if (F.s.analysis != AN_FREQUENCY) y += load_rows(x, y, w); }
     if (fe_an_thermal(F.s.analysis)) y += thermal_rows(x, y, w);
+    /* ---- the checks (plan B4): what will go wrong or mislead, each with its fix */
+    bool stop = false;
+    if (F.ok) {
+        static FePreflight pf; static double pfAt; static char pfFor[PL_PATH];
+        if (GetTime() - pfAt > 1 || strcmp(pfFor, F.proj)) {            /* about a frame's work on a big mesh: once a second */
+            double freeMB = 0;
+            char *mi = pl_read_file("/proc/meminfo", NULL);
+            const char *q = mi ? strstr(mi, "MemAvailable:") : NULL;
+            if (q) freeMB = atof(q + 13) / 1024;
+            free(mi);
+            fe_preflight(&F.s, &F.m, freeMB, &pf); pfAt = GetTime(); pl_strlcpy(pfFor, F.proj, sizeof pfFor);
+        }
+        if (pf.n) y += section_head(x, y, w, "Checks", NULL);
+        bool fixShown[8] = { false };                                       /* one button per kind of fix */
+        for (int i = 0; i < pf.n; i++) {
+            int sev = pf.it[i].sev;
+            int fk = pf.it[i].fix >= 0 && pf.it[i].fix < 8 ? pf.it[i].fix : 0;
+            if (sev == 2) stop = true;
+            const char *ic = sev == 2 ? ICON_OCTAGON_X : sev == 1 ? ICON_TRIANGLE_ALERT : ICON_INFO;
+            Color cc = sev == 2 ? TH.err : sev == 1 ? TH.warn : TH.text3;
+            const char *fixLab = fixShown[fk] ? NULL : pf.it[i].fix == PF_ADD_SUPPORT ? "Add a support" : pf.it[i].fix == PF_UNIT_M ? "It's in metres"
+                               : pf.it[i].fix == PF_UNIT_MM ? "It's in mm" : pf.it[i].fix == PF_FINER ? "Coarser mesh" : NULL;
+            if (fixLab) fixShown[fk] = true;
+            float fw = fixLab ? ui_button_width(NULL, fixLab) + 8 : 0;
+            ui_icon(ic, x + 8, y + 9, 14, cc);
+            float th = ui_text_wrap(F_REG, 12.5f, pf.it[i].text, (Rectangle){ x + 24, y, w - 24 - fw, 120 }, 18, sev ? TH.text2 : TH.text3, true);
+            ui_register(ui_idn(ui_id("fea-check"), i), (Rectangle){ x, y, w - fw, th }, pf.it[i].text);
+            if (fixLab && ui_button(ui_idn(ui_id("fea-fix"), i), (Rectangle){ x + w - fw + 8, y, fw - 8, 30 }, NULL, fixLab, BTN_SECONDARY)) {
+                switch (pf.it[i].fix) {
+                case PF_ADD_SUPPORT:
+                    if (F.s.nFix < FE_MAXITEM) { FeFixture *fx = &F.s.fix[F.s.nFix++]; memset(fx, 0, sizeof *fx); F.active = F.s.nFix - 1; save_study(); }
+                    break;
+                case PF_UNIT_M: F.s.scale = 1000; save_study(); fea_mesh_start(c->s.path); break;
+                case PF_UNIT_MM: F.s.scale = 1; save_study(); fea_mesh_start(c->s.path); break;
+                case PF_FINER: { double L = part_size(); F.s.size = (F.s.size > 0 ? F.s.size : L / 20) * 1.5; save_study(); fea_mesh_start(c->s.path); break; }
+                default: break;
+                }
+                pfAt = 0;
+            }
+            y += fmaxf(th, fixLab ? 32 : 0) + 8;
+        }
+        if (pf.n) y += 8;
+    }
     /* ---- ready? */
     if (F.ok) {
         FeSummary sum; fe_study_summary(&F.s, &F.m, &sum);
@@ -1021,7 +1064,7 @@ void fea_setup_page(Rectangle r)
             ui_icon(ICON_CIRCLE_CHECK, x + 8, y + 9, 14, TH.ok);
             y += ui_text_wrap(F_REG, 13, t, (Rectangle){ x + 24, y, w - 24, 60 }, 19, TH.text2, true) + 10;
         }
-        ui_disable(sum.problem[0] != 0 || mesh_busy() || A.cj->active);
+        ui_disable(sum.problem[0] != 0 || stop || mesh_busy() || A.cj->active);
         if (ui_button(ui_id("fea-run"), (Rectangle){ x, y, w, 42 }, ICON_PLAY, "Run the study", BTN_PRIMARY)) { A.runPending = true; app_go(PG_RUN); }
         ui_disable(false);
         y += 54;

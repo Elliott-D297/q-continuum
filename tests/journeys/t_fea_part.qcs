@@ -22,6 +22,15 @@ clickat fea-view 0.5 0.83
 wait 10
 assert text 1 face,
 click fea-pick#0
+# plan B4: held in z only, the checks say it can still slide and turn, and stop the run; fixed again
+choose fea-fxkind#0 Held in z only
+wait 30
+assert widget fea-check#0
+assert text The supports leave it free
+screenshot $OUT/fea_checks.png
+choose fea-fxkind#0 Fixed (can't move)
+wait 30
+assert not text The supports leave it free
 wait 5
 click fea-addload#0
 wait 10

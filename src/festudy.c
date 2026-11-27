@@ -1,5 +1,6 @@
 /* festudy.c -- see festudy.h */
 #include <math.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -472,13 +473,16 @@ void fe_study_summary(const FeStudy *s, const FeMesh *m, FeSummary *o)
         if (t->kind == TH_FLUX) heatIn++;
     }
     free(F); free(flag); free(any);
+    FeFree fr; fr.n = 0;
+    (void)held;
     bool needsLoad = s->analysis == AN_STATIC || s->analysis == AN_NONLINEAR || s->analysis == AN_BUCKLE || s->analysis == AN_DYNAMIC || s->analysis == AN_HARMONIC;
     if (o->unknownFaces) snprintf(o->problem, sizeof o->problem, "%d face name%s the mesh doesn't have (meshed again with other faces?): pick them again",
                                   o->unknownFaces, o->unknownFaces == 1 ? "" : "s");
     else if (mech && (!s->nFix || !o->fixedNodes) && s->analysis != AN_FREQUENCY)
         snprintf(o->problem, sizeof o->problem, "Nothing holds the part: add a support (pick the faces it is bolted, welded or resting at)");
-    else if (mech && s->analysis != AN_FREQUENCY && (!held[0] || !held[1] || !held[2]))
-        snprintf(o->problem, sizeof o->problem, "The part is free to move along %s: add a support that holds it that way", !held[0] ? "x" : !held[1] ? "y" : "z");
+    else if (mech && s->analysis != AN_FREQUENCY && (fe_free_motions(s, m, &fr), fr.n > 0))
+        snprintf(o->problem, sizeof o->problem, fr.m[0].rotation ? "The supports leave the part free to turn about an axis: add a support away from it (Checks says where)"
+                                                                 : "The supports leave the part free to slide: add a support that holds it that way (Checks says which way)");
     else if (needsLoad && !o->loadedNodes && !body)
         snprintf(o->problem, sizeof o->problem, "No load: add a force, a pressure, gravity or another load");
     else if (therm && !temps && !s->transient)
@@ -766,4 +770,204 @@ bool fe_study_write(const FeStudy *s, const FeMesh *m, const char *proj, char *e
     str_free(&all);
     if (!ok) snprintf(err, (size_t)cap, "Could not write %s", p);
     return ok;
+}
+
+/* ---------------------------------------------------------------------------------------------------- plan B4: checks */
+static int edcmp(const void *x, const void *y)
+{
+    const int *p = x, *q = y;
+    return p[0] != q[0] ? (p[0] > q[0]) - (p[0] < q[0]) : (p[1] > q[1]) - (p[1] < q[1]);
+}
+
+static void add_row(double G[6][6], const double c[3], const double r[3])
+{
+    double a[6] = { c[0], c[1], c[2], r[1] * c[2] - r[2] * c[1], r[2] * c[0] - r[0] * c[2], r[0] * c[1] - r[1] * c[0] };
+    for (int i = 0; i < 6; i++) for (int j = 0; j < 6; j++) G[i][j] += a[i] * a[j];
+}
+
+/* the eigenvalues and vectors of a symmetric 6x6 (Jacobi) */
+static void eig6(double A[6][6], double val[6], double vec[6][6])
+{
+    double V[6][6] = { { 0 } };
+    for (int i = 0; i < 6; i++) V[i][i] = 1;
+    for (int sweep = 0; sweep < 100; sweep++) {
+        double off = 0, dia = 0;
+        for (int i = 0; i < 6; i++) for (int j = 0; j < 6; j++) { if (i != j) off += fabs(A[i][j]); else dia += fabs(A[i][i]); }
+        if (off < 1e-15 * (dia + 1e-300)) break;
+        for (int p = 0; p < 5; p++) for (int q = p + 1; q < 6; q++) {
+            if (fabs(A[p][q]) < 1e-300) continue;
+            double th = (A[q][q] - A[p][p]) / (2 * A[p][q]);
+            double t = (th >= 0 ? 1 : -1) / (fabs(th) + sqrt(th * th + 1)), c = 1 / sqrt(t * t + 1), sn = t * c;
+            for (int k = 0; k < 6; k++) { double akp = A[k][p], akq = A[k][q]; A[k][p] = c * akp - sn * akq; A[k][q] = sn * akp + c * akq; }
+            for (int k = 0; k < 6; k++) { double apk = A[p][k], aqk = A[q][k]; A[p][k] = c * apk - sn * aqk; A[q][k] = sn * apk + c * aqk; }
+            for (int k = 0; k < 6; k++) { double vkp = V[k][p], vkq = V[k][q]; V[k][p] = c * vkp - sn * vkq; V[k][q] = sn * vkp + c * vkq; }
+        }
+    }
+    for (int i = 0; i < 6; i++) { val[i] = A[i][i]; for (int k = 0; k < 6; k++) vec[i][k] = V[k][i]; }
+}
+
+void fe_free_motions(const FeStudy *s, const FeMesh *m, FeFree *o)
+{
+    memset(o, 0, sizeof *o);
+    if (!m->n) return;
+    /* about the part's centre, in units of its size, so translations and rotations weigh alike */
+    double c0[3], L = 0;
+    for (int k = 0; k < 3; k++) { c0[k] = (m->lo[k] + m->hi[k]) / 2; L = fmax(L, m->hi[k] - m->lo[k]); }
+    if (L <= 0) L = 1;
+    double G[6][6] = { { 0 } };
+    char *flag = malloc((size_t)m->n);
+    if (!flag) return;
+    int rows = 0;
+    for (int i = 0; i < s->nFix; i++) {
+        const FeFixture *fx = &s->fix[i];
+        if (nodes_of(m, (char (*)[64])fx->face, fx->nf, flag, NULL) <= 0) continue;
+        double nrm[3] = { 0, 0, 0 }, ax[3] = { 0, 0, 1 }, cc[3] = { 0, 0, 0 }, R = 0;
+        bool pin = false;
+        if (fx->kind == FX_ROLLER) roller_axis(m, fx, nrm);
+        if (fx->kind == FX_PIN) { int g = fe_group(m, fx->face[0]); pin = g >= 0 && fe_cylinder(m, g, ax, cc, &R); if (!pin) continue; }
+        int cnt = 0, every = 1;
+        for (int v = 0; v < m->n; v++) cnt += flag[v];
+        if (cnt > 400) every = cnt / 400 + 1;
+        int k = 0;
+        for (int v = 0; v < m->n; v++) {
+            if (!flag[v] || k++ % every) continue;
+            double r[3]; for (int q = 0; q < 3; q++) r[q] = (m->x[3 * v + q] - c0[q]) / L;
+            static const double E[3][3] = { { 1, 0, 0 }, { 0, 1, 0 }, { 0, 0, 1 } };
+            switch (fx->kind) {
+            case FX_FIXED: for (int q = 0; q < 3; q++) add_row(G, E[q], r); break;
+            case FX_X: case FX_Y: case FX_Z: add_row(G, E[fx->kind - FX_X], r); break;
+            case FX_DISP: add_row(G, E[fx->dir >= DIR_PX ? (fx->dir - 1) % 3 : 0], r); break;
+            case FX_ROLLER: add_row(G, nrm, r); break;
+            case FX_PIN: {
+                double d[3], rad[3];
+                for (int q = 0; q < 3; q++) d[q] = m->x[3 * v + q] - cc[q];
+                double al = dot3(d, ax);
+                for (int q = 0; q < 3; q++) rad[q] = d[q] - al * ax[q];
+                double rl = sqrt(dot3(rad, rad));
+                if (rl > 1e-12) { for (int q = 0; q < 3; q++) rad[q] /= rl; add_row(G, rad, r); }
+                add_row(G, ax, r);
+                break;
+            }
+            default: break;
+            }
+            rows++;
+        }
+    }
+    free(flag);
+    if (!rows) {                                            /* nothing held: all six */
+        o->n = 6;
+        for (int q = 0; q < 6; q++) { o->m[q].rotation = q >= 3; memset(o->m[q].axis, 0, sizeof o->m[q].axis); o->m[q].axis[q % 3] = 1; memcpy(o->m[q].pt, c0, sizeof c0); }
+        return;
+    }
+    double val[6], vec[6][6], mx = 0;
+    eig6(G, val, vec);
+    for (int i = 0; i < 6; i++) mx = fmax(mx, val[i]);
+    for (int i = 0; i < 6 && o->n < 6; i++) {
+        if (val[i] > 1e-8 * mx) continue;
+        double *t = vec[i], *w = vec[i] + 3, wl = sqrt(dot3(w, w)), tl = sqrt(dot3(t, t));
+        int k = o->n++;
+        if (wl > 0.3 * tl) {                                /* a rotation: its axis w, through the point p with t = p x w ... */
+            o->m[k].rotation = true;
+            for (int q = 0; q < 3; q++) o->m[k].axis[q] = w[q] / wl;
+            /* the motion at point r is t + w x r: zero on the axis; p = (w x t) / |w|^2 (in the scaled frame) */
+            double p[3] = { (w[1] * t[2] - w[2] * t[1]) / (wl * wl), (w[2] * t[0] - w[0] * t[2]) / (wl * wl), (w[0] * t[1] - w[1] * t[0]) / (wl * wl) };
+            for (int q = 0; q < 3; q++) o->m[k].pt[q] = c0[q] + p[q] * L;
+        } else {
+            o->m[k].rotation = false;
+            for (int q = 0; q < 3; q++) o->m[k].axis[q] = t[q] / (tl > 0 ? tl : 1);
+            memcpy(o->m[k].pt, c0, sizeof c0);
+        }
+    }
+}
+
+static const char *axis_word(const double a[3])
+{
+    static char b[64];
+    for (int q = 0; q < 3; q++) if (fabs(a[q]) > 0.98) { snprintf(b, sizeof b, "%s", q == 0 ? "x" : q == 1 ? "y" : "z"); return b; }
+    snprintf(b, sizeof b, "(%.2f, %.2f, %.2f)", a[0], a[1], a[2]);
+    return b;
+}
+
+static void pf_add(FePreflight *o, int sev, int fix, const char *fmt, ...)
+{
+    if (o->n >= FE_MAXPF) return;
+    va_list ap; va_start(ap, fmt);
+    vsnprintf(o->it[o->n].text, sizeof o->it[o->n].text, fmt, ap);
+    va_end(ap);
+    o->it[o->n].sev = sev; o->it[o->n].fix = fix; o->n++;
+}
+
+void fe_preflight(const FeStudy *s, const FeMesh *m, double memFreeMB, FePreflight *o)
+{
+    memset(o, 0, sizeof *o);
+    if (!m->n) return;
+    double L = 0; for (int k = 0; k < 3; k++) L = fmax(L, m->hi[k] - m->lo[k]);
+    int an = s->analysis;
+    bool mech = fe_an_mechanical(an);
+    /* the unit: a part under 2 mm or over 5 m across is most likely in the wrong one */
+    if (L < 2) pf_add(o, 1, s->scale == 1 ? PF_UNIT_M : PF_UNIT_MM, "The part is %.3g mm across: is its file in metres? (Then it is %.3g m.)", L, L);
+    else if (L > 5000) pf_add(o, 1, PF_UNIT_MM, "The part is %.4g m across: is its file in millimetres?", L / 1000);
+    /* free motions: what the supports leave the part able to do */
+    if (mech && an != AN_FREQUENCY) {
+        FeFree fr; fe_free_motions(s, m, &fr);
+        for (int i = 0; i < fr.n && i < 2; i++) {
+            if (fr.m[i].rotation)
+                pf_add(o, 2, PF_ADD_SUPPORT, "The supports leave it free to turn about %s through (%.3g, %.3g, %.3g) mm: add a support away from that axis "
+                       "(or hold a flat face), or the solver can't find an answer.", axis_word(fr.m[i].axis), fr.m[i].pt[0], fr.m[i].pt[1], fr.m[i].pt[2]);
+            else pf_add(o, 2, PF_ADD_SUPPORT, "The supports leave it free to slide along %s: add a support that holds it that way.", axis_word(fr.m[i].axis));
+        }
+        if (fr.n > 2) pf_add(o, 2, PF_ADD_SUPPORT, "...and %d more ways it can move freely.", fr.n - 2);
+    } else if (an == AN_FREQUENCY) {
+        FeFree fr; fe_free_motions(s, m, &fr);
+        if (fr.n) pf_add(o, 0, PF_NONE, "Held so it can still move %d way%s: the first %d frequencies will be (about) 0 Hz, its free movements, then the real ones.",
+                         fr.n, fr.n == 1 ? "" : "s", fr.n);
+    }
+    /* point-like supports and loads: tiny faces make stresses there that aren't real (a singularity) */
+    double Atot = 0; for (int g = 0; g < m->ng; g++) Atot += m->garea[g];
+    for (int i = 0; mech && i < s->nFix + s->nLoad; i++) {
+        bool isFix = i < s->nFix;
+        const char (*faces)[64] = isFix ? (const char (*)[64])s->fix[i].face : (const char (*)[64])s->load[i - s->nFix].face;
+        int nf = isFix ? s->fix[i].nf : s->load[i - s->nFix].nf;
+        if (!isFix && (s->load[i - s->nFix].kind == LD_GRAVITY || s->load[i - s->nFix].kind == LD_ROTATION)) continue;
+        double A = 0; for (int j = 0; j < nf; j++) { int g = fe_group(m, faces[j]); if (g >= 0) A += m->garea[g]; }
+        if (nf && A > 0 && A < 2e-4 * Atot)
+            pf_add(o, 1, PF_NONE, "%s %d sits on a very small area (%.3g mm²): close to it the stress is far higher than in the real part "
+                   "(a point load or support makes a singularity). Spread it over the face it really acts on, or read stresses a little away from it.",
+                   isFix ? "Support" : "Load", isFix ? i + 1 : i - s->nFix + 1, A);
+    }
+    bool anyFixed = false; for (int i = 0; i < s->nFix; i++) if (s->fix[i].kind == FX_FIXED) anyFixed = true;
+    if (mech && anyFixed && (an == AN_STATIC || an == AN_NONLINEAR))
+        pf_add(o, 0, PF_NONE, "A fixed face stops the material at its edges completely, which no real bolt or weld does: the stress right at those edges "
+               "is higher than reality and grows with a finer mesh. Judge the part by the stress a little away from them.");
+    /* sharp inside corners: two boundary faces of different groups sharing an edge, meeting concave at more than 30 degrees
+       (no fillet): each face's edges sorted by their corner nodes, so neighbours sit side by side */
+    if (mech && m->nf > 0) {
+        typedef struct { int a, b, f; } Ed;
+        Ed *e = malloc(sizeof(Ed) * 4 * (size_t)m->nf);
+        int ne = 0, concave = 0; double at[3] = { 0, 0, 0 };
+        if (e) {
+            for (int f = 0; f < m->nf; f++) {
+                int k = m->fk[f] == 4 || m->fk[f] == 8 ? 4 : 3;
+                for (int j = 0; j < k; j++) { int u = m->fn[8 * f + j], v = m->fn[8 * f + (j + 1) % k]; e[ne++] = (Ed){ u < v ? u : v, u < v ? v : u, f }; }
+            }
+            qsort(e, (size_t)ne, sizeof(Ed), edcmp);
+            for (int i = 0; i + 1 < ne; i++) {
+                if (e[i].a != e[i + 1].a || e[i].b != e[i + 1].b) continue;
+                int f = e[i].f, h = e[i + 1].f;
+                if (m->fg[f] == m->fg[h]) continue;
+                double n1[3], c1[3], n2[3], c2[3], d[3];
+                femesh_face_area(m, f, n1); face_centre(m, f, c1); femesh_face_area(m, h, n2); face_centre(m, h, c2);
+                for (int q = 0; q < 3; q++) d[q] = c2[q] - c1[q];
+                if (dot3(d, n1) > 1e-9 * L && dot3(n1, n2) < cos(30 * M_PI / 180)) { if (!concave) memcpy(at, c1, sizeof at); concave++; }
+            }
+            free(e);
+        }
+        if (concave)
+            pf_add(o, 0, PF_NONE, "Sharp inside corners (near (%.3g, %.3g, %.3g) mm): a corner with no fillet concentrates stress without limit in theory, so "
+                   "the peak there rises as the mesh gets finer. Real parts have a radius: model it, or judge by the stress beside the corner.", at[0], at[1], at[2]);
+    }
+    /* memory: the estimate against what is free (an upper bound for a compact part, calibrated on CalculiX) */
+    double dof = 3.0 * m->n, mb = 124 * pow(dof / 27678, 1.33);
+    if (memFreeMB > 0 && mb > 0.9 * memFreeMB)
+        pf_add(o, mb > 2 * memFreeMB ? 2 : 1, PF_FINER, "Solving may need up to %.0f MB and %.0f MB is free: use a coarser mesh, or close other programs.", mb, memFreeMB);
 }

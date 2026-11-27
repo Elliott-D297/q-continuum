@@ -8,6 +8,7 @@
 #include <unistd.h>
 #include "app.h"
 #include "plume.h"
+#include "teachcases.h"
 #include "program.h"
 #include "progblank.h"
 
@@ -1134,6 +1135,38 @@ void page_new(Rectangle r)
             if (ui_clicked(qr)) A.modal = MD_CPL_BUILD;
         }
         ns++;
+        /* plan A2: starters written from scratch whose answer is exact (teachcases.c) */
+        for (int k = 0; k < 2; k++) {
+            // NOLINTNEXTLINE(bugprone-integer-division): row and column indices
+            Rectangle tr = { x + (float)(ns % cols) * (cw + gap), y + (float)(ns / cols) * (chh + gap), cw, chh };
+            UiId id = ui_id(k ? "starter-flow" : "starter-bar");
+            bool hov = ui_hovered(tr);
+            float h = ui_anim(id, hov ? 1.f : 0.f, 7.f);
+            Color cc = TH.cat[k ? 0 : 2];
+            Rectangle r = tr;
+            if (TH.lcars) { lc_panel(r, cc, h * 0.6f, false); r.x += 16; r.width -= 16; }
+            else { ui_rect(r, 12, TH.surface); ui_rect_lines(r, 12, 1, ui_mix(TH.lineSoft, TH.line, h)); }
+            const char *title = k ? TC_FLOW_TITLE : TC_BAR_TITLE;
+            ui_icon(k ? ICON_WAVES : ICON_THERMOMETER, r.x + 26, r.y + 28, 18, cc);
+            ui_text_clip(F_SEMI, 15, title, r.x + 46, r.y + 18, r.width - 64, TH.text);
+            float ty = r.y + 50 + ui_text_wrap(F_REG, 13, k ? TC_FLOW_DESC : TC_BAR_DESC, (Rectangle){ r.x + 18, r.y + 50, r.width - 36, 60 }, 19, TH.text2, true);
+            ui_text_wrap(F_REG, 12.5f, k ? "You'll learn: the Peclet number, where diffusion wins" : "You'll learn: the heat equation and the Fourier number",
+                         (Rectangle){ r.x + 18, ty + 4, r.width - 36, 40 }, 17, TH.text3, true);
+            ui_badge(r.x + 18, r.y + r.height - 34, NULL, k ? "scalarTransportFoam · exact answer" : "laplacianFoam · exact answer", TH.lcars ? cc : TH.text2, TH.lineSoft);
+            ui_register(id, tr, title);
+            if (hov) ui_cursor(MOUSE_CURSOR_POINTING_HAND);
+            if (ui_clicked(tr)) {
+                char ws[PL_PATH], dst[PL_PATH], err[300], name[64];
+                pl_expand_home(ws, sizeof ws, A.set.workspace);
+                const char *base = k ? "carried-by-flow" : "bar-conduction";
+                pl_strlcpy(name, base, sizeof name);
+                for (int n = 2; n < 100; n++) { pl_join(dst, sizeof dst, ws, name); if (!pl_exists(dst)) break; snprintf(name, sizeof name, "%s-%d", base, n); }
+                pl_join(dst, sizeof dst, ws, name);
+                if (!pl_mkdirs(dst) || !(k ? tc_flow_write(dst, err, sizeof err) : tc_bar_write(dst, err, sizeof err))) ui_toast(TOAST_ERR, "Not made: %s", err);
+                else { ui_toast(TOAST_OK, "Made %s: Run makes the mesh and solves it", name); app_rescan_cases(true); app_open_case(dst, PG_OVERVIEW); }
+            }
+            ns++;
+        }
         // NOLINTNEXTLINE(bugprone-integer-division): whole rows
         y += (float)((ns + cols - 1) / cols) * (chh + gap) + 18;
     }

@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "app.h"
+#include "chtsetup.h"
 #include "simsetup.h"
 #include "program.h"
 #include "fieldinfo.h"
@@ -486,21 +487,24 @@ void page_physics(Rectangle r)
     bool bare = A.cs->s.nRegions == 0 && !A.cs->region[0] &&
                 !case_dict(A.cs, "constant/transportProperties") && !case_dict(A.cs, "constant/turbulenceProperties") &&
                 !case_dict(A.cs, "constant/momentumTransport") && !case_dict(A.cs, "constant/thermophysicalProperties");
-    bool setupOk = A.cs->s.nRegions == 0 && (pl_is_file(ini) || pl_is_file(msh) || bare);
-    if (A.physicsTab < 0) A.physicsTab = setupOk ? 2 : 0;
-    if (A.physicsTab == 2 && !setupOk) A.physicsTab = 0;
+    /* conjugate heat transfer set up here (cht.ini, improvement plan A2): its own Setup tab (3), multi-region or not */
+    bool cht = cht_exists(A.cs->s.path);
+    bool setupOk = !cht && A.cs->s.nRegions == 0 && (pl_is_file(ini) || pl_is_file(msh) || bare);
+    if (A.physicsTab < 0) A.physicsTab = cht ? 3 : setupOk ? 2 : 0;
+    if (A.physicsTab == 2 && !setupOk) A.physicsTab = cht ? 3 : 0;
+    if (A.physicsTab == 3 && !cht) A.physicsTab = setupOk ? 2 : 0;
     static const char *tabsAll[] = { "Setup", "Models", "All files" }, *tabsNo[] = { "Models", "All files" };
-    static const int TAB_ALL[3] = { 2, 0, 1 }, TAB_NO[2] = { 0, 1 };
-    const char **tabs = setupOk ? tabsAll : tabsNo;
-    const int *TAB_OF = setupOk ? TAB_ALL : TAB_NO;
-    int nt = setupOk ? 3 : 2;
+    static const int TAB_ALL[3] = { 2, 0, 1 }, TAB_NO[2] = { 0, 1 }, TAB_CHT[3] = { 3, 0, 1 };
+    const char **tabs = setupOk || cht ? tabsAll : tabsNo;
+    const int *TAB_OF = cht ? TAB_CHT : setupOk ? TAB_ALL : TAB_NO;
+    int nt = setupOk || cht ? 3 : 2;
     int shown = 0;
     for (int k = 0; k < nt; k++) if (TAB_OF[k] == A.physicsTab) shown = k;
     float th;
     if (ui_tabs(ui_id("phys-tabs"), x, y, tabs, nt, &shown, &th)) A.physicsTab = TAB_OF[shown];
     ui_divider(x, y + th, w);
     y += th + 26;
-    if (A.physicsTab != 2 && setup_can_adopt(A.cs)) {        /* a hand-made case: the guided path, one click away (workflow plan W2) */
+    if (A.physicsTab != 2 && !cht && setup_can_adopt(A.cs)) {        /* a hand-made case: the guided path, one click away (workflow plan W2) */
         const char *t = "Set this case up in plain terms";
         const char *d = "Physics > Setup can read this case: the flow, the fluid, the turbulence model and what each boundary is (inlet, outlet, wall) "
                         "with its values. Writing case files then changes only what you change there; everything else stays as the case has it.";
@@ -511,7 +515,8 @@ void page_physics(Rectangle r)
             setup_adopt(A.cs);
         y += ch + 18;
     }
-    if (A.physicsTab == 2) y += page_setup(x, y, w);
+    if (A.physicsTab == 3) y += page_cht(A.cs, x, y, w);
+    else if (A.physicsTab == 2) y += page_setup(x, y, w);
     else if (A.physicsTab == 0) y += physics_models(x, y, w);
     else {
         static const char *const skip[] = { NULL };

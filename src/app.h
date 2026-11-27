@@ -412,6 +412,8 @@ void  stlmesh_flow(Case *c, double v[3]);                     /* page_stlmesh.c:
 bool  stlmesh_force_ref(Case *c, struct SimForceRef *r, bool *twoD);
 void  setup_flow_changed(Case *c);                            /* page_setup.c: the flow direction changed: the starting velocity follows */   /* an STL boundary's type (BT_* = ROLE_*) */
 float page_setup(float x, float y, float w);                 /* page_setup.c: Physics > Setup; returns height */
+float page_cht(Case *c, float x, float y, float w);          /* page_cht.c: Setup for conjugate heat transfer (cht.ini) */
+bool  cht_start(Case *c, char *err, int cap);                /* page_cht.c: cht.ini from the mesh's cellZones */
 float setup_boundary_editor(Case *c, const char *name, float x, float y, float w);   /* one boundary's conditions */
 void  setup_rename(Case *c, const char *from, const char *to);  /* an STL boundary renamed: its conditions follow */
 float page_mesh_patches(float x, float y, float w);

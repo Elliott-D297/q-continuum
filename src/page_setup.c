@@ -1437,37 +1437,55 @@ static float template_cards(Case *c, float x, float y, float w)
     int suits = P.size > 0 ? (P.external ? TMPL_EXTERNAL : TMPL_INTERNAL) : -1;   /* what the STL mesher's flow says */
     int cols = (int)fmaxf(1, fminf(5, floorf((w + 14) / 270)));
     float cw = (w - 14 * (cols - 1)) / cols, ch = 0;
-    for (int t = 0; t < TMPL__N; t++) {                     /* the tallest card's height, for even rows */
-        float h = 58 + ui_text_wrap(F_REG, 13, sim_template_hint(t), (Rectangle){ 0, 0, cw - 32, 300 }, 19, TH.text3, false);
-        const char *why = sim_template_why_not(&P.s, t, twoD);
+    /* one more card after the templates: heat through solids (conjugate heat transfer, page_cht.c), which needs zones */
+    enum { T_CHT = TMPL__N, NCARD = TMPL__N + 1 };
+    char mz[16][64]; int nmz = mesh_zones(c->s.path, mz);
+    static const char *CHT_HINT = "Fluid and solid parts together: a heat sink in air, a heated plate under a flow, a chip on a board. "
+                                  "Heat crosses from the solids into the fluid.";
+    const char *chtWhy = nmz ? NULL : "Needs a mesh with a cellZone for each part (solid or fluid): give each closed part a cell zone in the "
+                                      "STL mesher, or make zones with topoSet (Mesh > Tools).";
+#define CARD_HINT(t) ((t) == T_CHT ? CHT_HINT : sim_template_hint(t))
+#define CARD_WHY(t) ((t) == T_CHT ? chtWhy : sim_template_why_not(&P.s, (t), twoD))
+    for (int t = 0; t < NCARD; t++) {                       /* the tallest card's height, for even rows */
+        float h = 58 + ui_text_wrap(F_REG, 13, CARD_HINT(t), (Rectangle){ 0, 0, cw - 32, 300 }, 19, TH.text3, false);
+        const char *why = CARD_WHY(t);
         if (why) h += 8 + ui_text_wrap(F_REG, 12.5f, why, (Rectangle){ 0, 0, cw - 32, 300 }, 17, TH.text3, false);
         if (t == suits) h += 30;
         ch = fmaxf(ch, h + 14);
     }
-    for (int t = 0; t < TMPL__N; t++) {
+    for (int t = 0; t < NCARD; t++) {
         Rectangle r = { x + (t % cols) * (cw + 14), y + (t / cols) * (ch + 14), cw, ch };
-        const char *why = sim_template_why_not(&P.s, t, twoD);
-        bool on = P.s.tmpl == t, hov = !why && ui_hovered(r);
+        const char *why = CARD_WHY(t), *name = t == T_CHT ? "Heat through solids" : TMPL_NAME[t];
+        bool on = t < TMPL__N && P.s.tmpl == t, hov = !why && ui_hovered(r);
         UiId id = ui_idn(ui_id("su-tmpl"), t);
         ui_disable(why != NULL);
-        ui_register(id, r, TMPL_NAME[t]);
+        ui_register(id, r, name);
         ui_disable(false);
         ui_rect(r, 12, on ? ui_alpha(TH.accent, 0.14f) : hov ? TH.hover : TH.surface2);
         ui_rect_lines(r, 12, on ? 2 : 1, on ? TH.accent : TH.lineSoft);
         Color fg = why ? TH.text3 : TH.text;
-        ui_icon(TMPL_ICON[t], r.x + 28, r.y + 30, 22, why ? TH.text3 : TH.accent);
-        ui_text_clip(F_SEMI, 15, ui_cap(TMPL_NAME[t]), r.x + 50, r.y + 20, r.width - 66, fg);
+        ui_icon(t == T_CHT ? ICON_BOX : TMPL_ICON[t], r.x + 28, r.y + 30, 22, why ? TH.text3 : TH.accent);
+        ui_text_clip(F_SEMI, 15, ui_cap(name), r.x + 50, r.y + 20, r.width - 66, fg);
         float ty = r.y + 50;
-        ty += ui_text_wrap(F_REG, 13, sim_template_hint(t), (Rectangle){ r.x + 16, ty, r.width - 32, 300 }, 19, why ? ui_alpha(TH.text3, 0.75f) : TH.text2, true);
+        ty += ui_text_wrap(F_REG, 13, CARD_HINT(t), (Rectangle){ r.x + 16, ty, r.width - 32, 300 }, 19, why ? ui_alpha(TH.text3, 0.75f) : TH.text2, true);
         if (why) ui_text_wrap(F_REG, 12.5f, why, (Rectangle){ r.x + 16, ty + 8, r.width - 32, 300 }, 17, TH.warn, true);
         if (t == suits) ui_badge(r.x + 16, r.y + r.height - 34, ICON_CIRCLE_CHECK, P.external ? "Suits your part: flow around it" : "Suits your part: flow through it",
                                  TH.ok, ui_alpha(TH.ok, 0.14f));
         if (on) ui_icon(ICON_CIRCLE_CHECK, r.x + r.width - 22, r.y + 22, 18, TH.accent);
         if (why) ui_tooltip(r, why);
         if (hov) ui_cursor(MOUSE_CURSOR_POINTING_HAND);
-        if (!why && ui_clicked(r)) pick_template(c, t);
+        if (!why && ui_clicked(r)) {
+            if (t < TMPL__N) pick_template(c, t);
+            else {
+                char err[400];
+                if (cht_start(c, err, sizeof err)) { A.physicsTab = 3; P.picking = false; ui_toast(TOAST_OK, "Heat through solids: set each region fluid or solid, then the boundaries"); }
+                else ui_toast(TOAST_ERR, "%s", err);
+            }
+        }
     }
-    y += ((TMPL__N + cols - 1) / cols) * (ch + 14);
+#undef CARD_HINT
+#undef CARD_WHY
+    y += ((NCARD + cols - 1) / cols) * (ch + 14);
     return y - y0;
 }
 

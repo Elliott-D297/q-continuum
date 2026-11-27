@@ -1,0 +1,43 @@
+# Improvement plan A2: heat through solids from Physics > Setup. The channel seed (tests/make_cht_channel.sh) has two
+# cellZones, plate and air. Pick the card, make the plate an aluminium solid making 5 W and the air a fluid, the inlet
+# 0.5 m/s at 300 K, 800 iterations; write and run (topoSet is not needed: every cell is zoned; splitMeshRegions, restore
+# 0.orig, chtMultiRegionSimpleFoam). The outlet's flow-weighted temperature: 342.8 K by Q / (mdot cp) (ctest cht_openfoam).
+open $SB/ws/chtChannel
+click nav:physics
+wait-until page Physics
+wait 5
+screenshot $OUT/cht_cards.png
+click su-tmpl#10
+wait 5
+assert text Heat through solids
+assert file $SB/ws/chtChannel/cht.ini
+click cht-kind:plate#1
+wait 2
+click cht-Q:plate
+key A ctrl
+enter 5
+wait 2
+screenshot $OUT/cht_regions.png
+click cht-kind:air#0
+wait 2
+click cht-U:inlet
+key A ctrl
+enter 0.5
+click cht-end
+key A ctrl
+enter 800
+wait 3
+screenshot $OUT/cht_setup.png
+assert text 1 fluid, 1 solid
+click cht-write-run
+wait-until page Run
+assert file $SB/ws/chtChannel/constant/regionProperties
+assert log $SB/ws/chtChannel/system/plate/fvOptions h           (5 0)
+click run-go
+wait-until job running timeout 10
+wait-until job finished timeout 300
+wait 10
+screenshot $OUT/cht_run.png
+assert log $SB/ws/chtChannel/log.splitMeshRegions End
+shell tail -1 $SB/ws/chtChannel/postProcessing/air/outletT_air/0/surfaceFieldValue.dat | awk '{ if ($2 > 336 && $2 < 349) print "ok" }' > $OUT/outlet.txt
+assert log $OUT/outlet.txt ok
